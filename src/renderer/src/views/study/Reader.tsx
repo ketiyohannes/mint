@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { Annotation, SourceBlock, SourceDoc, Thread } from '@shared/types'
 import { findQuote, segmentText, selectionToAnchor, type Mark, type SelectionAnchor } from '../../lib/anchors'
 import { api } from '../../lib/api'
@@ -35,7 +35,7 @@ function normLabel(s: string): string {
 }
 
 /** The interactive reader: highlights, Ask threads and sticky notes live in the margin. */
-export function Reader(props: Props): JSX.Element {
+export const Reader = memo(function Reader(props: Props): JSX.Element {
   const { doc, annotations, threads, focus, hidePins, openThreadId, onSelection, onOpenThread, onOpenNote } = props
   const { run } = useApp()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -108,10 +108,23 @@ export function Reader(props: Props): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.nonce, doc.id])
 
-  function seek(t: number) {
+  const seek = useCallback((t: number) => {
     playerRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'seekTo', args: [t, true] }), '*')
     playerRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*')
-  }
+  }, [])
+
+  const onPin = useCallback(
+    (pin: { kind: 'q' | 'n'; id: string }, rect: DOMRect) => {
+      if (pin.kind === 'q') {
+        const t = threads.find((x) => x.id === pin.id)
+        if (t) onOpenThread(t, rect)
+      } else {
+        const a = annotations.find((x) => x.id === pin.id)
+        if (a) onOpenNote(a, rect)
+      }
+    },
+    [threads, annotations, onOpenThread, onOpenNote]
+  )
 
   function handleMouseUp() {
     // Let the browser finalize the selection first.
@@ -198,15 +211,7 @@ export function Reader(props: Props): JSX.Element {
                 marks={marksByBlock.get(b.id)}
                 pins={pinsByBlock.get(b.id)}
                 onSeek={seek}
-                onPin={(pin, rect) => {
-                  if (pin.kind === 'q') {
-                    const t = threads.find((x) => x.id === pin.id)
-                    if (t) onOpenThread(t, rect)
-                  } else {
-                    const a = annotations.find((x) => x.id === pin.id)
-                    if (a) onOpenNote(a, rect)
-                  }
-                }}
+                onPin={onPin}
               />
             ))}
           </section>
@@ -214,7 +219,7 @@ export function Reader(props: Props): JSX.Element {
       </div>
     </div>
   )
-}
+})
 
 interface BlockProps {
   block: SourceBlock
@@ -222,6 +227,16 @@ interface BlockProps {
   pins?: { kind: 'q' | 'n'; id: string }[]
   onSeek: (t: number) => void
   onPin: (pin: { kind: 'q' | 'n'; id: string }, rect: DOMRect) => void
+}
+
+/** Block CSS classes (prefixed so they never collide with component classes like .list-item). */
+const BLOCK_CLASS: Record<SourceBlock['type'], string> = {
+  heading: 'b-heading',
+  paragraph: 'b-paragraph',
+  'list-item': 'b-li',
+  quote: 'b-quote',
+  code: 'b-code',
+  cue: 'b-cue'
 }
 
 const Block = memo(function Block({ block, marks, pins, onSeek, onPin }: BlockProps): JSX.Element {
@@ -238,7 +253,7 @@ const Block = memo(function Block({ block, marks, pins, onSeek, onPin }: BlockPr
   })
   const level = block.level ? `h${Math.min(block.level, 3)}` : ''
   return (
-    <div className={`block ${block.type} ${level}`} data-block-id={block.id}>
+    <div className={`block ${BLOCK_CLASS[block.type]} ${level}`} data-block-id={block.id}>
       {block.type === 'cue' ? (
         <>
           <button className="cue-time" data-ignore-text onClick={() => block.t !== undefined && onSeek(block.t)}>

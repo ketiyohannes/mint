@@ -56,39 +56,47 @@ export function speak(text: string, opts: SpeakOptions): Speech {
   }
 
   const done = (async () => {
-    if (opts.engine === 'openai') {
-      // Fetch the next chunk while the current one plays.
-      let nextAudio: Promise<ArrayBuffer> | null = chunks[0] ? api.voice.speak(chunks[0].speak, opts.voice) : null
-      for (let i = 0; i < chunks.length && !cancelled; i++) {
-        const bytes = await nextAudio!
-        nextAudio = chunks[i + 1] ? api.voice.speak(chunks[i + 1].speak, opts.voice) : null
-        if (cancelled) break
-        fire(chunks[i], i)
-        const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
-        currentAudio = new Audio(url)
-        currentAudio.playbackRate = opts.rate
-        await new Promise<void>((resolve) => {
-          currentAudio!.onended = () => resolve()
-          currentAudio!.onerror = () => resolve()
-          void currentAudio!.play().catch(() => resolve())
-        })
-        URL.revokeObjectURL(url)
+    try {
+      if (opts.engine === 'openai') {
+        // Fetch the next chunk while the current one plays.
+        const fetchChunk = (i: number) => {
+          const p = chunks[i] ? api.voice.speak(chunks[i].speak, opts.voice) : null
+          p?.catch(() => undefined) // a prefetch abandoned by cancel must not become an unhandled rejection
+          return p
+        }
+        let nextAudio = fetchChunk(0)
+        for (let i = 0; i < chunks.length && !cancelled; i++) {
+          const bytes = await nextAudio!
+          nextAudio = fetchChunk(i + 1)
+          if (cancelled) break
+          fire(chunks[i], i)
+          const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }))
+          currentAudio = new Audio(url)
+          currentAudio.playbackRate = opts.rate
+          await new Promise<void>((resolve) => {
+            currentAudio!.onended = () => resolve()
+            currentAudio!.onerror = () => resolve()
+            void currentAudio!.play().catch(() => resolve())
+          })
+          URL.revokeObjectURL(url)
+        }
+      } else {
+        const voice = pickSystemVoice(opts.voice)
+        for (let i = 0; i < chunks.length && !cancelled; i++) {
+          fire(chunks[i], i)
+          await new Promise<void>((resolve) => {
+            const u = new SpeechSynthesisUtterance(chunks[i].speak)
+            if (voice) u.voice = voice
+            u.rate = opts.rate
+            u.onend = () => resolve()
+            u.onerror = () => resolve()
+            speechSynthesis.speak(u)
+          })
+        }
       }
-    } else {
-      const voice = pickSystemVoice(opts.voice)
-      for (let i = 0; i < chunks.length && !cancelled; i++) {
-        fire(chunks[i], i)
-        await new Promise<void>((resolve) => {
-          const u = new SpeechSynthesisUtterance(chunks[i].speak)
-          if (voice) u.voice = voice
-          u.rate = opts.rate
-          u.onend = () => resolve()
-          u.onerror = () => resolve()
-          speechSynthesis.speak(u)
-        })
-      }
+    } finally {
+      opts.onEnd?.()
     }
-    opts.onEnd?.()
   })()
   return { cancel, done }
 }

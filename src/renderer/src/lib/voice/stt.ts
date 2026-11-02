@@ -1,5 +1,5 @@
 import { api } from '../api'
-import { encodeWav, isSilent } from './audio'
+import { decodeTo16kMono, encodeWav, isSilent } from './audio'
 
 /** Speech-to-text router: local Whisper by default, OpenAI when chosen in Settings. */
 
@@ -58,4 +58,12 @@ export async function transcribe(samples: Float32Array, engine: 'local-whisper' 
     pending.set(id, { resolve, reject })
     worker!.postMessage({ type: 'transcribe', id, audio: samples }, [samples.buffer])
   })
+}
+
+/**
+ * Test hook: transcribe an encoded audio file through the same local path the
+ * microphone uses. Exposed so the end-to-end voice test can feed real speech.
+ */
+export async function transcribeEncoded(bytes: ArrayBuffer): Promise<string> {
+  return transcribe(await decodeTo16kMono(bytes), 'local-whisper')
 }

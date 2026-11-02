@@ -80,6 +80,8 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
 
   const [selection, setSelection] = useState<(SelectionAnchor & { sourceId: string }) | null>(null)
   const [ask, setAsk] = useState<AskState | null>(null)
+  const askRef = useRef(ask)
+  askRef.current = ask
   const [sideThread, setSideThread] = useState<{ anchor: Anchor; threadId?: string; initialVoice?: string; key: number } | null>(null)
   const [note, setNote] = useState<{ annotation: Annotation; pos: { x: number; y: number } } | null>(null)
   const [term, setTerm] = useState<{ anchor: Extract<Anchor, { kind: 'source' }>; pos: { x: number; y: number } } | null>(null)
@@ -114,7 +116,8 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
         return
       }
       // Diagram directives target the diagram being discussed.
-      const targetId = ask?.anchor.kind === 'diagram' ? ask.anchor.explorableId : explorableId
+      const current = askRef.current
+      const targetId = current?.anchor.kind === 'diagram' ? current.anchor.explorableId : explorableId
       const target = bundle.explorables.find((x) => x.id === targetId)
       if (!target) return
       if (targetId !== explorableId) setExplorableId(target.id)
@@ -125,7 +128,7 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
         if (p) setParams((v) => ({ ...v, [p.id]: Math.min(p.max, Math.max(p.min, d.value)) }))
       }
     },
-    [bundle.sources, bundle.explorables, openSource, toast, ask, explorableId]
+    [bundle.sources, bundle.explorables, openSource, toast, explorableId]
   )
 
   // --- voice ---------------------------------------------------------------
@@ -150,18 +153,17 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
   )
 
   const voice = useVoice({ settings, onTranscript, onDirective: handleDirective, onError: (m) => toast(m, 'error') })
+  const say = voice.say
 
   const speakReply = useCallback(
     (text: string, messageId: string, force?: boolean) => {
-      if (force || settings?.speakReplies) voice.say(text, messageId)
+      if (force || settings?.speakReplies) say(text, messageId)
     },
-    [settings?.speakReplies, voice]
+    [settings?.speakReplies, say]
   )
 
   // --- ask -------------------------------------------------------------------
   const threadsById = useMemo(() => new Map(bundle.threads.map((t) => [t.id, t])), [bundle.threads])
-  const askRef = useRef(ask)
-  askRef.current = ask
   const threadsRef = useRef(threadsById)
   threadsRef.current = threadsById
 
@@ -190,18 +192,25 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
     setAsk(null)
   }, [pinIfNeeded])
 
-  const studyApi: StudyApi = {
-    bundle,
-    classId,
-    sessionId: session?.id,
-    sourceTitle: (id) => bundle.sources.find((s) => s.id === id)?.title,
-    handleDirective,
-    ask: askAt,
-    speakReply,
-    setVoiceSink,
-    openDiagram,
-    activeExplorableId: explorableId
-  }
+  const sourceTitle = useCallback((id: string) => bundle.sources.find((s) => s.id === id)?.title, [bundle.sources])
+  // Stable across popover drags and caption updates, so rendered markdown is not recomputed.
+  const studyApi = useMemo<StudyApi>(
+    () => ({
+      bundle,
+      classId,
+      sessionId: session?.id,
+      sourceTitle,
+      handleDirective,
+      ask: askAt,
+      speakReply,
+      setVoiceSink,
+      openDiagram,
+      activeExplorableId: explorableId
+    }),
+    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, speakReply, setVoiceSink, openDiagram, explorableId]
+  )
+  const onOpenThread = useCallback((t: Thread, rect: DOMRect) => askAt(t.anchor, rect, t.id), [askAt])
+  const onOpenNote = useCallback((a: Annotation, rect: DOMRect) => setNote({ annotation: a, pos: placeNear(rect) }), [])
 
   // --- selection actions ---------------------------------------------------
   const sourceAnchor = (sel: SelectionAnchor & { sourceId: string }): Extract<Anchor, { kind: 'source' }> => ({
@@ -299,6 +308,7 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
             </div>
           ) : (
             <Reader
+              key={doc.id}
               doc={doc}
               annotations={bundle.annotations}
               threads={bundle.threads}
@@ -306,8 +316,8 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
               hidePins={hidePins}
               openThreadId={ask?.threadId ?? null}
               onSelection={onSelection}
-              onOpenThread={(t, rect) => askAt(t.anchor, rect, t.id)}
-              onOpenNote={(a, rect) => setNote({ annotation: a, pos: placeNear(rect) })}
+              onOpenThread={onOpenThread}
+              onOpenNote={onOpenNote}
             />
           )}
         <div className="voice-bar" data-testid="voice-bar">
@@ -393,7 +403,10 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
                     key={sideThread.key}
                     anchor={sideThread.anchor}
                     thread={sideThread.threadId ? threadsById.get(sideThread.threadId) : undefined}
-                    onThread={(t: Thread) => setSideThread((s) => (s ? { ...s, threadId: t.id, initialVoice: undefined } : s))}
+                    onThread={(id: string) => {
+                      const key = sideThread.key
+                      setSideThread((s) => (s && s.key === key ? { ...s, threadId: id, initialVoice: undefined } : s))
+                    }}
                     voiceOwner="side"
                     initialVoice={sideThread.initialVoice}
                     suggestions={false}
@@ -512,7 +525,12 @@ export function StudyView({ bundle, onTab }: { bundle: ClassBundle; onTab: (t: C
             setSide('ask')
             setAsk(null)
           }}
-          onThread={(t) => setAsk((a) => (a ? { ...a, threadId: t.id } : a))}
+          onThread={(id) => {
+            const key = ask.key
+            // Only the popover that asked may adopt the thread; if it is gone, keep the thread as a sticky.
+            if (askRef.current?.key === key) setAsk((a) => (a && a.key === key ? { ...a, threadId: id } : a))
+            else void api.threads.setPinned(classId, id, true).catch(() => undefined)
+          }}
         />
       )}
       {note && <NotePopover annotation={note.annotation} pos={note.pos} onMove={(pos) => setNote((n) => (n ? { ...n, pos } : n))} onClose={() => setNote(null)} />}

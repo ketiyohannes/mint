@@ -76,7 +76,7 @@ export function SessionPanel({ session, onOpenReading, onDone }: { session: Sess
       ) : session.phase === 'wrap' ? (
         <WrapCard session={session} onDone={onDone} />
       ) : (
-        <CheckCard session={session} kind={session.phase as CheckKind} />
+        <CheckCard key={session.phase} session={session} kind={session.phase as CheckKind} />
       )}
 
       {!session.endedAt && next && session.phase !== 'wrap' && (

@@ -510,6 +510,8 @@ export interface ClassBundle {
 
 export interface StreamEvent {
   streamId: string
+  /** Sent once at the start of an Ask turn so the UI knows the thread before the reply finishes. */
+  threadId?: string
   delta?: string
   done?: boolean
   error?: string

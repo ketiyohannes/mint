@@ -30,6 +30,11 @@ async function selectText(page: Page, scope: string, text: string): Promise<void
 
 let m: Launched
 
+/** Set MINT_SHOTS=<dir> to save a screenshot of each screen for visual review. */
+async function shot(page: Page, name: string): Promise<void> {
+  if (process.env.MINT_SHOTS) await page.screenshot({ path: `${process.env.MINT_SHOTS}/${name}.png` })
+}
+
 test.afterEach(async () => {
   await m?.close()
 })
@@ -55,6 +60,7 @@ test('a learner goes from intake to mastery using every feature', async () => {
   await page.getByRole('button', { name: /My own materials/ }).click()
   await page.getByTestId('intake-create').click()
   await expect(page.getByTestId('mission-card')).toContainText('machine learning papers')
+  await shot(page, 'setup-empty')
 
   // Materials
   await page.getByTestId('add-files').click()
@@ -72,9 +78,11 @@ test('a learner goes from intake to mastery using every feature', async () => {
   // Curriculum proposal → approve
   await page.getByTestId('plan-curriculum').click()
   await expect(page.getByTestId('curriculum-proposal')).toBeVisible()
+  await shot(page, 'curriculum-proposal')
   await page.getByTestId('approve-plan').click()
   await expect(page.getByTestId('tab-path')).toBeVisible()
   await expect(page.getByTestId('topic-row').first()).toBeVisible()
+  await shot(page, 'path')
 
   // --- Study session -----------------------------------------------------------
   await page.getByTestId('start-session').click()
@@ -92,6 +100,7 @@ test('a learner goes from intake to mastery using every feature', async () => {
   await pop.getByTestId('ask-send').click()
   await expect(pop.getByTestId('tutor-message').first()).toBeVisible()
   await expect(pop.locator('.cite-chip').first()).toBeVisible()
+  await shot(page, 'ask-popover')
   // The reader stays usable while the popover is open (it is not modal).
   await expect(page.getByTestId('reader')).toBeVisible()
 
@@ -133,6 +142,7 @@ test('a learner goes from intake to mastery using every feature', async () => {
   await page.getByTestId('note-input').fill('The core equation: matrix times vector equals a number times the same vector.')
   await page.getByTestId('note-save').click()
   await expect(page.getByTestId('pin-note').first()).toBeVisible()
+  await shot(page, 'note-pin')
 
   // Glossary term (learner defines it; tutor checks)
   await selectText(page, '[data-testid=reader]', 'eigenvalue')
@@ -160,6 +170,7 @@ test('a learner goes from intake to mastery using every feature', async () => {
   await page.getByTestId('ask-popover').getByTestId('ask-input').fill('What is this point?')
   await page.getByTestId('ask-popover').getByTestId('ask-send').click()
   await expect(page.getByTestId('ask-popover').getByTestId('tutor-message').first()).toBeVisible()
+  await shot(page, 'diagram-ask')
   await page.keyboard.press('Escape')
 
   // --- The session loop: brief → read → explain → apply → distinguish → wrap ---
@@ -180,6 +191,7 @@ test('a learner goes from intake to mastery using every feature', async () => {
     await expect(page.getByTestId(`phase-${nextPhase}`)).toHaveClass(/active/)
   }
   await expect(page.getByTestId('wrap')).toBeVisible()
+  await shot(page, 'wrap')
   await page.getByTestId('finish-session').click()
   await expect(page.getByTestId('tab-path')).toBeVisible()
   await expect(page.locator('.status-dot.mastered').first()).toBeVisible()
@@ -188,6 +200,7 @@ test('a learner goes from intake to mastery using every feature', async () => {
   await page.getByTestId('tab-progress').click()
   await expect(page.getByTestId('independence-card')).toBeVisible()
   await expect(page.getByTestId('records')).toContainText('LR-0001')
+  await shot(page, 'progress')
 
   // --- Notebook -------------------------------------------------------------------
   await page.getByTestId('tab-notebook').click()
@@ -201,8 +214,14 @@ test('a learner goes from intake to mastery using every feature', async () => {
   await page.getByTestId('nb-glossary').click()
   await expect(page.getByTestId('glossary-term').first()).toBeVisible()
   await page.getByTestId('nb-reference').click()
-  await page.getByTestId('draft-reference').click()
-  await expect(page.getByText('Tutor draft. Rewrite it')).toBeVisible()
+  // Authorship fades with independence: the tutor drafts only for less independent learners.
+  if (await page.getByTestId('draft-reference').count()) {
+    await page.getByTestId('draft-reference').click()
+    await expect(page.getByText('Tutor draft. Rewrite it')).toBeVisible()
+  } else {
+    await expect(page.getByText('write reference sheets yourself')).toBeVisible()
+  }
+  await shot(page, 'reference')
   await page.getByTestId('nb-explorables').click()
   await expect(page.locator('.class-card').first()).toBeVisible()
 
@@ -213,6 +232,7 @@ test('a learner goes from intake to mastery using every feature', async () => {
   await page.getByTestId('proposal').first().locator('input[type=checkbox]').check()
   await page.getByTestId('approve-proposals').click()
   await expect(page.getByTestId('source-item').filter({ hasText: 'Found by mint' })).toHaveCount(1, { timeout: 20_000 })
+  await shot(page, 'library')
 
   expect(m.errors.filter((e) => !/Download the React DevTools|Electron Security Warning/.test(e))).toEqual([])
 })

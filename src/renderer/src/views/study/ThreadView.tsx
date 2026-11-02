@@ -16,8 +16,8 @@ interface Pending {
 interface Props {
   anchor: Anchor
   thread: Thread | undefined
-  /** Called once a new thread exists (so the parent can track it). */
-  onThread: (thread: Thread) => void
+  /** Called as soon as the thread id is known (start of the reply stream, and again on completion). */
+  onThread: (threadId: string) => void
   /** Owner key for voice dictation routing. */
   voiceOwner: string
   autoFocus?: boolean
@@ -39,6 +39,8 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
   const bodyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const viaVoice = useRef(false)
+  const onThreadRef = useRef(onThread)
+  onThreadRef.current = onThread
 
   // Prefer the freshest copy: the live bundle once it has caught up.
   const shown = useMemo(() => {
@@ -55,19 +57,25 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight })
   }, [shown?.messages.length, pending?.text])
 
-  useEffect(() => {
-    if (!pending) return
-    return api.on.stream((e) => {
-      if (e.streamId !== pending.streamId) return
-      setPending((p) => (p && p.streamId === e.streamId ? { ...p, text: p.text + (e.delta ?? ''), error: e.error ?? p.error } : p))
-    })
-  }, [pending?.streamId])
+  // One subscription for the view's lifetime; the active stream id lives in a ref
+  // so no event can arrive before the listener exists.
+  const streamRef = useRef<string | null>(null)
+  useEffect(
+    () =>
+      api.on.stream((e) => {
+        if (!streamRef.current || e.streamId !== streamRef.current) return
+        if (e.threadId) onThreadRef.current(e.threadId)
+        setPending((p) => (p && p.streamId === e.streamId ? { ...p, text: p.text + (e.delta ?? ''), error: e.error ?? p.error } : p))
+      }),
+    []
+  )
 
   async function submit(text: string, via: 'text' | 'voice') {
     const message = text.trim()
     if (!message || pending) return
     viaVoice.current = via === 'voice'
     const streamId = newStreamId()
+    streamRef.current = streamId
     setPending({ streamId, user: message, text: '' })
     setDraft('')
     try {
@@ -75,7 +83,7 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
         ? await api.threads.send({ classId: study.classId, threadId: shown.id, message, via, streamId, voice: via === 'voice' || settings?.speakReplies })
         : await api.threads.create({ classId: study.classId, anchor, message, via, sessionId: study.sessionId, streamId, voice: via === 'voice' || settings?.speakReplies })
       setLocal(out)
-      onThread(out)
+      onThreadRef.current(out.id)
       afterReply(out)
     } catch (err) {
       toast(errorMessage(err), 'error')
@@ -88,11 +96,12 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
   async function moreHelp() {
     if (!shown || pending) return
     const streamId = newStreamId()
+    streamRef.current = streamId
     setPending({ streamId, text: '' })
     try {
       const out = await api.threads.moreHelp({ classId: study.classId, threadId: shown.id, streamId, voice: viaVoice.current || settings?.speakReplies })
       setLocal(out)
-      onThread(out)
+      onThreadRef.current(out.id)
       afterReply(out)
     } catch (err) {
       toast(errorMessage(err), 'error')
@@ -124,6 +133,10 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
   // Dictation goes into this thread while it is open.
   useEffect(() => {
     study.setVoiceSink(voiceOwner, (text) => {
+      if (pending) {
+        toast('The tutor is still answering. Ask again when it finishes.')
+        return true
+      }
       void submit(text, 'voice')
       return true
     })

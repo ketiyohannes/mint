@@ -73,5 +73,6 @@ export function useSourceDoc(classId: string, sourceId: string | null, version: 
       alive = false
     }
   }, [classId, sourceId, version])
-  return { doc, error }
+  // Never hand back the previous source's document while the new one loads.
+  return { doc: doc && doc.id === sourceId ? doc : null, error }
 }

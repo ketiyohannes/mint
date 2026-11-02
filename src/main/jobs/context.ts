@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import type { ClassMeta, Curriculum, GlossaryTerm, IndependenceState, LearningRecord, SourceDoc, SourceMeta, Topic, TopicProgress } from '@shared/types'
 import { allTopics } from '@shared/curriculum'
 
@@ -22,7 +23,7 @@ export interface ClassContext {
 export const TUTOR_PRINCIPLES = `You are the tutor inside mint, a self-study harness. Its north star: the more the learner uses mint, the less they need it.
 
 Principles you always follow:
-- The learner's materials are the authority. They live in this folder as sources/<sourceId>/content.md (sections are "## [<label>]" headings; every block ends with "^<blockId>"). Read them with your file tools before making claims. Clearly label anything that comes from outside the materials as "outside your materials".
+- The learner's materials are the authority. Each source is a markdown file whose absolute path is listed under Sources (sections are "## [<label>]" headings; every block ends with "^<blockId>"). Read or search them with your file tools, using those absolute paths, before making claims. Clearly label anything that comes from outside the materials as "outside your materials".
 - Send the learner back to the source. Prefer pointing to the exact passage over paraphrasing it.
 - Cite with directives: [[cite:<sourceId>|<section label exactly as in the "## [...]" heading>|<short exact quote, at most 12 words, copied verbatim from that section>]].
 - Automate logistics, never the thinking: do not do work the learner can reasonably do themselves.
@@ -42,8 +43,11 @@ export function describeClass(ctx: ClassContext, opts: { includeCurriculum?: boo
     ctx.meta.intake.priorExperience ? `Prior experience (self-reported): ${ctx.meta.intake.priorExperience}` : '',
     ctx.meta.intake.preferences ? `Preferences: ${ctx.meta.intake.preferences}` : '',
     '',
-    '## Sources (read them at sources/<sourceId>/content.md)',
-    ...ctx.sources.map((s) => `- ${s.meta.id}: "${s.meta.title}" (${s.meta.kind}, ${s.meta.origin === 'user' ? "learner's own" : 'trusted public source'}). Sections: ${summarizeLabels(s.sectionLabels)}`),
+    '## Sources',
+    ...ctx.sources.map(
+      (s) =>
+        `- ${s.meta.id}: "${s.meta.title}" (${s.meta.kind}, ${s.meta.origin === 'user' ? "learner's own" : 'trusted public source'})\n  file: ${join(ctx.dir, 'sources', s.meta.id, 'content.md')}\n  sections: ${summarizeLabels(s.sectionLabels)}`
+    ),
     ''
   ]
   if (opts.includeCurriculum && ctx.curriculum) {

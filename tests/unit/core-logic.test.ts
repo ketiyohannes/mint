@@ -136,15 +136,38 @@ describe('learning engine', () => {
   })
 
   it('independence rises as the learner needs less help, and needs evidence first', () => {
-    const ev = (i: number, rung: 1 | 2 | 3 | 4, escalated = false): HelpEvent => ({ id: `h${i}`, at: `2026-01-01T00:00:${String(i).padStart(2, '0')}Z`, threadId: `t${i}`, rung, defaultRung: 3, escalated })
-    const few = computeIndependence([ev(1, 1), ev(2, 1)], [], [])
+    const ev = (i: number, rung: 1 | 2 | 3 | 4, escalated = false, defaultRung: 1 | 2 | 3 | 4 = 3): HelpEvent => ({
+      id: `h${i}`,
+      at: `2026-01-01T00:00:${String(i).padStart(2, '0')}Z`,
+      threadId: `t${i}`,
+      rung,
+      defaultRung,
+      escalated
+    })
+    const few = computeIndependence([ev(1, 3), ev(2, 3)], [], [])
     expect(few.level).toBe(0)
     expect(few.defaultRung).toBe(3)
-    const independent = computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 1)), [], [])
-    expect(independent.level).toBe(3)
-    expect(independent.defaultRung).toBe(1)
-    const needy = computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 4)), [], [])
+    // A Guided learner (hint by default) who never needs more help moves up.
+    const selfSufficient = computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 3)), [], [])
+    expect(selfSufficient.level).toBe(2)
+    expect(selfSufficient.defaultRung).toBe(1)
+    // ...but full independence also needs passed checks.
+    const passed: Session = {
+      id: 's',
+      classId: 'c',
+      topicId: 'a',
+      type: 'learn',
+      phase: 'wrap',
+      startedAt: '',
+      prompts: {},
+      attempts: Array.from({ length: 6 }, (_, i) => ({ id: `a${i}`, kind: 'explain' as const, prompt: '', answer: '', via: 'text' as const, at: '', verdict: { result: 'pass' as const, feedback: '', misconceptions: [] } }))
+    }
+    expect(computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 3)), [passed], []).level).toBe(3)
+    // Escalating two rungs to a full explanation every time keeps support high.
+    const needy = computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 4, true, 2)), [], [])
     expect(needy.level).toBe(0)
+    // One extra rung each time costs half the credit.
+    expect(computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 4, true, 3)), [], []).level).toBe(1)
   })
 
   it('counts only the final rung of an escalated ask', () => {
@@ -223,5 +246,21 @@ describe('diagram sanitizing', () => {
     expect(spec.params).toEqual([{ id: 'x', label: 'X', min: 0, max: 10, step: 0.1, value: 10 }])
     expect(spec.title).toBe('Explorable')
     expect(() => sanitizeDiagram({ engine: 'three', title: 't', code: '  ', caption: '', elements: [], params: [] })).toThrow(/without any code/)
+  })
+})
+
+describe('settings store', () => {
+  it('persists only known settings keys', async () => {
+    const { mkdtempSync, readFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { SettingsStore } = await import('../../src/main/store/settingsStore')
+    const dir = mkdtempSync(join(tmpdir(), 'mint-settings-'))
+    const store = new SettingsStore(dir, { available: () => true, encrypt: (p) => p, decrypt: (c) => c })
+    await store.update({ ttsRate: 9, trustedDomains: ['https://www.Example.org/path', 'not a domain'], dataDir: '/evil' } as never)
+    const saved = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
+    expect(saved.dataDir).toBeUndefined()
+    expect(saved.ttsRate).toBe(1.6)
+    expect(saved.trustedDomains).toEqual(['example.org'])
   })
 })

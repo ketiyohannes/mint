@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const src = join(root, 'node_modules/onnxruntime-web/dist')
 const dest = join(root, 'src/renderer/public/ort')
-const files = ['ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep.wasm']
+// Every runtime variant: which one loads depends on the transformers.js build and the CPU features.
+const files = ['', '.jsep', '.asyncify', '.jspi'].flatMap((v) => [`ort-wasm-simd-threaded${v}.mjs`, `ort-wasm-simd-threaded${v}.wasm`])
 
 mkdirSync(dest, { recursive: true })
 let copied = 0

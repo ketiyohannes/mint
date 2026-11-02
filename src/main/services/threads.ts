@@ -110,6 +110,7 @@ export class ThreadService {
   private async reply(classId: string, threadId: string, rung: Rung, input: AskInput): Promise<Thread> {
     const controller = new AbortController()
     this.inflight.set(input.streamId, controller)
+    this.k.emitter.stream({ streamId: input.streamId, threadId })
     let text: string
     let failed = false
     try {

@@ -176,9 +176,18 @@ export interface YouTubeVideoInfo {
   }>
 }
 
+/** A caption track as listed by the player response. */
+export interface YouTubeCaptionTrack {
+  base_url: string
+  language_code: string
+  kind?: string
+}
+
 /** The subset of youtubei.js `Innertube` we use; injectable for tests. */
 export interface YouTubeClient {
   getInfo(videoId: string): Promise<YouTubeVideoInfo>
+  /** Used for the caption-track fallback (the mobile clients still list tracks). */
+  getBasicInfo?(videoId: string, options: { client: 'ANDROID' | 'IOS' }): Promise<{ captions?: { caption_tracks?: YouTubeCaptionTrack[] } | null }>
 }
 
 let defaultClient: Promise<YouTubeClient> | null = null
@@ -209,20 +218,83 @@ async function fetchTranscript(info: YouTubeVideoInfo): Promise<Cue[]> {
   }
 }
 
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, code: string) => {
+    if (code[0] === '#') {
+      const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10)
+      return Number.isFinite(n) ? String.fromCodePoint(n) : m
+    }
+    return ENTITIES[code.toLowerCase()] ?? m
+  })
+}
+
+/**
+ * Parses YouTube timedtext XML in either format:
+ *   format 3: <p t="1230" d="2000">text <s>more</s></p>   (milliseconds)
+ *   legacy:   <text start="1.23" dur="2.0">text</text>     (seconds)
+ */
+export function parseTimedText(xml: string): Cue[] {
+  const cues: Cue[] = []
+  const strip = (inner: string) => decodeEntities(decodeEntities(inner.replace(/<[^>]+>/g, ''))).replace(/\s+/g, ' ').trim()
+  for (const m of xml.matchAll(/<p\b[^>]*\bt="(\d+)"[^>]*>([\s\S]*?)<\/p>/g)) {
+    const text = strip(m[2])
+    if (text) cues.push({ t: Number(m[1]) / 1000, text })
+  }
+  if (cues.length) return cues
+  for (const m of xml.matchAll(/<text\b[^>]*\bstart="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g)) {
+    const text = strip(m[2])
+    if (text) cues.push({ t: Number(m[1]), text })
+  }
+  return cues
+}
+
+/** Prefer human-made English captions, then auto-generated English, then anything. */
+function pickTrack(tracks: YouTubeCaptionTrack[]): YouTubeCaptionTrack | undefined {
+  const en = tracks.filter((t) => t.language_code?.toLowerCase().startsWith('en'))
+  return en.find((t) => t.kind !== 'asr') ?? en[0] ?? tracks.find((t) => t.kind !== 'asr') ?? tracks[0]
+}
+
+/**
+ * Fallback when the transcript panel is unavailable: read the caption track
+ * listed by a mobile client's player response and fetch its timedtext.
+ */
+async function fetchCaptionTrack(client: YouTubeClient, videoId: string, fetchImpl: typeof fetch): Promise<Cue[]> {
+  if (!client.getBasicInfo) return []
+  for (const c of ['ANDROID', 'IOS'] as const) {
+    try {
+      const info = await client.getBasicInfo(videoId, { client: c })
+      const track = pickTrack(info.captions?.caption_tracks ?? [])
+      if (!track?.base_url) continue
+      const url = new URL(track.base_url)
+      if (!/(^|\.)youtube\.com$/.test(url.hostname)) continue // only YouTube's own timedtext endpoint
+      const res = await fetchImpl(url.href, { signal: AbortSignal.timeout(20_000) })
+      if (!res.ok) continue
+      const cues = parseTimedText(await res.text())
+      if (cues.length) return cues
+    } catch {
+      // Try the next client.
+    }
+  }
+  return []
+}
+
 /**
  * Imports a YouTube video's transcript. Throws when the video itself cannot
  * be loaded; a missing transcript yields a placeholder with `needsTranscript`.
  */
 export async function importYouTube(
   url: string,
-  opts: { innertube?: YouTubeClient } = {}
+  opts: { innertube?: YouTubeClient; fetchImpl?: typeof fetch } = {}
 ): Promise<ImportedSource> {
   const videoId = parseYouTubeId(url)
   if (!videoId) throw new Error('This does not look like a YouTube video link.')
 
   let info: YouTubeVideoInfo
+  let client: YouTubeClient
   try {
-    const client = opts.innertube ?? (await getDefaultClient())
+    client = opts.innertube ?? (await getDefaultClient())
     info = await client.getInfo(videoId)
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
@@ -231,7 +303,8 @@ export async function importYouTube(
 
   const title = info.basic_info.title?.trim() || `YouTube video ${videoId}`
   const author = (info.basic_info.author ?? info.basic_info.channel?.name ?? '').trim()
-  const cues = await fetchTranscript(info)
+  let cues = await fetchTranscript(info)
+  if (cues.length === 0) cues = await fetchCaptionTrack(client, videoId, opts.fetchImpl ?? fetch)
 
   const base = {
     kind: 'youtube' as const,

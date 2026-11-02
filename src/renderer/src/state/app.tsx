@@ -63,7 +63,7 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
   const toast = useCallback(
     (text: string, kind: Toast['kind'] = 'info') => {
       const id = ++toastId.current
-      setToasts((t) => [...t.slice(-3), { id, kind, text }])
+      setToasts((t) => [...t.slice(-2), { id, kind, text }])
       setTimeout(() => dismiss(id), kind === 'error' ? 9000 : 4000)
     },
     [dismiss]

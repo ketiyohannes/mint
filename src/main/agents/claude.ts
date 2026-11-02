@@ -12,6 +12,8 @@ export interface ClaudeRuntimeOptions {
 
 const READ_TOOLS = ['Read', 'Grep', 'Glob']
 const WEB_TOOLS = ['WebSearch', 'WebFetch']
+/** The SDK's own tool for returning `outputFormat` answers. */
+const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput'
 
 /**
  * AgentRuntime backed by the Claude Agent SDK. mint controls every turn from
@@ -38,7 +40,7 @@ export class ClaudeRuntime implements AgentRuntime {
       cwd: req.cwd,
       systemPrompt: req.system,
       tools,
-      allowedTools: tools,
+      allowedTools: req.schema ? [...tools, STRUCTURED_OUTPUT_TOOL] : tools,
       permissionMode: 'dontAsk',
       settingSources: [],
       persistSession: false,
@@ -139,6 +141,7 @@ export class ClaudeRuntime implements AgentRuntime {
       if (input.hook_event_name !== 'PreToolUse') return {}
       const toolInput = (input.tool_input ?? {}) as Record<string, unknown>
       const name = input.tool_name
+      if (name === STRUCTURED_OUTPUT_TOOL) return req.schema ? {} : deny('No structured answer is expected for this turn.')
       if (READ_TOOLS.includes(name)) {
         if (!req.readFiles) return deny('File access is disabled for this turn.')
         for (const key of ['file_path', 'path']) {
@@ -147,6 +150,17 @@ export class ClaudeRuntime implements AgentRuntime {
           const target = isAbsolute(value) ? resolve(value) : resolve(root, value)
           const rel = relative(root, target)
           if (rel.startsWith('..') || isAbsolute(rel)) return deny('Only files inside this class folder can be read.')
+        }
+        // Glob patterns (Glob's pattern, Grep's glob) must not reach outside the folder either.
+        for (const key of ['pattern', 'glob']) {
+          if (name === 'Grep' && key === 'pattern') continue // Grep's pattern is a regex, not a path
+          const value = toolInput[key]
+          if (typeof value !== 'string' || !value) continue
+          if (value.split(/[\\/]/).includes('..')) return deny('Search patterns must stay inside this class folder.')
+          if (isAbsolute(value)) {
+            const rel = relative(root, resolve(value.replace(/[*?[{].*$/, '') || '/'))
+            if (rel.startsWith('..') || isAbsolute(rel)) return deny('Only files inside this class folder can be searched.')
+          }
         }
         return {}
       }

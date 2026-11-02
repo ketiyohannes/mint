@@ -11,7 +11,7 @@ import { writeFileSync } from 'node:fs'
  * Headless walk through every service with the offline Demo runtime: the same
  * code paths the app uses, minus Electron.
  */
-const root = resolve(__dirname, '../..')
+const root = resolve(import.meta.dirname, '../..')
 let dir: string
 let core: MintCore
 const streams: StreamEvent[] = []
@@ -181,10 +181,19 @@ describe('mint core with the demo runtime', () => {
     const n = await core.handlers.notes.save(classId, { kind: 'note', title: 'Mine', body: 'Eigenvectors are directions a matrix only scales.' })
     const review = await core.handlers.notes.review(classId, n.id, 'r1')
     expect(review.length).toBeGreaterThan(10)
-    const draft = await core.handlers.notes.draftReference(classId, topicId)
-    expect(draft.authoredBy).toBe('tutor-draft')
-    const edited = await core.handlers.notes.save(classId, { id: draft.id, kind: 'reference', title: draft.title, body: `${draft.body}\nMy edit.` })
-    expect(edited.authoredBy).toBe('learner')
+    const level = (await core.handlers.classes.get(classId)).independence.level
+    if (level >= 2) {
+      // Authorship fades: an independent learner writes reference sheets themselves.
+      await expect(core.handlers.notes.draftReference(classId, topicId)).rejects.toThrow(/write reference sheets yourself/)
+    } else {
+      const draft = await core.handlers.notes.draftReference(classId, topicId)
+      expect(draft.authoredBy).toBe('tutor-draft')
+      const edited = await core.handlers.notes.save(classId, { id: draft.id, kind: 'reference', title: draft.title, body: `${draft.body}\nMy edit.` })
+      expect(edited.authoredBy).toBe('learner')
+    }
+    // A learner-written sheet can always be reviewed.
+    const sheet = await core.handlers.notes.save(classId, { kind: 'reference', title: 'My sheet', body: 'Eigen: directions a matrix only scales, by the eigenvalue.' })
+    expect(sheet.authoredBy).toBe('learner')
   })
 
   it('imports approved trusted sources only from allowlisted domains', async () => {

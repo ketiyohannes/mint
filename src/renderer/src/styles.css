@@ -94,6 +94,12 @@ select {
   color: inherit;
 }
 
+input[type='range'],
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--primary);
+}
+
 h1,
 h2,
 h3,
@@ -877,6 +883,10 @@ a {
   border-right: 1px solid var(--border);
 }
 
+.reader-toolbar > * {
+  flex: none;
+}
+
 .reader-toolbar {
   flex: none;
   display: flex;
@@ -952,39 +962,39 @@ a {
   scroll-margin-top: 80px;
 }
 
-.block.heading {
+.block.b-heading {
   font-weight: 600;
   margin-top: 22px;
 }
 
-.block.heading.h1,
-.block.heading.h2 {
+.block.b-heading.h1,
+.block.b-heading.h2 {
   font-size: 23px;
 }
 
-.block.heading.h3 {
+.block.b-heading.h3 {
   font-size: 20px;
 }
 
-.block.list-item {
+.block.b-li {
   padding-left: 20px;
 }
 
-.block.list-item::before {
+.block.b-li::before {
   content: '•';
   position: absolute;
   left: 4px;
   color: var(--muted);
 }
 
-.block.quote {
+.block.b-quote {
   border-left: 3px solid var(--border-strong);
   padding-left: 14px;
   color: var(--fg-2);
   font-style: italic;
 }
 
-.block.code {
+.block.b-code {
   font-family: var(--font-mono);
   font-size: 13.5px;
   white-space: pre-wrap;
@@ -994,7 +1004,7 @@ a {
   padding: 10px 12px;
 }
 
-.block.cue {
+.block.b-cue {
   display: grid;
   grid-template-columns: 54px 1fr;
   gap: 10px;
@@ -1659,10 +1669,16 @@ mark.hl.flash-quote {
 .video-frame {
   aspect-ratio: 16 / 9;
   width: 100%;
+  max-height: 42vh;
   border: 0;
   border-radius: 12px;
   background: #000;
   margin-bottom: 16px;
+  /* The player stays in view while you read along in the transcript. */
+  position: sticky;
+  top: -14px;
+  z-index: 5;
+  box-shadow: var(--shadow);
 }
 
 .overlay-panel {

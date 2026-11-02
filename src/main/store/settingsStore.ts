@@ -120,7 +120,11 @@ export class SettingsStore {
   }
 }
 
-function sanitize(s: Settings): Settings {
+const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]
+
+function sanitize(input: Settings): Settings {
+  // Keep only known keys, so view-only fields (dataDir, has*Key) are never persisted.
+  const s = Object.fromEntries(SETTING_KEYS.map((k) => [k, input[k]])) as unknown as Settings
   const provider = (['claude', 'codex', 'demo'] as const).includes(s.provider) ? s.provider : 'claude'
   const domains = Array.from(new Set((s.trustedDomains ?? []).map(normalizeDomain).filter(Boolean)))
   return {

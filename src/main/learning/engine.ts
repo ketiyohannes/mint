@@ -123,13 +123,14 @@ export function levelName(level: IndependenceLevel): string {
 }
 
 /**
- * Score in [0,1] from the last 20 asks: how little help each ask needed
- * (rung 1 = full credit, rung 4 = none), blended with how many judged checks
- * passed on the first attempt. Levels only move after enough evidence, so one
- * lucky or unlucky session does not swing support.
+ * Score in [0,1]. Each of the last 20 questions is judged against the rung it
+ * started at: needing no more help earns full credit, each extra rung the
+ * learner asked for costs half. That is blended with how many recent checks
+ * passed (checks are the honest measure, so questions alone cap at level 2).
+ * Levels only move after enough evidence, so one session cannot swing support.
  */
 export function computeIndependence(helpEvents: HelpEvent[], sessions: Session[], history: { at: string; score: number }[]): IndependenceState {
-  // The final rung reached per thread-ask is what counts, not every click.
+  // The final rung reached per question is what counts, not every click.
   const finalByAsk = new Map<string, HelpEvent>()
   for (const e of helpEvents) finalByAsk.set(e.escalated ? `${e.threadId}:${lastAskKey(helpEvents, e)}` : `${e.threadId}:${e.id}`, e)
   const asks = [...finalByAsk.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-20)
@@ -137,25 +138,27 @@ export function computeIndependence(helpEvents: HelpEvent[], sessions: Session[]
   const attempts = sessions.flatMap((s) => s.attempts).filter((a) => a.verdict)
   const recentAttempts = attempts.slice(-12)
 
-  const helpScore = asks.length ? asks.reduce((sum, e) => sum + (4 - e.rung) / 3, 0) / asks.length : 0
+  const credit = (e: HelpEvent) => (e.escalated ? Math.max(0, 1 - Math.max(1, e.rung - e.defaultRung) / 2) : 1)
+  const helpScore = asks.length ? asks.reduce((sum, e) => sum + credit(e), 0) / asks.length : 0
   const checkScore = recentAttempts.length ? recentAttempts.filter((a) => a.verdict?.result === 'pass').length / recentAttempts.length : 0
+  const escalated = asks.filter((e) => e.escalated).length
 
   const evidence = asks.length + recentAttempts.length
   let score: number
-  if (asks.length && recentAttempts.length) score = 0.6 * helpScore + 0.4 * checkScore
-  else if (asks.length) score = helpScore
-  else score = checkScore * 0.8
+  if (asks.length && recentAttempts.length) score = 0.5 * helpScore + 0.5 * checkScore
+  else if (asks.length) score = 0.7 * helpScore
+  else score = 0.8 * checkScore
 
   let level: IndependenceLevel = 0
   if (evidence >= 5) level = score >= 0.75 ? 3 : score >= 0.55 ? 2 : score >= 0.35 ? 1 : 0
-  if (evidence >= 5 && evidence < 10 && level > 2) level = 2 // full independence needs more evidence
+  if (level > 2 && (evidence < 10 || !recentAttempts.length)) level = 2 // full independence needs checks and more evidence
 
   const reason =
     evidence < 5
-      ? `Not enough evidence yet (${evidence} of 5 asks or checks). Support stays generous until mint knows you better.`
-      : `Over your last ${asks.length} question${asks.length === 1 ? '' : 's'} you needed ${describeAvgRung(asks)} on average` +
+      ? `Not enough evidence yet (${evidence} of 5 questions or checks). Support stays generous until mint knows you better.`
+      : (asks.length ? `You asked for more help on ${escalated} of your last ${asks.length} question${asks.length === 1 ? '' : 's'}` : 'You have not asked questions recently') +
         (recentAttempts.length ? `, and passed ${Math.round(checkScore * 100)}% of ${recentAttempts.length} recent checks` : '') +
-        `. So the tutor now starts with: ${rungStart(LEVEL_DEFAULT_RUNG[level])}.`
+        `. So the tutor now starts with ${rungStart(LEVEL_DEFAULT_RUNG[level])}.`
 
   return {
     level,
@@ -171,15 +174,6 @@ function lastAskKey(events: HelpEvent[], e: HelpEvent): string {
   // An escalation belongs to the most recent non-escalated ask on the same thread.
   const prior = events.filter((x) => x.threadId === e.threadId && !x.escalated && x.at <= e.at)
   return prior.length ? prior[prior.length - 1].id : e.id
-}
-
-function describeAvgRung(asks: HelpEvent[]): string {
-  if (!asks.length) return 'no help'
-  const avg = asks.reduce((s, e) => s + e.rung, 0) / asks.length
-  if (avg < 1.5) return 'only a pointer'
-  if (avg < 2.5) return 'a guiding question'
-  if (avg < 3.5) return 'a hint'
-  return 'a full explanation'
 }
 
 function rungStart(r: Rung): string {

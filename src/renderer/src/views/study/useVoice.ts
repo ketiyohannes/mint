@@ -36,14 +36,52 @@ export function useVoice({ settings, onTranscript, onDirective, onError }: Optio
     setStatus((s) => (s === 'speaking' ? 'idle' : s))
   }, [])
 
+  // A stop requested while the mic is still opening (e.g. Space released during the
+  // permission prompt) is honored as soon as recording actually starts.
+  const stopRequested = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+
+  const stop = useCallback(async () => {
+    const rec = recording.current
+    if (!rec) {
+      if (starting.current) stopRequested.current = true
+      return
+    }
+    recording.current = null
+    setStatus('transcribing')
+    const settle = () => setStatus((s) => (s === 'transcribing' ? 'idle' : s)) // never clobber a newer recording
+    try {
+      const audio = await rec.stop()
+      const text = await transcribe(audio, engine)
+      settle()
+      if (text) cb.current.onTranscript(text)
+      else cb.current.onError("I didn't catch that. Hold the mic (or Space) while you talk.")
+    } catch (err) {
+      settle()
+      cb.current.onError(errorMessage(err))
+    }
+  }, [engine])
+
   const start = useCallback(async () => {
     if (recording.current || starting.current) return
     stopSpeaking() // barge-in: talking interrupts the tutor
     // Start loading the local model while the learner is still talking.
     if (engine === 'local-whisper') preloadLocalWhisper()
     starting.current = true
+    stopRequested.current = false
     try {
-      recording.current = await startRecording()
+      const rec = await startRecording()
+      if (!mounted.current) {
+        rec.cancel() // the view went away while the mic was opening
+        return
+      }
+      recording.current = rec
       setStatus('recording')
     } catch (err) {
       cb.current.onError(errorMessage(err))
@@ -51,27 +89,14 @@ export function useVoice({ settings, onTranscript, onDirective, onError }: Optio
     } finally {
       starting.current = false
     }
-  }, [stopSpeaking, engine])
-
-  const stop = useCallback(async () => {
-    const rec = recording.current
-    if (!rec) return
-    recording.current = null
-    setStatus('transcribing')
-    try {
-      const audio = await rec.stop()
-      const text = await transcribe(audio, engine)
-      setStatus('idle')
-      if (text) cb.current.onTranscript(text)
-      else cb.current.onError("I didn't catch that. Hold the mic (or Space) while you talk.")
-    } catch (err) {
-      setStatus('idle')
-      cb.current.onError(errorMessage(err))
+    if (stopRequested.current) {
+      stopRequested.current = false
+      void stop()
     }
-  }, [engine])
+  }, [stopSpeaking, engine, stop])
 
   const toggle = useCallback(() => {
-    if (recording.current) void stop()
+    if (recording.current || starting.current) void stop()
     else void start()
   }, [start, stop])
 
@@ -109,7 +134,7 @@ export function useVoice({ settings, onTranscript, onDirective, onError }: Optio
       void start()
     }
     const up = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || !recording.current) return
+      if (e.code !== 'Space' || (!recording.current && !starting.current)) return
       e.preventDefault()
       void stop()
     }

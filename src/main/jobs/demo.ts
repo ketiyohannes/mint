@@ -53,7 +53,7 @@ export function diagnosticResult(diag: Diagnostic) {
     summary: answered.length
       ? `You gave substantive answers to ${answered.length} of ${diag.questions.length} questions, so the plan can skip a little of the basics.`
       : 'You are new to this, so the plan starts from the foundations.',
-    startingLevel: answered.length >= 2 ? 'some prior knowledge' : 'new to the topic',
+    startingLevel: answered.length ? 'some prior knowledge' : 'new to the topic',
     records: answered.slice(0, 2).map((a, i) => ({
       title: `Prior knowledge noted (diagnostic ${i + 1})`,
       body: 'The learner described this in their own words during intake, so early lessons can move faster here.',
@@ -62,6 +62,9 @@ export function diagnosticResult(diag: Diagnostic) {
     }))
   }
 }
+
+/** Page numbers and timestamps are locators, not topic names. */
+const GENERIC_LABEL = /^(p\. ?\d+|\d{1,2}(:\d{2}){1,2})$/i
 
 export function curriculum(ctx: ClassContext): CurriculumOutput {
   const topic = ctx.meta.mission.topic || ctx.meta.title
@@ -80,10 +83,10 @@ export function curriculum(ctx: ClassContext): CurriculumOutput {
       title: i === 0 ? `Foundations of ${topic}` : `Going further with ${topic}`,
       deliverable: i === 0 ? 'Explain the core ideas in your own words to a friend.' : 'Apply the ideas to a small problem of your own.',
       topics: group.map((p, j) => {
-        const title = /^p\. ?\d+$/i.test(p.label) ? `${topic}: part ${i + j + 1}` : p.label
+        const title = GENERIC_LABEL.test(p.label) ? `${topic}: part ${i + j + 1}` : p.label
         const id = slugify(title, 40)
         const prev = i + j > 0 ? chosen[i + j - 1] : null
-        const prevTitle = prev ? (/^p\. ?\d+$/i.test(prev.label) ? `${topic}: part ${i + j}` : prev.label) : null
+        const prevTitle = prev ? (GENERIC_LABEL.test(prev.label) ? `${topic}: part ${i + j}` : prev.label) : null
         return {
           id,
           title,

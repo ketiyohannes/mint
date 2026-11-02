@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type JSX, type SetStateAction } from 'react'
 import type { Explorable } from '@shared/types'
 import { DiagramControls, DiagramFrame } from '../../components/DiagramFrame'
 import { api, errorMessage } from '../../lib/api'
@@ -10,7 +10,7 @@ interface Props {
   explorable: Explorable | null
   highlight: string[]
   params: Record<string, number>
-  onParams: (values: Record<string, number>) => void
+  onParams: Dispatch<SetStateAction<Record<string, number>>>
   onHighlight: (ids: string[]) => void
   onSelect: (e: Explorable | null) => void
 }
@@ -109,11 +109,11 @@ export function DiagramPanel({ explorable, highlight, params, onParams, onHighli
                 const rect = stageRef.current?.getBoundingClientRect()
                 study.ask({ kind: 'diagram', explorableId: explorable.id, elementId: id, label }, rect ? new DOMRect(rect.left - 400, rect.top + 40, 0, 0) : undefined)
               }}
-              onParamChanged={(id, value) => onParams({ ...params, [id]: value })}
+              onParamChanged={(id, value) => onParams((v) => ({ ...v, [id]: value }))}
               onError={(m) => void onError(m)}
             />
           </div>
-          <DiagramControls params={explorable.spec.params} values={params} onChange={(id, value) => onParams({ ...params, [id]: value })} />
+          <DiagramControls params={explorable.spec.params} values={params} onChange={(id, value) => onParams((v) => ({ ...v, [id]: value }))} />
           {explorable.spec.caption && <div className="small muted">{explorable.spec.caption}</div>}
           {status && <div className="small" style={{ color: 'var(--warn)' }}>{status}</div>}
           <div className="row wrap small">

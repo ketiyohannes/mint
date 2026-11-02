@@ -8,16 +8,26 @@ import { useStudy } from './context'
 
 const POP_W = 380
 
-/** Initial popover position: beside the selection, kept on screen. */
+/**
+ * Initial popover position: beside the selection, inside the reader column
+ * when it fits (so the side panel stays readable), always on screen.
+ */
 export function placeNear(rect: DOMRect | undefined): { x: number; y: number } {
   const vw = window.innerWidth
   const vh = window.innerHeight
-  if (!rect) return { x: Math.max(16, vw - POP_W - 460), y: 120 }
-  let x = rect.right + 16
-  if (x + POP_W > vw - 12) x = Math.max(12, rect.left - POP_W - 16)
-  if (x < 12) x = Math.min(vw - POP_W - 12, Math.max(12, rect.left))
-  const y = Math.min(Math.max(64, rect.top - 40), vh - 420)
-  return { x, y: Math.max(64, y) }
+  const reader = document.querySelector('.reader-wrap')?.getBoundingClientRect()
+  const left = reader ? reader.left + 8 : 12
+  const right = reader ? reader.right - 8 : vw - 12
+  if (!rect) return { x: Math.max(12, right - POP_W), y: 120 }
+  let x: number
+  if (rect.right + 16 + POP_W <= right) x = rect.right + 16
+  else if (rect.left - 16 - POP_W >= left) x = rect.left - 16 - POP_W
+  else x = Math.min(right - POP_W, Math.max(left, rect.left + rect.width / 2 - POP_W / 2))
+  // Prefer just below the selection when the popover has to overlap the text column.
+  const overlapsText = x < rect.right && x + POP_W > rect.left
+  let y = overlapsText ? rect.bottom + 12 : rect.top - 40
+  if (y + 420 > vh) y = overlapsText ? Math.max(64, rect.top - 432) : vh - 432
+  return { x: Math.max(12, Math.min(vw - POP_W - 12, x)), y: Math.max(64, y) }
 }
 
 /** A non-modal, draggable floating window. The page behind it stays usable. */
@@ -68,7 +78,7 @@ export function AskPopover({
   onMinimize: () => void
   onClose: () => void
   onExpand: () => void
-  onThread: (t: Thread) => void
+  onThread: (threadId: string) => void
 }): JSX.Element {
   const { run } = useApp()
   const study = useStudy()

@@ -160,6 +160,7 @@ export function PathView({ bundle }: { bundle: ClassBundle }): JSX.Element {
                           ↗ {s.section || 'source'}
                         </button>
                       ))}
+                      {t.sources.length === 0 && <GapBadge bundle={bundle} topic={t} />}
                       <span className="checks">
                         {CHECK_KINDS.map((k) => (
                           <span key={k} className={`check-pill ${p?.checks[k].passed ? 'ok' : ''}`}>
@@ -220,5 +221,48 @@ export function PathView({ bundle }: { bundle: ClassBundle }): JSX.Element {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * A topic your materials do not cover is a research task. Early on mint finds
+ * candidate sources; once you are more independent, you find one yourself.
+ */
+function GapBadge({ bundle, topic }: { bundle: ClassBundle; topic: Topic }): JSX.Element {
+  const { run, go } = useApp()
+  const [busy, setBusy] = useState(false)
+  const classId = bundle.meta.id
+  if (bundle.independence.level >= 2) {
+    return (
+      <button
+        className="badge amber"
+        style={{ border: 0, cursor: 'pointer' }}
+        title="Your materials do not cover this. Finding a good source is part of the skill: add one in the Library."
+        onClick={() => go({ name: 'class', classId, tab: 'library' })}
+        data-testid="gap"
+      >
+        Gap: find a source yourself
+      </button>
+    )
+  }
+  return (
+    <button
+      className="badge amber"
+      style={{ border: 0, cursor: 'pointer' }}
+      disabled={busy}
+      title="Your materials do not cover this. mint can suggest trusted sources for you to approve."
+      onClick={async () => {
+        setBusy(true)
+        const ok = await run(async () => {
+          await api.sources.proposeTrusted(classId, `${topic.title}: ${topic.objective}`)
+          return true
+        }, 'Suggestions are waiting for your approval in the Library.')
+        setBusy(false)
+        if (ok) go({ name: 'class', classId, tab: 'library' })
+      }}
+      data-testid="gap"
+    >
+      {busy ? <span className="spinner" style={{ width: 10, height: 10 }} /> : null} Gap: suggest sources
+    </button>
   )
 }
