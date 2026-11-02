@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+resources/diagram-sandbox/vendor/
+test-results/
+playwright-report/
+.mint-test-data/
+*.log
+.DS_Store
