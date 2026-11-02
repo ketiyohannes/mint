@@ -1,0 +1,72 @@
+/* Styles for the diagram sandbox page (resources/diagram-sandbox/index.html). */
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  /* A defined neutral background avoids Chromium's opaque backdrop when the
+     host and the iframe disagree on color-scheme. */
+  background: #fbfbf9;
+  color: #1c1c1a;
+  color-scheme: light;
+  font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#mint-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Sketch canvases are centred; oversized p5 canvases are scaled down by the runtime. */
+#mint-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#mint-stage > canvas {
+  display: block;
+  flex: none;
+}
+
+/* Highlight/hover rings drawn by the runtime; never intercepts input. */
+#mint-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+body.mint-hover,
+body.mint-hover canvas {
+  cursor: pointer !important;
+}
+
+#mint-error {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(180, 35, 24, 0.92);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+#mint-error[hidden] {
+  display: none;
+}

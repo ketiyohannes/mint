@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Understanding Eigenvalues | Math Notes Blog</title>
+  <meta name="author" content="Ada Lovelace">
+  <style>body { font-family: sans-serif; } .sidebar { float: right; }</style>
+  <script>window.analytics = { track: function () {} };</script>
+</head>
+<body>
+  <header class="site-header">
+    <a href="/" class="logo">Math Notes Blog</a>
+    <nav class="main-nav">
+      <ul>
+        <li><a href="/">Home</a></li>
+        <li><a href="/archive">Archive</a></li>
+        <li><a href="/subscribe">Subscribe to our newsletter</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <h3>Popular posts</h3>
+      <ul>
+        <li><a href="/p/1">Ten tricks for faster integration</a></li>
+        <li><a href="/p/2">Why matrices matter</a></li>
+      </ul>
+      <div class="ad">Advertisement: Buy our premium course today!</div>
+    </aside>
+
+    <main>
+      <article class="post">
+        <h1>Understanding Eigenvalues</h1>
+        <p class="byline">By Ada Lovelace</p>
+        <p>Eigenvalues show up everywhere in applied mathematics, from vibration analysis to search ranking.
+          This post builds the intuition first and the algebra second, so that the formulas feel inevitable
+          rather than arbitrary.</p>
+        <p>We will work with square matrices throughout, and we will assume you are comfortable multiplying a
+          matrix by a vector. Nothing else is required, although a little geometry helps along the way.</p>
+
+        <h2>What an eigenvector is</h2>
+        <p>An eigenvector of a matrix <em>A</em> is a non-zero vector <code>v</code> that the matrix only stretches
+          or shrinks, without changing its direction. The stretch factor is the eigenvalue, usually written as
+          lambda. In symbols, A times v equals lambda times v.</p>
+        <p>Most vectors get rotated when you multiply them by a matrix. Eigenvectors are the special directions
+          that survive the transformation intact, which is exactly why they are so useful for understanding
+          what a matrix does.</p>
+        <ul>
+          <li>Eigenvectors are directions that are preserved.</li>
+          <li>Eigenvalues are the scale factors along those directions.</li>
+          <li>A matrix can have repeated eigenvalues.</li>
+        </ul>
+        <blockquote>
+          <p>The eigenvectors of a matrix are the skeleton on which its behaviour hangs.</p>
+        </blockquote>
+
+        <h2>Computing them</h2>
+        <p>To find eigenvalues, we look for values of lambda that make the matrix A minus lambda times the identity
+          singular. That happens exactly when its determinant is zero, which gives the characteristic polynomial.
+          Solving that polynomial gives the eigenvalues, and back-substitution gives the eigenvectors.</p>
+        <h3>A worked example in code</h3>
+        <pre><code>import numpy as np
+
+A = np.array([[2, 0], [0, 3]])
+values, vectors = np.linalg.eig(A)
+print(values)  # [2. 3.]</code></pre>
+        <p>For a diagonal matrix the eigenvalues are simply the diagonal entries, which is a useful sanity check
+          whenever you implement this yourself.</p>
+      </article>
+    </main>
+  </div>
+
+  <footer class="site-footer">
+    <p>Copyright 2026 Math Notes Blog. All rights reserved.</p>
+    <a href="/privacy">Privacy policy</a>
+  </footer>
+</body>
+</html>

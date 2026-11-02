@@ -1,0 +1,152 @@
+import type { MintApi } from '@shared/api'
+import { ClassRepo } from './store/classRepo'
+import { SettingsStore, type SecretCipher } from './store/settingsStore'
+import { Kernel, userError, type Emitter, type KernelOptions } from './services/kernel'
+import { ClassService } from './services/classes'
+import { SourceService } from './services/sources'
+import { IntakeService } from './services/intake'
+import { SessionService } from './services/sessions'
+import { ThreadService } from './services/threads'
+import { NotebookService } from './services/notebook'
+import { DiagramService } from './services/diagrams'
+import { VoiceService } from './services/voice'
+import { join } from 'node:path'
+
+/** Host capabilities the core needs from Electron (injected so tests can run headless). */
+export interface HostBridge {
+  pickFiles(): Promise<string[]>
+  openPath(path: string): Promise<void>
+  openExternal(url: string): Promise<void>
+  platform: string
+}
+
+export type Handlers = { [G in Exclude<keyof MintApi, 'on'>]: MintApi[G] }
+
+export interface MintCore {
+  kernel: Kernel
+  handlers: Handlers
+  dispose(): Promise<void>
+}
+
+export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge } & KernelOptions): MintCore {
+  const repo = new ClassRepo(join(opts.dataDir, 'classes'))
+  const settings = new SettingsStore(opts.dataDir, opts.cipher)
+  const kernel = new Kernel(repo, settings, opts.emitter, { fetchImpl: opts.fetchImpl, youtube: opts.youtube, log: opts.log })
+
+  const classes = new ClassService(kernel)
+  const sources = new SourceService(kernel)
+  const intake = new IntakeService(kernel)
+  const sessions = new SessionService(kernel)
+  const threads = new ThreadService(kernel)
+  const notebook = new NotebookService(kernel)
+  const diagrams = new DiagramService(kernel)
+  const voice = new VoiceService(kernel)
+
+  const handlers: Handlers = {
+    settings: {
+      get: () => settings.view(),
+      update: async (patch) => {
+        await settings.update(patch)
+        return settings.view()
+      },
+      setSecret: async (name, value) => {
+        if (name !== 'anthropic' && name !== 'openai') throw userError('Unknown key.')
+        await settings.setSecret(name, value)
+        return settings.view()
+      },
+      testProvider: async (provider) => {
+        if (!['claude', 'codex', 'demo'].includes(provider)) throw userError('Unknown provider.')
+        const runtime = await kernel.runtime(provider)
+        try {
+          return await runtime.check()
+        } finally {
+          const s = await settings.get()
+          if (s.provider !== provider) await runtime.dispose().catch(() => undefined)
+        }
+      },
+      openDataDir: () => opts.host.openPath(opts.dataDir)
+    },
+    classes: {
+      list: () => classes.list(),
+      get: (id) => classes.get(id),
+      create: (input) => classes.create(input),
+      update: (id, patch) => classes.update(id, patch),
+      remove: (id) => classes.remove(id),
+      activate: (id) => classes.activate(id)
+    },
+    sources: {
+      addFiles: async (classId, paths) => {
+        const picked = paths && paths.length ? paths : await opts.host.pickFiles()
+        if (!picked.length) return { added: [], errors: [] }
+        return sources.addFiles(classId, picked)
+      },
+      addUrl: (classId, url) => sources.addUrl(classId, url, 'user'),
+      get: (classId, id) => sources.get(classId, id),
+      remove: (classId, id) => sources.remove(classId, id),
+      setTranscript: (classId, id, text) => sources.setTranscript(classId, id, text),
+      proposeTrusted: (classId, focus) => sources.proposeTrusted(classId, focus),
+      resolveProposals: (classId, approve, reject) => sources.resolveProposals(classId, approve ?? [], reject ?? [])
+    },
+    intake: {
+      startDiagnostic: (id) => intake.startDiagnostic(id),
+      submitDiagnostic: (id, answers) => intake.submitDiagnostic(id, answers ?? []),
+      skipDiagnostic: (id) => intake.skipDiagnostic(id),
+      proposeCurriculum: (id, reason) => intake.proposeCurriculum(id, reason),
+      resolveCurriculum: (id, pid, accept) => intake.resolveCurriculum(id, pid, Boolean(accept))
+    },
+    sessions: {
+      start: (classId, topicId, type) => sessions.start(classId, topicId, type === 'review' ? 'review' : 'learn'),
+      setPhase: (classId, sessionId, phase) => sessions.setPhase(classId, sessionId, phase),
+      submitCheck: (classId, sessionId, kind, answer, via) => sessions.submitCheck(classId, sessionId, kind, String(answer ?? ''), via === 'voice' ? 'voice' : 'text'),
+      finish: (classId, sessionId, r, t) => sessions.finish(classId, sessionId, r ?? [], t ?? []),
+      abandon: (classId, sessionId) => sessions.abandon(classId, sessionId)
+    },
+    threads: {
+      create: (input) => threads.create(input),
+      send: (input) => threads.send(input),
+      moreHelp: (input) => threads.moreHelp(input),
+      setPinned: (classId, threadId, pinned) => threads.setPinned(classId, threadId, Boolean(pinned)),
+      remove: (classId, threadId) => threads.remove(classId, threadId),
+      cancel: async (streamId) => threads.cancel(streamId)
+    },
+    annotations: {
+      create: (classId, anchor, kind, text) => notebook.createAnnotation(classId, anchor, kind, text),
+      update: (classId, id, text) => notebook.updateAnnotation(classId, id, String(text ?? '')),
+      remove: (classId, id) => notebook.removeAnnotation(classId, id)
+    },
+    notes: {
+      save: (classId, note) => notebook.saveNote(classId, note),
+      remove: (classId, id) => notebook.removeNote(classId, id),
+      draftReference: (classId, topicId) => notebook.draftReference(classId, topicId),
+      review: (classId, id, streamId) => notebook.review(classId, id, streamId),
+      fromThread: (classId, threadId) => notebook.fromThread(classId, threadId)
+    },
+    glossary: {
+      propose: (classId, term, def, anchor) => notebook.proposeTerm(classId, String(term ?? ''), String(def ?? ''), anchor),
+      update: (classId, id, patch) => notebook.updateTerm(classId, id, patch ?? {}),
+      remove: (classId, id) => notebook.removeTerm(classId, id)
+    },
+    records: {
+      supersede: (classId, id, title, body) => notebook.supersede(classId, id, String(title ?? ''), String(body ?? ''))
+    },
+    diagrams: {
+      create: (classId, prompt, anchor) => diagrams.create(classId, String(prompt ?? ''), anchor),
+      repair: (classId, id, error) => diagrams.repair(classId, id, String(error ?? '')),
+      setKept: (classId, id, kept) => diagrams.setKept(classId, id, Boolean(kept)),
+      remove: (classId, id) => diagrams.remove(classId, id)
+    },
+    voice: {
+      transcribe: (wav) => voice.transcribe(wav),
+      speak: (text, v) => voice.speak(String(text ?? ''), String(v ?? ''))
+    },
+    system: {
+      openExternal: async (url) => {
+        if (!/^https?:\/\//i.test(String(url))) throw userError('Only web links can be opened.')
+        await opts.host.openExternal(url)
+      },
+      platform: async () => opts.host.platform
+    }
+  }
+
+  return { kernel, handlers, dispose: () => kernel.dispose() }
+}

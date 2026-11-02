@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Must stay identical to DIAGRAM_SANDBOX_CSP in src/shared/diagramProtocol.ts (enforced by a unit test). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' 'unsafe-inline' mint-sandbox:; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mint diagram</title>
+    <link rel="stylesheet" href="sandbox.css" />
+  </head>
+  <body>
+    <div id="mint-root">
+      <div id="mint-stage"></div>
+      <canvas id="mint-overlay" aria-hidden="true"></canvas>
+    </div>
+    <div id="mint-error" role="alert" hidden></div>
+    <script src="sensors.js"></script>
+    <script src="vendor/p5.min.js"></script>
+    <script src="vendor/three.iife.js"></script>
+    <script src="geometry.js"></script>
+    <script src="runtime.js"></script>
+  </body>
+</html>

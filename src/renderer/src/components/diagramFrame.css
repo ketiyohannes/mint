@@ -1,0 +1,49 @@
+/* DiagramFrame + DiagramControls. Theme tokens are optional; fallbacks keep it usable standalone. */
+
+.diagram-frame {
+  position: relative;
+  width: 100%;
+  min-height: 240px;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md, 10px);
+  overflow: hidden;
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.1));
+  background: #fbfbf9; /* matches the sandbox page background */
+}
+
+.diagram-frame__iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.diagram-controls {
+  display: grid;
+  grid-template-columns: minmax(6rem, max-content) 1fr 3.5rem;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.75rem 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+.diagram-controls__row {
+  display: contents;
+}
+
+.diagram-controls__label {
+  color: var(--text-muted, inherit);
+}
+
+.diagram-controls__slider {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--accent, #2f9e78);
+}
+
+.diagram-controls__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text, inherit);
+}

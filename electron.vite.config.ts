@@ -1,8 +1,41 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import type { Plugin } from 'vite'
 
 const shared = resolve(__dirname, 'src/shared')
+
+/**
+ * Content-Security-Policy for the renderer. Dev needs inline scripts and the
+ * Vite websocket for hot reload; production does not.
+ */
+function cspPlugin(): Plugin {
+  const common = [
+    "default-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https://i.ytimg.com",
+    "font-src 'self' data:",
+    "media-src 'self' blob: data:",
+    "frame-src mint-sandbox: https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'none'"
+  ]
+  // Local Whisper downloads its model once from Hugging Face.
+  const hf = 'https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net'
+  return {
+    name: 'mint-csp',
+    transformIndexHtml(html, ctx) {
+      const dev = Boolean(ctx.server)
+      const csp = [
+        ...common,
+        dev ? "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'" : "script-src 'self' 'wasm-unsafe-eval'",
+        dev ? `connect-src 'self' ws: http://localhost:* ${hf} blob: data:` : `connect-src 'self' ${hf} blob: data:`
+      ].join('; ')
+      return html.replace('%MINT_CSP%', csp)
+    }
+  }
+}
 
 export default defineConfig({
   main: {
@@ -31,7 +64,7 @@ export default defineConfig({
         '@renderer': resolve(__dirname, 'src/renderer/src')
       }
     },
-    plugins: [react()],
+    plugins: [react(), cspPlugin()],
     worker: { format: 'es' },
     build: {
       rollupOptions: { input: { index: resolve(__dirname, 'src/renderer/index.html') } }

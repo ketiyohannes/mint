@@ -7,7 +7,7 @@
   "main": "out/main/index.js",
   "author": "Keti Yohannes",
   "scripts": {
-    "prepare-runtimes": "node scripts/build-diagram-runtime.mjs",
+    "prepare-runtimes": "node scripts/build-diagram-runtime.mjs && node scripts/prepare-ort.mjs",
     "dev": "npm run prepare-runtimes && electron-vite dev",
     "build": "npm run prepare-runtimes && electron-vite build",
     "start": "electron-vite preview",

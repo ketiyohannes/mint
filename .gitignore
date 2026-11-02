@@ -7,3 +7,5 @@ playwright-report/
 .mint-test-data/
 *.log
 .DS_Store
+.vitest/
+src/renderer/public/ort/
