@@ -83,6 +83,39 @@ describe.skipIf(provider !== 'claude' && provider !== 'codex')(`live harness: ${
     for (const c of cites) if (c.type === 'cite') expect(c.sourceId).toBe(doc.id)
   }, 600_000)
 
+  it('asks intake questions, then writes a quiz and a Python exercise with tests', async () => {
+    // A fresh class: the first message gets multiple-choice intake questions.
+    const fresh = await core.handlers.classes.start({ paths: [join(root, 'tests/fixtures/e2e/eigen.md')] })
+    for (let i = 0; i < 100 && !(await core.handlers.classes.get(fresh.id)).sources.length; i++) await new Promise((r) => setTimeout(r, 100))
+    const asked = await core.handlers.chat.send({ classId: fresh.id, message: 'Teach me this so I can use it for PCA', via: 'text', streamId: 'live-q' })
+    const qwidget = asked.messages.at(-1)!.widget
+    console.log('questions:', JSON.stringify(asked.messages.at(-1)))
+    expect(qwidget?.kind).toBe('questions')
+    if (qwidget?.kind === 'questions') {
+      expect(qwidget.questions.length).toBeGreaterThanOrEqual(2)
+      expect(qwidget.questions.every((q) => q.options.length >= 2 && q.header.length <= 12)).toBe(true)
+    }
+
+    const intro = await core.handlers.chat.send({ classId, message: 'I want to get comfortable with eigenvectors for PCA', via: 'text', streamId: 'live-intake' })
+    const w = intro.messages.at(-1)!.widget
+    console.log('intake:', JSON.stringify(intro.messages.at(-1)))
+    // This class finished intake earlier, so the message goes to the tutor instead.
+    expect(intro.messages.at(-1)!.role).toBe('tutor')
+    expect(w).toBeUndefined()
+
+    const quiz = await core.handlers.chat.command({ classId, threadId: intro.id, command: 'quiz', arg: 'eigenvalues' })
+    const qw = quiz.messages.at(-1)!.widget
+    console.log('quiz:', JSON.stringify(qw))
+    expect(qw?.kind).toBe('quiz')
+    if (qw?.kind === 'quiz') expect(qw.questions.every((q) => q.options.length >= 2 && q.answer >= 0 && q.answer < q.options.length)).toBe(true)
+
+    const code = await core.handlers.chat.command({ classId, threadId: intro.id, command: 'code', arg: 'python' })
+    const cw = code.messages.at(-1)!.widget
+    console.log('exercise:', JSON.stringify(cw))
+    expect(cw).toMatchObject({ kind: 'code', exercise: { language: 'python' } })
+    if (cw?.kind === 'code') expect(cw.exercise.tests).toMatch(/def test_/)
+  }, 600_000)
+
   it('builds a diagram that follows the sketch contract', async () => {
     const e = await core.handlers.diagrams.create(classId, 'Show how a 2x2 matrix moves a vector, and that eigenvectors only stretch')
     console.log('diagram:', e.spec.engine, e.spec.title, e.spec.elements.map((x) => x.id), e.spec.params)

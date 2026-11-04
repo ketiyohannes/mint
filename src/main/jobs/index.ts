@@ -1,5 +1,8 @@
 import type {
   Anchor,
+  CodeExercise,
+  CodeLanguage,
+  CodeRunResult,
   Brief,
   CheckKind,
   Diagnostic,
@@ -16,7 +19,8 @@ import type {
   Verdict
 } from '@shared/types'
 import type { AgentRuntime } from '../agents/types'
-import { describeClass, describeTopic, sectionText, TUTOR_PRINCIPLES, type ClassContext } from './context'
+import { describeClass, describeTopic, sectionText, type ClassContext } from './context'
+import { tutor } from './format'
 import { runStructured, runText } from './run'
 import {
   BriefSchema,
@@ -25,12 +29,18 @@ import {
   DiagnosticQuestionsSchema,
   DiagnosticResultSchema,
   DiagramSchema,
+  ExerciseSchema,
   GlossaryCheckSchema,
+  IntakeQuestionsSchema,
+  QuizSchema,
   ReferenceDraftSchema,
   SourceProposalsSchema,
   VerdictSchema,
   WrapSchema,
-  type CurriculumOutput
+  type CurriculumOutput,
+  type ExerciseOutput,
+  type IntakeQuestionsOutput,
+  type QuizOutput
 } from './schemas'
 import * as demo from './demo'
 import { DIAGRAM_CONTRACT } from './diagramContract'
@@ -56,7 +66,7 @@ export function proposeSources(env: JobEnv, focus: string | undefined, existingU
     web: { allowedDomains: domains },
     effort: 'medium',
     maxTurns: 24,
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('sources', 'wisdom')}
 
 Your job now: find high-trust public sources the learner will actually study from, because they did not bring (enough) materials of their own. Only use these trusted domains: ${domains.join(', ')}. YouTube is allowed for strong lectures or explainers from reputable channels.
 Rules:
@@ -82,7 +92,7 @@ export function diagnosticQuestions(env: JobEnv) {
     purpose: 'diagnostic-questions',
     readFiles: true,
     effort: 'low',
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('diagnostics')}
 
 Your job now: write a short diagnostic (3 or 4 questions) to estimate what the learner already knows before planning. Mix: one question about prior experience with the core ideas, one or two recall/explain questions on foundational ideas from the materials, and one tiny application task. Never infer level from confidence alone. Questions must be answerable in 1 to 3 sentences, and it must be fine to answer "I don't know".`,
     prompt: `${describeClass(env.ctx)}\n\nSkim the sources' structure, then write the diagnostic questions.`,
@@ -97,7 +107,7 @@ export function assessDiagnostic(env: JobEnv, diag: Diagnostic) {
     purpose: 'diagnostic-assess',
     readFiles: true,
     effort: 'low',
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('diagnostics', 'records')}
 
 Your job now: read the learner's diagnostic answers and estimate their starting point. Write learning records ONLY for real evidence: demonstrated understanding (kind "understanding"), explicitly stated prior knowledge (kind "prior-knowledge", include the claimed depth), or a misconception you can see (kind "misconception"). "I don't know" produces no record. Each record: short title, 1 to 3 sentence body saying what is known and why it matters for teaching, and the evidence (quote their answer).`,
     prompt: `${describeClass(env.ctx)}
@@ -119,7 +129,7 @@ export function planCurriculum(env: JobEnv, diag: Diagnostic | null, reason: str
     readFiles: true,
     effort: 'high',
     maxTurns: 30,
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('intake', 'curriculum', 'sources')}
 
 Your job now: design (or revise) the curriculum map for this class.
 - Anchor it in a small, meaningful project with a concrete deliverable tied to the mission when one fits the learner's time. If the class is pure knowledge (e.g. understanding one paper), use the deliverable "explain it to someone in your own words" and set project to null.
@@ -151,7 +161,7 @@ export function writeBrief(env: JobEnv, topic: Topic, type: Session['type']): Pr
     purpose: 'session-brief',
     readFiles: true,
     effort: 'medium',
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('lessons', 'sources')}
 
 Your job now: write the brief that starts a ${type === 'review' ? 'REVIEW (retrieval practice, spaced repetition)' : 'study'} session.
 - "win": the single tangible thing the learner will be able to do after this session (one sentence).
@@ -185,7 +195,7 @@ export async function checkPrompt(env: JobEnv, topic: Topic, brief: Brief | unde
     purpose: `check-prompt-${kind}`,
     readFiles: true,
     effort: 'low',
-    system: `${TUTOR_PRINCIPLES}\n\nYour job now: write ${what}. Keep it to 1 to 4 sentences. Answerable in a short paragraph. Do not include the answer or hints.`,
+    system: `${tutor('practice', 'diagnostics')}\n\nYour job now: write ${what}. Keep it to 1 to 4 sentences. Answerable in a short paragraph. Do not include the answer or hints.`,
     prompt: `${describeClass(env.ctx)}\n\n${describeTopic(env.ctx, topic)}\n\nWrite the prompt now.`,
     schema: CheckPromptSchema,
     demo: () => ({ prompt: demo.checkPrompt(topic, kind) })
@@ -199,7 +209,7 @@ export function judgeCheck(env: JobEnv, topic: Topic, kind: CheckKind, prompt: s
     purpose: `judge-${kind}`,
     readFiles: true,
     effort: 'medium',
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('diagnostics', 'practice')}
 
 Your job now: judge one ${kind === 'explain' ? 'explain-back' : kind === 'apply' ? 'application' : 'distinguish'} answer against the learner's materials.
 - "pass": accurate and in their own words, covering the core idea; small slips are fine.
@@ -234,7 +244,7 @@ export function wrapSession(env: JobEnv, topic: Topic, session: Session) {
     purpose: 'session-wrap',
     readFiles: false,
     effort: 'low',
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('records', 'glossary')}
 
 Your job now: close the session the way the /teach method does.
 - summary: 2 sentences on what the learner showed, written to them ("you").
@@ -263,6 +273,12 @@ const RUNG_RULES: Record<Rung, string> = {
   3: `HELP RUNG 3 (HINT). Give a partial hint that unlocks the next step (a key relation, an analogy, or the first step) but leave the conclusion to the learner. At most 130 words. Cite the passage with [[cite:...]].`,
   4: `HELP RUNG 4 (EXPLANATION). Explain clearly and fully, grounded in their materials with [[cite:...]] citations, using one concrete example. Use as much detail as the question needs (no padding). End with one line pointing to the passage to re-read and one quick check question.`
 }
+
+const MAIN_CHAT_RULES = `You are the tutor in the class's main chat. The learner's materials are open in a viewer beside the chat.
+You have tools you can OFFER as buttons (the learner clicks to run them); offer at most one per reply, and only when it would genuinely help practice or see the idea:
+- [[offer:quiz|<focus>]] a short multiple-choice quiz on <focus>
+- [[offer:code|<focus>]] a small coding exercise on <focus> (only if the subject involves code, algorithms or computation)
+- [[offer:diagram|<what to draw>]] an interactive diagram`
 
 export interface ThreadContext {
   thread: Thread
@@ -294,9 +310,9 @@ Point at parts while you talk: put [[highlight:<elementId>]] right where you men
     readFiles: true,
     effort: rung === 4 ? 'medium' : 'low',
     onDelta,
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('help', 'wisdom')}
 
-You are answering in a small Ask popover next to what the learner is reading. ${RUNG_RULES[rung]}
+${thread.anchor.kind === 'general' ? MAIN_CHAT_RULES : 'You are answering in a small Ask popover next to what the learner is reading.'} ${RUNG_RULES[rung]}
 If the materials do not cover the question, say so plainly in one sentence, then help using general knowledge clearly labeled "outside your materials".${diagramRules}${voiceRules}`,
     prompt: `${describeClass(env.ctx)}
 ${t.sessionTopic ? `\nCurrent study topic: ${t.sessionTopic.title} (${t.sessionTopic.objective})` : ''}
@@ -325,6 +341,106 @@ function describeAnchor(anchor: Anchor, t: ThreadContext): string {
 }
 
 // ---------------------------------------------------------------------------
+// Chat tools: intake questions, quizzes, code exercises
+// ---------------------------------------------------------------------------
+
+/** The first exchange of a class: ask what the learner wants, the way a coding agent asks clarifying questions. */
+export function intakeQuestions(env: JobEnv, firstMessage: string): Promise<IntakeQuestionsOutput> {
+  return runStructured(env.runtime, {
+    ...base(env),
+    purpose: 'intake-questions',
+    readFiles: true,
+    effort: 'low',
+    system: `${tutor('intake')}
+
+Your job now: the learner just opened a new class and wrote their first message. Before planning, ask 2 to 4 short multiple-choice questions to learn their mission (why, and what success looks like), their prior experience, their time and constraints, and how they like to learn. Ask only what you cannot infer from their message and materials.
+- header: a chip label of at most 12 characters ("Goal", "Background", "Time", "Style").
+- question: one clear sentence ending with "?".
+- options: 2 to 4 concrete, mutually exclusive choices (or combinable when multiSelect is true), each with a one-line description. The learner can always type their own answer instead, so do not add an "Other" option.
+- intro: one or two friendly sentences acknowledging what they want and what you saw in their materials (no questions here).
+- title: a 2 to 5 word name for the class (the subject, e.g. "Linear algebra for ML").`,
+    prompt: `${describeClass(env.ctx, { includeRecords: false })}
+
+Learner's first message:
+${firstMessage}
+
+Skim the materials' structure, then write the questions.`,
+    schema: IntakeQuestionsSchema,
+    demo: () => demo.intakeQuestions(env.ctx, firstMessage)
+  })
+}
+
+export function makeQuiz(env: JobEnv, focus: string): Promise<QuizOutput> {
+  return runStructured(env.runtime, {
+    ...base(env),
+    purpose: 'quiz',
+    readFiles: true,
+    effort: 'low',
+    system: `${tutor('practice')}
+
+Your job now: write a short retrieval-practice quiz (3 to 5 questions) grounded in the learner's materials. Each question has exactly 4 options and one correct answer (answer is its 0-based index). Distractors must be plausible misconceptions, not jokes. Options of one question have about the same length and form, and the correct option's position varies across questions. Mix recall, application to a new case, and distinguishing close ideas. "explanation": 1 or 2 sentences on why the answer is right, ending with a [[cite:...]] to the passage.`,
+    prompt: `${describeClass(env.ctx)}
+
+Focus: ${focus}
+
+Write the quiz now.`,
+    schema: QuizSchema,
+    demo: () => demo.quiz(env.ctx, focus)
+  })
+}
+
+export function makeExercise(env: JobEnv, focus: string, language: CodeLanguage | null): Promise<ExerciseOutput> {
+  return runStructured(env.runtime, {
+    ...base(env),
+    purpose: 'code-exercise',
+    readFiles: true,
+    effort: 'medium',
+    system: `${tutor('practice')}
+
+Your job now: write ONE small coding exercise (10 to 30 lines to solve) that makes the learner apply an idea from their materials. It runs offline in a sandbox with no packages and no network.
+- language: ${language ? `"${language}"` : '"python" unless the materials are about JavaScript or the web, then "javascript"'}.
+- prompt: markdown task statement, with the function signature to implement and one example. Cite the passage it practices with [[cite:...]].
+- starter: code with the function signature and a body that does not solve it (e.g. "pass" or "return null"), plus short comments.
+- tests: 3 to 5 tests that call the learner's function. JavaScript: \`test('name', () => { assertEqual(actual, expected) })\` (assert(cond, msg) also exists). Python: functions named test_* using plain assert with a helpful message. Tests must pass with a correct solution and fail with the starter.
+- hint: one sentence that nudges without giving the solution.`,
+    prompt: `${describeClass(env.ctx, { includeRecords: false })}
+
+Focus: ${focus}
+
+Write the exercise now.`,
+    schema: ExerciseSchema,
+    demo: () => demo.exercise(focus, language)
+  })
+}
+
+export function reviewCode(env: JobEnv, exercise: CodeExercise, code: string, result: CodeRunResult, onDelta: (d: string) => void): Promise<string> {
+  const passed = result.tests.filter((t) => t.pass).length
+  return runText(env.runtime, {
+    ...base(env),
+    purpose: 'code-review',
+    readFiles: true,
+    effort: 'low',
+    onDelta,
+    system: `${tutor('practice', 'help')}
+
+Your job now: review the learner's solution to a coding exercise. Do not rewrite their code or give a full solution. In at most 150 words: say whether it is correct (trust the test results), point out the single most important issue (bug, edge case, or clarity), connect it back to the idea in their materials with [[cite:...]], and if tests fail give one hint toward the fix. Use a short fenced code block only to point at a specific line.`,
+    prompt: `Exercise: ${exercise.title}
+${exercise.prompt}
+
+Learner's ${exercise.language} code:
+\`\`\`${exercise.language}
+${code.slice(0, 8000)}
+\`\`\`
+
+Test results: ${passed}/${result.tests.length} passed.
+${result.tests.map((t) => `- ${t.pass ? 'PASS' : 'FAIL'} ${t.name}${t.message ? `: ${t.message}` : ''}`).join('\n')}
+${result.error ? `Error: ${result.error}` : ''}
+${result.output.length ? `Output:\n${result.output.slice(0, 40).join('\n')}` : ''}`,
+    demo: () => demo.codeReview(passed, result.tests.length)
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Glossary: the learner defines; the tutor checks against the sources
 // ---------------------------------------------------------------------------
 
@@ -334,7 +450,7 @@ export function checkGlossaryTerm(env: JobEnv, term: string, definition: string,
     purpose: 'glossary-check',
     readFiles: true,
     effort: 'low',
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('glossary')}
 
 Your job now: the learner wants to add a term to their glossary, defined in their own words. A term is added only when the learner understands it.
 - accepted: true only if the definition is correct per their materials (minor wording issues are fine).
@@ -358,7 +474,7 @@ export function createDiagram(env: JobEnv, request: string, anchorContext: strin
     readFiles: true,
     effort: 'medium',
     maxTurns: 12,
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('diagrams')}
 
 Your job now: build ONE interactive diagram (an "explorable") that helps the learner see the idea. It is rendered live in a sandbox.
 ${DIAGRAM_CONTRACT}`,
@@ -395,7 +511,7 @@ export function draftReference(env: JobEnv, topic: Topic | null) {
     purpose: 'reference-draft',
     readFiles: true,
     effort: 'medium',
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('reference', 'glossary')}
 
 Your job now: draft a one-page reference sheet (markdown): the compressed essence for quick review later, not a lesson. Use the learner's glossary terms, short definitions, key formulas or steps, one tiny worked example, and common pitfalls. Every key claim cites the materials with [[cite:...]]. At most ~350 words. The learner will edit it into their own words.`,
     prompt: `${describeClass(env.ctx)}\n\n${topic ? describeTopic(env.ctx, topic) : 'Cover the class so far (mastered and in-progress topics).'}\n\nDraft it now.`,
@@ -411,7 +527,7 @@ export function reviewNote(env: JobEnv, note: NoteDoc, onDelta: (d: string) => v
     readFiles: true,
     effort: 'low',
     onDelta,
-    system: `${TUTOR_PRINCIPLES}
+    system: `${tutor('reference')}
 
 Your job now: review the learner's own note or reference sheet. Do not rewrite it. In at most 150 words: what is accurate, anything wrong or imprecise (cite where to check), and one thing worth adding. They will make the edits.`,
     prompt: `${describeClass(env.ctx, { includeRecords: false })}\n\nTheir ${note.kind} "${note.title}":\n\n${note.body}`,

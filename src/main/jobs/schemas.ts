@@ -96,5 +96,35 @@ export const DiagramSchema = z.object({
 
 export const ReferenceDraftSchema = z.object({ title: z.string(), body: z.string() })
 
+export const IntakeQuestionsSchema = z.object({
+  title: z.string(),
+  intro: z.string(),
+  questions: z.array(
+    z.object({
+      header: z.string(),
+      question: z.string(),
+      multiSelect: z.boolean(),
+      options: z.array(z.object({ label: z.string(), description: z.string() }))
+    })
+  )
+})
+
+export const QuizSchema = z.object({
+  title: z.string(),
+  questions: z.array(z.object({ prompt: z.string(), options: z.array(z.string()), answer: z.number().int(), explanation: z.string() }))
+})
+
+export const ExerciseSchema = z.object({
+  title: z.string(),
+  prompt: z.string(),
+  language: z.enum(['javascript', 'python']),
+  starter: z.string(),
+  tests: z.string(),
+  hint: z.string()
+})
+
 export type CurriculumOutput = z.infer<typeof CurriculumSchema>
 export type DiagramOutput = z.infer<typeof DiagramSchema>
+export type IntakeQuestionsOutput = z.infer<typeof IntakeQuestionsSchema>
+export type QuizOutput = z.infer<typeof QuizSchema>
+export type ExerciseOutput = z.infer<typeof ExerciseSchema>

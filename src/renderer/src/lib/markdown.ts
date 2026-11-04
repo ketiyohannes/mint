@@ -19,9 +19,19 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
  *  3. tokens are replaced with escaped chip/KaTeX markup.
  * Model text never reaches innerHTML unsanitized.
  */
-export function renderMarkdown(text: string, labelForSource?: (sourceId: string) => string | undefined): RenderedMarkdown {
+export function renderMarkdown(text: string, labelForSource?: (sourceId: string) => string | undefined, opts: { inline?: boolean } = {}): RenderedMarkdown {
   const directives: Directive[] = []
   const math: { tex: string; display: boolean }[] = []
+  const arrays: string[] = []
+
+  // ```array blocks (JSON, 1-D or 2-D) become cell grids. Pulled out before
+  // anything else so their brackets are never read as math or directives.
+  text = text.replace(/```array[^\n]*\n([\s\S]*?)```/g, (whole, body: string) => {
+    const html = renderArray(body)
+    if (!html) return whole
+    arrays.push(html)
+    return `\n\n@@A${arrays.length - 1}@@\n\n`
+  })
 
   let prepared = splitDirectives(text)
     .map((seg) => {
@@ -49,21 +59,22 @@ export function renderMarkdown(text: string, labelForSource?: (sourceId: string)
     return `@@M${math.length - 1}@@`
   })
 
-  const raw = marked.parse(prepared, { async: false }) as string
+  // Inline text (option labels, titles) renders without paragraph wrappers.
+  const raw = (opts.inline ? marked.parseInline(prepared, { async: false }) : marked.parse(prepared, { async: false })) as string
   let html: string = String(DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'iframe'], FORBID_ATTR: ['style'] }))
 
   html = html.replace(/@@M(\d+)@@/g, (_m, i: string) => {
     const item = math[Number(i)]
-    if (!item) return ''
-    try {
-      return katex.renderToString(item.tex, { displayMode: item.display, throwOnError: false, strict: 'ignore', trust: false, output: 'html' })
-    } catch {
-      return escapeHtml(item.tex)
-    }
+    return item ? renderMath(item.tex, item.display) : ''
   })
+  html = html.replace(/(?:<p>)?@@A(\d+)@@(?:<\/p>)?/g, (_m, i: string) => arrays[Number(i)] ?? '')
   html = html.replace(/@@D(\d+)@@/g, (_m, i: string) => {
     const d = directives[Number(i)]
     if (!d) return ''
+    if (d.type === 'offer') {
+      const label = { quiz: 'Quiz me', code: 'Code exercise', diagram: 'Draw it' }[d.tool]
+      return `<button type="button" class="offer-chip" data-dir="${i}" title="${escapeHtml(d.arg)}">▸ ${label}${d.arg ? `: ${escapeHtml(d.arg.length > 60 ? `${d.arg.slice(0, 57)}…` : d.arg)}` : ''}</button>`
+    }
     if (d.type === 'cite') {
       const title = labelForSource?.(d.sourceId)
       const label = d.section || title || 'source'
@@ -74,4 +85,53 @@ export function renderMarkdown(text: string, labelForSource?: (sourceId: string)
     return `<button type="button" class="dir-chip" data-dir="${i}" title="Set the slider">⇄ ${escapeHtml(d.paramId)} = ${d.value}</button>`
   })
   return { html, directives }
+}
+
+/** The one place formulas become HTML (chat, lessons, quizzes, notes). KaTeX escapes its input. */
+export function renderMath(tex: string, display = false): string {
+  try {
+    return katex.renderToString(tex, { displayMode: display, throwOnError: false, strict: 'ignore', trust: false, output: 'html' })
+  } catch {
+    return escapeHtml(tex)
+  }
+}
+
+type Cell = string | number | boolean | null
+
+/** A JSON array (or array of arrays) as an indexed grid of cells; null if the block is not one. */
+function renderArray(body: string): string | null {
+  let value: unknown
+  try {
+    value = JSON.parse(body.trim())
+  } catch {
+    return null
+  }
+  if (!Array.isArray(value) || !value.length || value.length > 200) return null
+  const cell = (v: unknown) => {
+    const text = v === null ? 'null' : typeof v === 'object' ? JSON.stringify(v) : String(v as Cell)
+    return `<td>${escapeHtml(text.length > 40 ? `${text.slice(0, 37)}…` : text)}</td>`
+  }
+  const is2d = value.every((r) => Array.isArray(r)) && (value as unknown[][]).every((r) => r.length <= 50)
+  if (is2d) {
+    const rows = value as unknown[][]
+    const width = Math.max(...rows.map((r) => r.length))
+    const head = `<tr><th></th>${Array.from({ length: width }, (_, j) => `<th>${j}</th>`).join('')}</tr>`
+    const bodyRows = rows.map((r, i) => `<tr><th>${i}</th>${Array.from({ length: width }, (_, j) => (j < r.length ? cell(r[j]) : '<td class="empty"></td>')).join('')}</tr>`).join('')
+    return `<div class="array-view matrix"><table>${head}${bodyRows}</table></div>`
+  }
+  const items = value as unknown[]
+  return `<div class="array-view"><table><tr>${items.map(cell).join('')}</tr><tr class="idx">${items.map((_, i) => `<th>${i}</th>`).join('')}</tr></table></div>`
+}
+
+/**
+ * Convert a markdown note (tutor drafts, saved side chats, older notes) into
+ * HTML the notepad can edit. Formulas become math nodes; the result is
+ * sanitized, and the editor only keeps what its schema knows anyway.
+ */
+export function markdownToNoteHtml(md: string): string {
+  const mathSpan = (tex: string, display: boolean) => `<span data-math="" data-latex="${escapeHtml(tex.trim())}" data-display="${display}"></span>`
+  const withMath = md
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex: string) => mathSpan(tex, true))
+    .replace(/(^|[^\\$])\$([^$\n]+?)\$/g, (_, lead: string, tex: string) => `${lead}${mathSpan(tex, false)}`)
+  return DOMPurify.sanitize(marked.parse(withMath, { async: false }) as string)
 }

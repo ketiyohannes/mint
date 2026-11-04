@@ -10,11 +10,14 @@ import { ThreadService } from './services/threads'
 import { NotebookService } from './services/notebook'
 import { DiagramService } from './services/diagrams'
 import { VoiceService } from './services/voice'
+import { SetupService } from './services/setup'
+import { ChatService } from './services/chat'
 import { join } from 'node:path'
 
 /** Host capabilities the core needs from Electron (injected so tests can run headless). */
 export interface HostBridge {
-  pickFiles(): Promise<string[]>
+  /** Native picker. `folders` also allows choosing directories. */
+  pickFiles(opts?: { folders?: boolean }): Promise<string[]>
   openPath(path: string): Promise<void>
   openExternal(url: string): Promise<void>
   platform: string
@@ -41,6 +44,8 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
   const notebook = new NotebookService(kernel)
   const diagrams = new DiagramService(kernel)
   const voice = new VoiceService(kernel)
+  const setup = new SetupService(kernel, classes, sources, intake)
+  const chat = new ChatService(kernel, threads, classes, sessions, setup, sources, diagrams)
 
   const handlers: Handlers = {
     settings: {
@@ -70,6 +75,7 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       list: () => classes.list(),
       get: (id) => classes.get(id),
       create: (input) => classes.create(input),
+      start: (input) => setup.start(input ?? {}),
       update: (id, patch) => classes.update(id, patch),
       remove: (id) => classes.remove(id),
       activate: (id) => classes.activate(id)
@@ -78,21 +84,35 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       addFiles: async (classId, paths) => {
         const picked = paths && paths.length ? paths : await opts.host.pickFiles()
         if (!picked.length) return { added: [], errors: [] }
-        return sources.addFiles(classId, picked)
+        const out = await sources.addFiles(classId, picked)
+        if (out.added.length) setup.planIfUnplanned(classId)
+        return out
       },
-      addUrl: (classId, url) => sources.addUrl(classId, url, 'user'),
+      original: (classId, id) => sources.original(classId, id),
+      addUrl: async (classId, url) => {
+        const out = await sources.addUrl(classId, url, 'user')
+        setup.planIfUnplanned(classId)
+        return out
+      },
       get: (classId, id) => sources.get(classId, id),
       remove: (classId, id) => sources.remove(classId, id),
       setTranscript: (classId, id, text) => sources.setTranscript(classId, id, text),
       proposeTrusted: (classId, focus) => sources.proposeTrusted(classId, focus),
-      resolveProposals: (classId, approve, reject) => sources.resolveProposals(classId, approve ?? [], reject ?? [])
+      resolveProposals: async (classId, approve, reject) => {
+        await sources.resolveProposals(classId, approve ?? [], reject ?? [])
+        setup.planIfUnplanned(classId)
+      }
     },
     intake: {
       startDiagnostic: (id) => intake.startDiagnostic(id),
       submitDiagnostic: (id, answers) => intake.submitDiagnostic(id, answers ?? []),
       skipDiagnostic: (id) => intake.skipDiagnostic(id),
       proposeCurriculum: (id, reason) => intake.proposeCurriculum(id, reason),
-      resolveCurriculum: (id, pid, accept) => intake.resolveCurriculum(id, pid, Boolean(accept))
+      resolveCurriculum: (id, pid, accept) => intake.resolveCurriculum(id, pid, Boolean(accept)),
+      autoPlan: async (id, reason) => {
+        await classes.get(id) // validates the id before any background work
+        await setup.plan(id, typeof reason === 'string' ? reason.slice(0, 2000) : undefined)
+      }
     },
     sessions: {
       start: (classId, topicId, type) => sessions.start(classId, topicId, type === 'review' ? 'review' : 'learn'),
@@ -100,6 +120,11 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       submitCheck: (classId, sessionId, kind, answer, via) => sessions.submitCheck(classId, sessionId, kind, String(answer ?? ''), via === 'voice' ? 'voice' : 'text'),
       finish: (classId, sessionId, r, t) => sessions.finish(classId, sessionId, r ?? [], t ?? []),
       abandon: (classId, sessionId) => sessions.abandon(classId, sessionId)
+    },
+    chat: {
+      send: (input) => chat.send(input),
+      answer: (input) => chat.answer(input),
+      command: (input) => chat.command(input)
     },
     threads: {
       create: (input) => threads.create(input),
@@ -140,6 +165,7 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       speak: (text, v) => voice.speak(String(text ?? ''), String(v ?? ''))
     },
     system: {
+      pickMaterials: () => opts.host.pickFiles({ folders: true }),
       openExternal: async (url) => {
         if (!/^https?:\/\//i.test(String(url))) throw userError('Only web links can be opened.')
         await opts.host.openExternal(url)

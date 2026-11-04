@@ -148,7 +148,22 @@ export class Kernel {
     )
   }
 
-  async writeExports(classId: string): Promise<void> {
+  /** Drop a scheduled export (the class is being deleted). */
+  cancelExports(classId: string): void {
+    const pending = this.exportTimers.get(classId)
+    if (pending) clearTimeout(pending)
+    this.exportTimers.delete(classId)
+  }
+
+  /**
+   * Regenerate the markdown exports. Runs under the class lock, so it never
+   * interleaves with a mutation or a delete (which would race the folder removal).
+   */
+  writeExports(classId: string): Promise<void> {
+    return this.repo.lock(classId, () => this.writeExportsUnlocked(classId))
+  }
+
+  private async writeExportsUnlocked(classId: string): Promise<void> {
     const meta = await this.repo.readMeta(classId)
     if (!meta) return
     const [sources, proposals, curriculum, glossary, records, notes] = await Promise.all([
@@ -185,6 +200,12 @@ export class Kernel {
       throw err
     }
   }
+}
+
+/** Report a failure from background work that no caller is awaiting. */
+export function notice(k: Kernel, classId: string, label: string, err: unknown): void {
+  k.log(`${label}: ${userMessage(err)}`)
+  k.emitter.progress({ classId, jobId: newId('job'), label, state: 'error', detail: userMessage(err), notice: true })
 }
 
 /** Strip the internal prefix from user-facing errors. */

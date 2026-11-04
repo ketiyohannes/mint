@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DIAGRAM_SANDBOX_CSP, isSandboxMessage, SANDBOX_LIMITS } from '@shared/diagramProtocol'
+import { CODE_RUNNER_CSP, DIAGRAM_SANDBOX_CSP, isRunnerMessage, isSandboxMessage, SANDBOX_LIMITS } from '@shared/diagramProtocol'
 
 describe('isSandboxMessage', () => {
   it('accepts every well-formed sandbox message', () => {
@@ -76,5 +76,26 @@ describe('sandbox CSP', () => {
     expect(DIAGRAM_SANDBOX_CSP).toContain("default-src 'none'")
     expect(DIAGRAM_SANDBOX_CSP).toContain("connect-src 'none'")
     expect(DIAGRAM_SANDBOX_CSP).not.toMatch(/https?:/)
+  })
+})
+
+describe('code runner', () => {
+  it('runner.html declares exactly the CSP the protocol handler sends, without network access', () => {
+    const html = readFileSync(resolve(__dirname, '../../resources/diagram-sandbox/runner.html'), 'utf8')
+    const match = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"/.exec(html)
+    expect(match?.[1]).toBe(CODE_RUNNER_CSP)
+    expect(CODE_RUNNER_CSP).toContain("default-src 'none'")
+    expect(CODE_RUNNER_CSP).toContain('connect-src mint-sandbox:')
+    expect(CODE_RUNNER_CSP).not.toMatch(/https?:/)
+  })
+
+  it('accepts only well-formed runner messages', () => {
+    expect(isRunnerMessage({ type: 'runner-ready' })).toBe(true)
+    expect(isRunnerMessage({ type: 'result', id: 'r1', ok: true, output: ['hi'], tests: [{ name: 't', pass: true }] })).toBe(true)
+    expect(isRunnerMessage({ type: 'result', id: 'r1', ok: true, output: 'hi', tests: [] })).toBe(false)
+    expect(isRunnerMessage({ type: 'result', id: 'r1', ok: true, output: [], tests: [{ name: 1, pass: true }] })).toBe(false)
+    expect(isRunnerMessage({ type: 'result', id: 'x'.repeat(200), ok: true, output: [], tests: [] })).toBe(false)
+    expect(isRunnerMessage({ type: 'load' })).toBe(false)
+    expect(isRunnerMessage(null)).toBe(false)
   })
 })

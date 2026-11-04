@@ -2,13 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ClassSummary, ProgressEvent, SettingsView } from '@shared/types'
 import { api, errorMessage } from '../lib/api'
 
-export type ClassTab = 'path' | 'study' | 'library' | 'notebook' | 'progress'
-
-export type Route =
-  | { name: 'home' }
-  | { name: 'new-class' }
-  | { name: 'settings' }
-  | { name: 'class'; classId: string; tab: ClassTab }
+/** `chatId: null` is a new chat (the centered prompt); omitted means "the latest chat". */
+export type Route = { name: 'home' } | { name: 'settings' } | { name: 'class'; classId: string; chatId?: string | null }
 
 export interface Toast {
   id: number
@@ -42,6 +37,8 @@ interface AppState {
   focusSource(classId: string, focus: Omit<StudyFocus, 'nonce'>): void
 }
 
+export const LAST_CLASS_KEY = 'mint.lastClass'
+
 const Ctx = createContext<AppState | null>(null)
 
 export function useApp(): AppState {
@@ -71,7 +68,8 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
 
   const refreshClasses = useCallback(async () => {
     try {
-      setClasses(await api.classes.list())
+      // Stable order, like projects: newest first, never reshuffled by activity.
+      setClasses((await api.classes.list()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
     } catch (err) {
       toast(errorMessage(err), 'error')
     }
@@ -96,6 +94,7 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
     void refreshClasses()
     const offChanged = api.on.classChanged(() => void refreshClasses())
     const offProgress = api.on.progress((e) => {
+      if (e.notice && e.detail) toast(e.detail, 'error')
       setJobs((list) => {
         const others = list.filter((j) => j.jobId !== e.jobId)
         return e.state === 'running' ? [...others, e] : others
@@ -105,7 +104,7 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
       offChanged()
       offProgress()
     }
-  }, [refreshClasses])
+  }, [refreshClasses, toast])
 
   // Theme
   useEffect(() => {
@@ -122,13 +121,13 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
 
   const go = useCallback((r: Route) => {
     setRoute(r)
-    if (r.name === 'class') void api.classes.activate(r.classId).catch(() => undefined)
+    if (r.name === 'class') localStorage.setItem(LAST_CLASS_KEY, r.classId)
   }, [])
 
   const focusSource = useCallback(
     (classId: string, focus: Omit<StudyFocus, 'nonce'>) => {
       setStudyFocus({ ...focus, nonce: Date.now() })
-      setRoute({ name: 'class', classId, tab: 'study' })
+      setRoute((r) => (r.name === 'class' && r.classId === classId ? r : { name: 'class', classId, chatId: null }))
     },
     []
   )

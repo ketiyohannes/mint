@@ -1,72 +1,146 @@
 import type { JSX } from 'react'
+import {
+  ArrowClockwiseIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  ArrowsLeftRightIcon,
+  ArrowsOutSimpleIcon,
+  ArrowUpIcon,
+  BookOpenIcon,
+  BooksIcon,
+  CaretDownIcon,
+  ChartLineUpIcon,
+  ChatCircleIcon,
+  ChatCircleTextIcon,
+  CheckIcon,
+  ClockIcon,
+  CodeIcon,
+  CompassIcon,
+  CopyIcon,
+  CubeIcon,
+  DotsThreeIcon,
+  EyeIcon,
+  EyeSlashIcon,
+  FilePdfIcon,
+  FileTextIcon,
+  FolderOpenIcon,
+  FolderSimpleIcon,
+  FolderSimplePlusIcon,
+  GearSixIcon,
+  GlobeSimpleIcon,
+  GraduationCapIcon,
+  HighlighterIcon,
+  HouseIcon,
+  LifebuoyIcon,
+  LinkSimpleIcon,
+  ListChecksIcon,
+  MagnifyingGlassIcon,
+  MicrophoneIcon,
+  MinusIcon,
+  MoonIcon,
+  NotebookIcon,
+  NotePencilIcon,
+  PaperPlaneRightIcon,
+  PathIcon,
+  PencilSimpleLineIcon,
+  PlayIcon,
+  PlusIcon,
+  PushPinIcon,
+  QuotesIcon,
+  QuestionIcon,
+  ShieldCheckIcon,
+  SidebarSimpleIcon,
+  SparkleIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
+  SquareSplitHorizontalIcon,
+  SquareSplitVerticalIcon,
+  StarIcon,
+  StopIcon,
+  SunIcon,
+  TargetIcon,
+  TextAaIcon,
+  TrashIcon,
+  UploadSimpleIcon,
+  VideoCameraIcon,
+  XIcon,
+  type Icon as PhosphorIcon
+} from '@phosphor-icons/react'
 
-/** Small stroke icon set (24px grid, lucide-style paths). */
-const PATHS: Record<string, string> = {
-  home: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
-  plus: 'M12 5v14M5 12h14',
-  settings:
-    'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z',
-  path: 'M6 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM9 16h3a4 4 0 0 0 4-4v-1',
-  book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5z',
-  library: 'M4 4h4v16H4zM10 4h4v16h-4zM16.5 4.5l3.8-1 3.7 15.5-3.9 1z',
-  notebook: 'M5 3h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5zM9 3v18M12 8h4M12 12h4',
-  chart: 'M3 3v18h18M7 15l4-4 3 3 5-6',
-  ask: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z',
-  note: 'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z',
-  highlight: 'M9 11l-6 6v3h9l3-3M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4',
-  diagram: 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z',
-  term: 'M4 7V4h16v3M9 20h6M12 4v16',
-  mic: 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3',
-  stop: 'M6 6h12v12H6z',
-  send: 'M5 12h14M13 6l6 6-6 6',
-  x: 'M18 6 6 18M6 6l12 12',
-  minus: 'M5 12h14',
-  expand: 'M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7',
-  pin: 'M12 17v5M9 10.76V6h6v4.76a2 2 0 0 0 1.11 1.79l1.78.9A2 2 0 0 1 19 15.24V16H5v-.76a2 2 0 0 1 1.11-1.79l1.78-.9A2 2 0 0 0 9 10.76z',
-  trash: 'M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6',
-  check: 'M20 6 9 17l-5-5',
-  arrow: 'M5 12h14M12 5l7 7-7 7',
-  back: 'M19 12H5M12 19l-7-7 7-7',
-  link: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
-  upload: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12',
-  globe: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z',
-  video: 'M23 7l-7 5 7 5zM1 5h15v14H1z',
-  file: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6',
-  sparkle: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z',
-  eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
-  eyeOff: 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22',
-  volume: 'M11 5 6 9H2v6h4l5 4zM15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14',
-  volumeOff: 'M11 5 6 9H2v6h4l5 4zM23 9l-6 6M17 9l6 6',
-  star: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z',
-  refresh: 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15',
-  help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01',
-  folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
-  clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
-  target: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
-  shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
-  play: 'M5 3l14 9-14 9z',
-  sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42',
-  moon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'
-}
+/** mint's icon names, drawn with Phosphor (regular weight). */
+const ICONS = {
+  home: HouseIcon,
+  plus: PlusIcon,
+  settings: GearSixIcon,
+  path: PathIcon,
+  book: BookOpenIcon,
+  library: BooksIcon,
+  notebook: NotebookIcon,
+  chart: ChartLineUpIcon,
+  ask: ChatCircleTextIcon,
+  note: NotePencilIcon,
+  highlight: HighlighterIcon,
+  diagram: CubeIcon,
+  term: TextAaIcon,
+  mic: MicrophoneIcon,
+  stop: StopIcon,
+  send: PaperPlaneRightIcon,
+  x: XIcon,
+  minus: MinusIcon,
+  expand: ArrowsOutSimpleIcon,
+  pin: PushPinIcon,
+  trash: TrashIcon,
+  check: CheckIcon,
+  arrow: ArrowRightIcon,
+  back: ArrowLeftIcon,
+  link: LinkSimpleIcon,
+  upload: UploadSimpleIcon,
+  globe: GlobeSimpleIcon,
+  video: VideoCameraIcon,
+  file: FileTextIcon,
+  pdf: FilePdfIcon,
+  sparkle: SparkleIcon,
+  eye: EyeIcon,
+  eyeOff: EyeSlashIcon,
+  volume: SpeakerHighIcon,
+  volumeOff: SpeakerSlashIcon,
+  star: StarIcon,
+  refresh: ArrowClockwiseIcon,
+  help: QuestionIcon,
+  folder: FolderSimpleIcon,
+  folderOpen: FolderOpenIcon,
+  more: DotsThreeIcon,
+  arrowUp: ArrowUpIcon,
+  swap: ArrowsLeftRightIcon,
+  sidebar: SidebarSimpleIcon,
+  folderPlus: FolderSimplePlusIcon,
+  compose: PencilSimpleLineIcon,
+  chat: ChatCircleIcon,
+  clock: ClockIcon,
+  target: TargetIcon,
+  shield: ShieldCheckIcon,
+  play: PlayIcon,
+  sun: SunIcon,
+  moon: MoonIcon,
+  copy: CopyIcon,
+  lesson: GraduationCapIcon,
+  quiz: ListChecksIcon,
+  code: CodeIcon,
+  lifebuoy: LifebuoyIcon,
+  caret: CaretDownIcon,
+  search: MagnifyingGlassIcon,
+  compass: CompassIcon,
+  quote: QuotesIcon,
+  splitH: SquareSplitHorizontalIcon,
+  splitV: SquareSplitVerticalIcon
+} satisfies Record<string, PhosphorIcon>
 
-export type IconName = keyof typeof PATHS
+export type IconName = keyof typeof ICONS
 
-export function Icon({ name, size = 16, className, strokeWidth = 1.8 }: { name: IconName; size?: number; className?: string; strokeWidth?: number }): JSX.Element {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d={PATHS[name]} />
-    </svg>
-  )
+/** Icons that read better solid (state indicators rather than actions). */
+const FILLED = new Set<IconName>(['stop', 'play'])
+
+export function Icon({ name, size = 16, className }: { name: IconName; size?: number; className?: string; strokeWidth?: number }): JSX.Element {
+  const Glyph = ICONS[name]
+  return <Glyph size={size} weight={FILLED.has(name) ? 'fill' : 'regular'} className={className} aria-hidden="true" focusable="false" />
 }

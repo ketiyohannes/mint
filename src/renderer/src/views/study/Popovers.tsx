@@ -3,6 +3,7 @@ import type { Anchor, Annotation, Thread } from '@shared/types'
 import { api } from '../../lib/api'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
+import { RichText } from '../../components/RichText'
 import { ThreadView } from './ThreadView'
 import { useStudy } from './context'
 
@@ -15,7 +16,7 @@ const POP_W = 380
 export function placeNear(rect: DOMRect | undefined): { x: number; y: number } {
   const vw = window.innerWidth
   const vh = window.innerHeight
-  const reader = document.querySelector('.reader-wrap')?.getBoundingClientRect()
+  const reader = document.querySelector('.panel-page.active .reader-wrap')?.getBoundingClientRect()
   const left = reader ? reader.left + 8 : 12
   const right = reader ? reader.right - 8 : vw - 12
   if (!rect) return { x: Math.max(12, right - POP_W), y: 120 }
@@ -27,7 +28,10 @@ export function placeNear(rect: DOMRect | undefined): { x: number; y: number } {
   const overlapsText = x < rect.right && x + POP_W > rect.left
   let y = overlapsText ? rect.bottom + 12 : rect.top - 40
   if (y + 420 > vh) y = overlapsText ? Math.max(64, rect.top - 432) : vh - 432
-  return { x: Math.max(12, Math.min(vw - POP_W - 12, x)), y: Math.max(64, y) }
+  // Stay over the materials column (never the sidebar or the tutor) when it is wide enough.
+  const minX = right - left >= POP_W ? left : 12
+  const maxX = right - left >= POP_W ? right - POP_W : vw - POP_W - 12
+  return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(64, y) }
 }
 
 /** A non-modal, draggable floating window. The page behind it stays usable. */
@@ -247,7 +251,7 @@ export function TermPopover({ anchor, pos, onMove, onClose }: { anchor: Extract<
               <label htmlFor="term-def">Your definition</label>
               <textarea id="term-def" className="textarea" value={definition} onChange={(e) => setDefinition(e.target.value)} data-testid="term-definition" />
             </div>
-            {feedback && <div className={`verdict ${feedback.ok ? 'pass' : 'partial'} small`}>{feedback.text}</div>}
+            {feedback && <RichText text={feedback.text} className={`verdict ${feedback.ok ? 'pass' : 'partial'} small`} />}
             <div className="row" style={{ marginTop: 8 }}>
               <span className="spacer" />
               <button className="btn primary sm" disabled={busy || !term.trim() || !definition.trim()} onClick={submit} data-testid="term-submit">
@@ -263,26 +267,35 @@ export function TermPopover({ anchor, pos, onMove, onClose }: { anchor: Extract<
 
 export function SelectionToolbar({
   rect,
+  onChat,
   onAsk,
   onNote,
   onHighlight,
   onDiagram,
-  onTerm
+  onTerm,
+  onSearch
 }: {
   rect: DOMRect
+  /** Bring the passage into the main chat. */
+  onChat: () => void
+  /** Ask about it in a side chat beside the page. */
   onAsk: () => void
   onNote: () => void
   onHighlight: () => void
   onDiagram: () => void
   onTerm: () => void
+  onSearch: () => void
 }): JSX.Element {
   const top = Math.max(56, rect.top - 8)
-  const left = Math.min(window.innerWidth - 200, Math.max(200, rect.left + rect.width / 2))
+  const left = Math.min(window.innerWidth - 240, Math.max(240, rect.left + rect.width / 2))
   // onMouseDown preventDefault keeps the text selection alive while clicking.
   return (
     <div className="sel-toolbar" style={{ top, left }} onMouseDown={(e) => e.preventDefault()} data-testid="selection-toolbar">
-      <button onClick={onAsk} data-testid="sel-ask">
-        <Icon name="ask" size={14} /> Ask
+      <button onClick={onChat} data-testid="sel-chat" title="Discuss this passage in the main chat">
+        <Icon name="chat" size={14} /> Chat
+      </button>
+      <button onClick={onAsk} data-testid="sel-ask" title="Ask about it in a side chat beside the page">
+        <Icon name="ask" size={14} /> Side chat
       </button>
       <button onClick={onNote} data-testid="sel-note">
         <Icon name="note" size={14} /> Note
@@ -295,6 +308,9 @@ export function SelectionToolbar({
       </button>
       <button onClick={onTerm} data-testid="sel-term">
         <Icon name="term" size={14} /> Term
+      </button>
+      <button onClick={onSearch} data-testid="sel-search" title="Search the web in the Browser tab">
+        <Icon name="globe" size={14} /> Search
       </button>
     </div>
   )

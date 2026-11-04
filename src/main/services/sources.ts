@@ -1,6 +1,8 @@
-import { basename } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import type { SourceDoc, SourceMeta, SourceOrigin, SourceProposal } from '@shared/types'
 import { domainOf, importFile, importUrl, isDomainAllowed, normalizeSections, parseYouTubeId, transcriptFromText, wordCount, type ImportedSource } from '../sources'
+import { expandPaths } from '../sources/expand'
 import { newId, nowIso } from '../store/fsutil'
 import { proposeSources } from '../jobs'
 import type { Kernel } from './kernel'
@@ -13,7 +15,10 @@ export class SourceService {
     await this.k.repo.requireMeta(classId)
     const added: SourceMeta[] = []
     const errors: string[] = []
-    for (const path of paths) {
+    const { files, truncated } = await expandPaths(paths)
+    if (!files.length) errors.push('No readable files found (PDF, Markdown, text, HTML or Word).')
+    if (truncated) errors.push(`Imported the first ${files.length} files. Add the rest separately if you need them.`)
+    for (const path of files) {
       try {
         const imported = await this.k.job(classId, `Reading ${basename(path)}`, () => importFile(path))
         added.push(await this.store(classId, imported, 'user'))
@@ -40,6 +45,17 @@ export class SourceService {
 
   async get(classId: string, sourceId: string): Promise<SourceDoc> {
     return this.k.repo.readSource(classId, sourceId)
+  }
+
+  /** The original PDF bytes, for the page view. Other kinds are read from the normalized text. */
+  async original(classId: string, sourceId: string): Promise<Uint8Array | null> {
+    const doc = await this.k.repo.readSource(classId, sourceId)
+    if (doc.kind !== 'pdf' || !doc.originalFile || !/^sources\/[\w-]+\/original\.pdf$/.test(doc.originalFile)) return null
+    try {
+      return new Uint8Array(await readFile(join(this.k.repo.dir(classId), doc.originalFile)))
+    } catch {
+      return null
+    }
   }
 
   async remove(classId: string, sourceId: string): Promise<void> {

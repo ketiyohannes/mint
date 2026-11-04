@@ -4,7 +4,7 @@ import { findTopic } from '@shared/curriculum'
 import { api } from '../../lib/api'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
-import { Markdown } from '../../components/Markdown'
+import { RichText } from '../../components/RichText'
 import { useStudy } from './context'
 
 const PHASE_LABEL: Record<Phase, string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
@@ -39,7 +39,7 @@ export function SessionPanel({ session, onOpenReading, onDone }: { session: Sess
     <div className="stack" data-testid="session-panel">
       <div>
         <div className="small muted">{session.type === 'review' ? 'Review session' : 'Study session'}</div>
-        <div className="serif" style={{ fontSize: 19, fontWeight: 600 }}>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>
           {topic?.title ?? 'Topic'}
         </div>
       </div>
@@ -64,11 +64,9 @@ export function SessionPanel({ session, onOpenReading, onDone }: { session: Sess
           <div className="card-title">
             <Icon name="check" /> Session complete
           </div>
-          <p className="small" style={{ marginTop: 0 }}>
-            {session.wrap?.summary}
-          </p>
+          {session.wrap?.summary && <RichText text={session.wrap.summary} className="small" />}
           <button className="btn" onClick={onDone}>
-            Back to your path
+            Back to the plan
           </button>
         </div>
       ) : session.phase === 'brief' || session.phase === 'read' ? (
@@ -110,10 +108,8 @@ function BriefCard({ session, onOpenReading }: { session: Session; onOpenReading
   return (
     <div className="card" data-testid="brief">
       <div className="small muted">Today's win</div>
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>{b.win}</div>
-      <div className="small" style={{ marginBottom: 12 }}>
-        {b.whyItMatters}
-      </div>
+      <RichText text={b.win} className="brief-win" />
+      <RichText text={b.whyItMatters} className="small brief-why" />
       <div className="label" style={{ marginBottom: 6 }}>
         Read
       </div>
@@ -125,7 +121,7 @@ function BriefCard({ session, onOpenReading }: { session: Session; onOpenReading
               <div style={{ fontWeight: 600 }}>
                 {study.sourceTitle(r.sourceId) ?? 'Source'} · {r.section}
               </div>
-              {r.note && <div className="small muted">{r.note}</div>}
+              {r.note && <RichText text={r.note} className="small muted" />}
             </div>
             <Icon name="arrow" size={14} />
           </button>
@@ -137,7 +133,7 @@ function BriefCard({ session, onOpenReading }: { session: Session; onOpenReading
       <ol style={{ margin: 0, paddingLeft: 20 }}>
         {b.questions.map((q, i) => (
           <li key={i} style={{ marginBottom: 4 }}>
-            {q}
+            <RichText text={q} inline />
           </li>
         ))}
       </ol>
@@ -188,7 +184,7 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
           <span className="badge">{kind}</span> {CHECK_HELP[kind]}
           {passed && <span className="badge green">passed</span>}
         </div>
-        <Markdown text={prompt} />
+        <RichText text={prompt} testId="check-prompt" />
       </div>
       {attempts.map((a) => (
         <div key={a.id} className="stack" style={{ gap: 6 }}>
@@ -201,8 +197,12 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
                 <b style={{ textTransform: 'capitalize' }}>{a.verdict.result === 'pass' ? 'Pass' : a.verdict.result === 'partial' ? 'Almost' : 'Not yet'}</b>
                 {a.via === 'voice' && <span className="badge">spoken</span>}
               </div>
-              <Markdown text={a.verdict.feedback} sourceTitle={study.sourceTitle} onDirective={study.handleDirective} />
-              {a.verdict.misconceptions.length > 0 && <div className="small" style={{ marginTop: 6 }}>Watch out: {a.verdict.misconceptions.join('; ')}</div>}
+              <RichText text={a.verdict.feedback} />
+              {a.verdict.misconceptions.length > 0 && (
+                <div className="small" style={{ marginTop: 6 }}>
+                  Watch out: <RichText text={a.verdict.misconceptions.join('; ')} inline />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -254,7 +254,7 @@ function WrapCard({ session, onDone }: { session: Session; onDone: () => void })
   return (
     <div className="stack" data-testid="wrap">
       <div className="card">
-        <p style={{ marginTop: 0 }}>{w.summary}</p>
+        <RichText text={w.summary} />
         <div className="row small">
           {CHECK_KINDS.map((k) => (
             <span key={k} className={`check-pill ${passedKinds.includes(k) ? 'ok' : ''}`}>
@@ -273,9 +273,11 @@ function WrapCard({ session, onDone }: { session: Session; onDone: () => void })
             <label key={i} className="row" style={{ alignItems: 'flex-start', marginBottom: 8 }}>
               <input type="checkbox" checked={records.has(i)} onChange={() => setRecords((s) => toggle(s, i))} style={{ marginTop: 4 }} />
               <span>
-                <b>{r.title}</b>
+                <b>
+                  <RichText text={r.title} inline />
+                </b>
                 <br />
-                <span className="small">{r.body}</span>
+                <RichText text={r.body} inline className="small" />
               </span>
             </label>
           ))}
@@ -288,7 +290,7 @@ function WrapCard({ session, onDone }: { session: Session; onDone: () => void })
             <label key={i} className="row" style={{ alignItems: 'flex-start', marginBottom: 8 }}>
               <input type="checkbox" checked={terms.has(i)} onChange={() => setTerms((s) => toggle(s, i))} style={{ marginTop: 4 }} />
               <span>
-                <b>{t.term}</b>: <span className="small">{t.definition}</span>
+                <b>{t.term}</b>: <RichText text={t.definition} inline className="small" />
               </span>
             </label>
           ))}

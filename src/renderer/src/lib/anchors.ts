@@ -161,3 +161,100 @@ function normalizeWithMap(s: string): { norm: string; map: number[] } {
   }
   return { norm: norm.trimEnd(), map }
 }
+
+/**
+ * Map a quote (selected on a rendered PDF page, say) back to block ranges.
+ * Matching is whitespace/case/punctuation tolerant and may span blocks; when
+ * the full quote is not found, the longest matching prefix (3+ words) is used.
+ */
+export function quoteToRanges(blocks: { id: string; text: string }[], quote: string): TextRange[] {
+  const q = normalize(quote)
+  if (!q) return []
+  // One normalized string over all blocks, with a map back to (block, offset).
+  let all = ''
+  const owner: { block: number; offset: number }[] = []
+  blocks.forEach((b, bi) => {
+    const { norm, map } = normalizeWithMap(b.text)
+    if (!norm) return
+    if (all && !all.endsWith(' ')) {
+      all += ' '
+      owner.push({ block: bi, offset: -1 })
+    }
+    for (let i = 0; i < norm.length; i++) owner.push({ block: bi, offset: map[i] })
+    all += norm
+  })
+  let idx = all.indexOf(q)
+  let len = q.length
+  if (idx < 0) {
+    const words = q.split(' ')
+    for (let n = words.length - 1; n >= 3 && idx < 0; n--) {
+      const part = words.slice(0, n).join(' ')
+      idx = all.indexOf(part)
+      len = part.length
+    }
+  }
+  if (idx < 0) return []
+  const ranges: TextRange[] = []
+  for (let i = idx; i < idx + len; i++) {
+    const o = owner[i]
+    if (!o || o.offset < 0) continue
+    const id = blocks[o.block].id
+    const last = ranges[ranges.length - 1]
+    if (last && last.blockId === id) last.end = o.offset + 1
+    else ranges.push({ blockId: id, start: o.offset, end: o.offset + 1 })
+  }
+  return ranges.slice(0, 50)
+}
+
+/** Find a quote in the rendered text under `root` and return a DOM Range over it (for CSS highlights). */
+export function rangeForQuote(root: HTMLElement, quote: string): Range | null {
+  const q = normalize(quote)
+  if (!q) return null
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  let norm = ''
+  const map: { node: Text; offset: number }[] = []
+  let lastSpace = true
+  for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+    const t = n.data
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i].toLowerCase()
+      if (/[“”"‘’'`]/.test(ch)) continue
+      if (/[\p{L}\p{N}]/u.test(ch)) {
+        norm += ch
+        map.push({ node: n, offset: i })
+        lastSpace = false
+      } else if (!lastSpace) {
+        norm += ' '
+        map.push({ node: n, offset: i })
+        lastSpace = true
+      }
+    }
+    // Text layer spans are separate words/lines: treat a node boundary as a space.
+    if (!lastSpace) {
+      norm += ' '
+      map.push({ node: n, offset: t.length })
+      lastSpace = true
+    }
+  }
+  let idx = norm.indexOf(q)
+  let len = q.length
+  if (idx < 0) {
+    const words = q.split(' ')
+    for (let n = words.length - 1; n >= 3 && idx < 0; n--) {
+      const part = words.slice(0, n).join(' ')
+      idx = norm.indexOf(part)
+      len = part.length
+    }
+  }
+  if (idx < 0) return null
+  const a = map[idx]
+  const b = map[Math.min(idx + len - 1, map.length - 1)]
+  const range = document.createRange()
+  try {
+    range.setStart(a.node, a.offset)
+    range.setEnd(b.node, Math.min(b.node.data.length, b.offset + 1))
+  } catch {
+    return null
+  }
+  return range
+}

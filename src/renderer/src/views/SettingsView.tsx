@@ -200,7 +200,7 @@ export function SettingsView(): JSX.Element {
 
           <h2 className="section-title">Default trusted domains</h2>
           <div className="card stack">
-            <span className="hint">New classes start with this list when building a curriculum from public sources. Each class can adjust its own copy in its Library.</span>
+            <span className="hint">New classes start with this list when building a curriculum from public sources. Each class keeps its own copy.</span>
             <div className="chips">
               {settings.trustedDomains.map((d) => (
                 <span key={d} className="chip">

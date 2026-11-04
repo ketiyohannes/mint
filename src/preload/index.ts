@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { API_GROUPS, EVENT_CHANNELS, type MintApi } from '@shared/api'
 
 /**
@@ -29,3 +29,14 @@ api.on = {
 } satisfies MintApi['on']
 
 contextBridge.exposeInMainWorld('mint', api as unknown as MintApi)
+
+/** Drag-and-drop support: the absolute path of a dropped file or folder ('' when unavailable). */
+contextBridge.exposeInMainWorld('mintHost', {
+  pathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
+  }
+})

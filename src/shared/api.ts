@@ -1,5 +1,7 @@
 import type {
   Anchor,
+  ChatCommand,
+  WidgetAnswer,
   CheckKind,
   ClassBundle,
   ClassMeta,
@@ -37,13 +39,21 @@ export interface MintApi {
     list(): Promise<ClassSummary[]>
     get(classId: string): Promise<ClassBundle>
     create(input: { title: string; mission: Mission; intake: Intake }): Promise<ClassMeta>
+    /**
+     * Project-style creation: a name and materials (files, folders, links).
+     * Returns at once; importing and planning continue in the background.
+     * With no materials, mint proposes trusted sources for the topic instead.
+     */
+    start(input: { title?: string; goal?: string; paths?: string[]; urls?: string[] }): Promise<ClassMeta>
     update(classId: string, patch: { title?: string; mission?: Mission; intake?: Intake; trustedDomains?: string[] }): Promise<ClassMeta>
     remove(classId: string): Promise<void>
     activate(classId: string): Promise<void>
   }
   sources: {
-    /** Opens a file dialog when `paths` is omitted. Returns the imported sources and per-file errors. */
+    /** Opens a file dialog when `paths` is omitted. Folders are imported like a project. Returns the imported sources and per-file errors. */
     addFiles(classId: string, paths?: string[]): Promise<{ added: SourceMeta[]; errors: string[] }>
+    /** The original PDF bytes for the page view (null for other kinds). */
+    original(classId: string, sourceId: string): Promise<Uint8Array | null>
     addUrl(classId: string, url: string): Promise<SourceMeta>
     get(classId: string, sourceId: string): Promise<SourceDoc>
     remove(classId: string, sourceId: string): Promise<void>
@@ -57,6 +67,8 @@ export interface MintApi {
     skipDiagnostic(classId: string): Promise<void>
     proposeCurriculum(classId: string, reason?: string): Promise<void>
     resolveCurriculum(classId: string, proposalId: string, accept: boolean): Promise<void>
+    /** Plan (or re-plan with a reason) and apply the result directly. */
+    autoPlan(classId: string, reason?: string): Promise<void>
   }
   sessions: {
     start(classId: string, topicId: string, type: 'learn' | 'review'): Promise<Session>
@@ -64,6 +76,13 @@ export interface MintApi {
     submitCheck(classId: string, sessionId: string, kind: CheckKind, answer: string, via: 'text' | 'voice'): Promise<Session>
     finish(classId: string, sessionId: string, acceptRecords: number[], acceptTerms: number[]): Promise<Session>
     abandon(classId: string, sessionId: string): Promise<void>
+  }
+  /** The class chat: intake, tutor replies, and tools that post interactive widgets. */
+  chat: {
+    /** Omit threadId to start a new chat. */
+    send(input: { classId: string; threadId?: string; message: string; via: 'text' | 'voice'; streamId: string; voice?: boolean }): Promise<Thread>
+    answer(input: { classId: string; threadId: string; messageId: string; answer: WidgetAnswer }): Promise<Thread>
+    command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string }): Promise<Thread>
   }
   threads: {
     create(input: {
@@ -87,7 +106,7 @@ export interface MintApi {
     remove(classId: string, annotationId: string): Promise<void>
   }
   notes: {
-    save(classId: string, note: Pick<NoteDoc, 'kind' | 'title' | 'body'> & { id?: string }): Promise<NoteDoc>
+    save(classId: string, note: Pick<NoteDoc, 'kind' | 'title' | 'body' | 'format'> & { id?: string }): Promise<NoteDoc>
     remove(classId: string, noteId: string): Promise<void>
     draftReference(classId: string, topicId: string | null): Promise<NoteDoc>
     review(classId: string, noteId: string, streamId: string): Promise<string>
@@ -116,6 +135,8 @@ export interface MintApi {
     speak(text: string, voice: string): Promise<ArrayBuffer>
   }
   system: {
+    /** Native picker for files and folders. Returns absolute paths (empty when cancelled). */
+    pickMaterials(): Promise<string[]>
     openExternal(url: string): Promise<void>
     platform(): Promise<string>
   }
@@ -129,10 +150,11 @@ export interface MintApi {
 /** Flattened channel names: "<group>:<method>". */
 export const API_GROUPS = {
   settings: ['get', 'update', 'setSecret', 'testProvider', 'openDataDir'],
-  classes: ['list', 'get', 'create', 'update', 'remove', 'activate'],
-  sources: ['addFiles', 'addUrl', 'get', 'remove', 'setTranscript', 'proposeTrusted', 'resolveProposals'],
-  intake: ['startDiagnostic', 'submitDiagnostic', 'skipDiagnostic', 'proposeCurriculum', 'resolveCurriculum'],
+  classes: ['list', 'get', 'create', 'start', 'update', 'remove', 'activate'],
+  sources: ['addFiles', 'original', 'addUrl', 'get', 'remove', 'setTranscript', 'proposeTrusted', 'resolveProposals'],
+  intake: ['startDiagnostic', 'submitDiagnostic', 'skipDiagnostic', 'proposeCurriculum', 'resolveCurriculum', 'autoPlan'],
   sessions: ['start', 'setPhase', 'submitCheck', 'finish', 'abandon'],
+  chat: ['send', 'answer', 'command'],
   threads: ['create', 'send', 'moreHelp', 'setPinned', 'remove', 'cancel'],
   annotations: ['create', 'update', 'remove'],
   notes: ['save', 'remove', 'draftReference', 'review', 'fromThread'],
@@ -140,7 +162,7 @@ export const API_GROUPS = {
   records: ['supersede'],
   diagrams: ['create', 'repair', 'setKept', 'remove'],
   voice: ['transcribe', 'speak'],
-  system: ['openExternal', 'platform']
+  system: ['pickMaterials', 'openExternal', 'platform']
 } as const satisfies { [K in Exclude<keyof MintApi, 'on'>]: readonly (keyof MintApi[K])[] }
 
 export const EVENT_CHANNELS = {

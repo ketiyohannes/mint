@@ -1,0 +1,85 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 2129 >>
+stream
+BT
+/F2 18 Tf 1 0 0 1 60 724 Tm (Eigenvectors and Eigenvalues: A Short Primer) Tj
+/F2 14 Tf 1 0 0 1 60 692 Tm (Vectors that keep their direction) Tj
+/F1 11 Tf 1 0 0 1 60 677 Tm (Most vectors change direction when a matrix multiplies them. A matrix can rotate,) Tj
+/F1 11 Tf 1 0 0 1 60 662 Tm (shear, or stretch space, and a typical vector ends up pointing somewhere new. A) Tj
+/F1 11 Tf 1 0 0 1 60 647 Tm (few special vectors are different. When the matrix acts on them, they stay on the) Tj
+/F1 11 Tf 1 0 0 1 60 632 Tm (same line through the origin and are only stretched or shrunk.) Tj
+/F1 11 Tf 1 0 0 1 60 617 Tm (These special vectors are called eigenvectors. The amount of stretching is a) Tj
+/F1 11 Tf 1 0 0 1 60 602 Tm (number called the eigenvalue. If the eigenvalue is 2, the eigenvector doubles in) Tj
+/F1 11 Tf 1 0 0 1 60 587 Tm (length. If it is one half, the vector shrinks to half its length. If it is) Tj
+/F1 11 Tf 1 0 0 1 60 572 Tm (negative, the vector flips to point the other way along the same line.) Tj
+/F2 14 Tf 1 0 0 1 60 540 Tm (The defining equation) Tj
+/F1 11 Tf 1 0 0 1 60 525 Tm (The whole idea fits in one equation: A x equals lambda x. Here A is the matrix, x) Tj
+/F1 11 Tf 1 0 0 1 60 510 Tm (is the eigenvector, and lambda is the eigenvalue. The equation says that) Tj
+/F1 11 Tf 1 0 0 1 60 495 Tm (multiplying x by the matrix gives the same result as multiplying x by a single) Tj
+/F1 11 Tf 1 0 0 1 60 480 Tm (number.) Tj
+/F1 11 Tf 1 0 0 1 60 465 Tm (Because x must not be the zero vector, the equation only has solutions for special) Tj
+/F1 11 Tf 1 0 0 1 60 450 Tm (values of lambda. Rewriting it as \(A minus lambda I\) x equals zero shows why: the) Tj
+/F1 11 Tf 1 0 0 1 60 435 Tm (matrix A minus lambda I must squash some direction to zero, so its determinant) Tj
+/F1 11 Tf 1 0 0 1 60 420 Tm (must be zero.) Tj
+/F1 11 Tf 1 0 0 1 60 405 Tm (- The characteristic equation is det\(A minus lambda I\) equals 0.) Tj
+/F1 11 Tf 1 0 0 1 60 390 Tm (- Its roots are the eigenvalues.) Tj
+/F1 11 Tf 1 0 0 1 60 375 Tm (- For each eigenvalue, the eigenvectors fill a line or plane called the eigenspace.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 953 >>
+stream
+BT
+/F2 14 Tf 1 0 0 1 60 728 Tm (Why they matter) Tj
+/F1 11 Tf 1 0 0 1 60 713 Tm (Eigenvectors reveal the natural axes of a transformation. Along these axes the) Tj
+/F1 11 Tf 1 0 0 1 60 698 Tm (matrix acts like simple scaling, which makes repeated multiplication easy to) Tj
+/F1 11 Tf 1 0 0 1 60 683 Tm (predict. After many steps, the direction with the largest eigenvalue usually) Tj
+/F1 11 Tf 1 0 0 1 60 668 Tm (dominates, which is the idea behind ranking web pages and finding the main) Tj
+/F1 11 Tf 1 0 0 1 60 653 Tm (patterns in data.) Tj
+/F1 11 Tf 1 0 0 1 60 638 Tm (A matrix is easiest to understand in the coordinate system of its eigenvectors.) Tj
+/F1 11 Tf 1 0 0 1 60 623 Tm (In principal component analysis, the eigenvectors of a covariance matrix point) Tj
+/F1 11 Tf 1 0 0 1 60 608 Tm (along the directions where the data varies most, and the eigenvalues measure how) Tj
+/F1 11 Tf 1 0 0 1 60 593 Tm (much variation lies along each one.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+8 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+9 0 obj
+<< /Title (Eigenvectors and Eigenvalues: A Short Primer) /Author (mint fixtures) >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000257 00000 n 
+0000002438 00000 n 
+0000002574 00000 n 
+0000003578 00000 n 
+0000003675 00000 n 
+0000003777 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R /Info 9 0 R >>
+startxref
+3876
+%%EOF

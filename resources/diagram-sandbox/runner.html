@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Must stay identical to CODE_RUNNER_CSP in src/shared/diagramProtocol.ts (enforced by a unit test). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' mint-sandbox: blob:; worker-src blob:; connect-src mint-sandbox:; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <title>mint code runner</title>
+  </head>
+  <body>
+    <script src="runner.js"></script>
+  </body>
+</html>

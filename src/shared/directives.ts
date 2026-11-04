@@ -4,6 +4,8 @@
  *   [[cite:<sourceId>|<section label>|<short exact quote>]]   jump-to-source chip
  *   [[highlight:<elementId>]]                                  emphasize a diagram part
  *   [[set:<paramId>=<number>]]                                 move a diagram slider
+ *   [[offer:quiz|<focus>]]  [[offer:code|<focus>]]  [[offer:diagram|<what to draw>]]
+ *                                                              a button that runs that tool in the chat
  *
  * Directives are parsed by code (never trusted as HTML) and rendered as UI.
  */
@@ -12,10 +14,14 @@ export type Directive =
   | { type: 'cite'; sourceId: string; section: string; quote: string }
   | { type: 'highlight'; elementId: string }
   | { type: 'set'; paramId: string; value: number }
+  | { type: 'offer'; tool: OfferTool; arg: string }
+
+export type OfferTool = 'quiz' | 'code' | 'diagram'
+const OFFER_TOOLS: OfferTool[] = ['quiz', 'code', 'diagram']
 
 export type Segment = { kind: 'text'; text: string } | { kind: 'directive'; directive: Directive; raw: string }
 
-const DIRECTIVE_RE = /\[\[(cite|highlight|set):([^\]]{1,600})\]\]/g
+const DIRECTIVE_RE = /\[\[(cite|highlight|set|offer):([^\]]{1,600})\]\]/g
 
 export function parseDirective(type: string, body: string): Directive | null {
   if (type === 'cite') {
@@ -27,6 +33,12 @@ export function parseDirective(type: string, body: string): Directive | null {
   if (type === 'highlight') {
     const elementId = body.trim()
     return elementId ? { type: 'highlight', elementId } : null
+  }
+  if (type === 'offer') {
+    const [tool, ...rest] = body.split('|')
+    const t = tool?.trim().toLowerCase() as OfferTool
+    if (!OFFER_TOOLS.includes(t)) return null
+    return { type: 'offer', tool: t, arg: rest.join('|').trim().slice(0, 300) }
   }
   if (type === 'set') {
     const m = /^\s*([\w.-]+)\s*=\s*(-?\d+(?:\.\d+)?)\s*$/.exec(body)
@@ -65,6 +77,8 @@ export function stripForSpeech(text: string): string {
       return ''
     })
     .join('')
+    // Never read malformed or unknown directives aloud.
+    .replace(/\[\[[a-z]+:[^\]]*\]\]/gi, '')
     .replace(/```[\s\S]*?```/g, ' (code shown on screen) ')
     .replace(/\$\$[\s\S]*?\$\$/g, ' (equation shown on screen) ')
     .replace(/`([^`]*)`/g, '$1')
@@ -97,7 +111,7 @@ export function toSpeechChunks(text: string): SpeechChunk[] {
     const sentences = para.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) ?? [para]
     let pending: Directive[] = []
     for (const sentence of sentences) {
-      const directives = extractDirectives(sentence).filter((d) => d.type !== 'cite')
+      const directives = extractDirectives(sentence).filter((d) => d.type === 'highlight' || d.type === 'set')
       const speak = stripForSpeech(sentence)
       if (!speak) {
         pending = pending.concat(directives)

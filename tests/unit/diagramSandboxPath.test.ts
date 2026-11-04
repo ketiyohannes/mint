@@ -54,5 +54,13 @@ describe('resolveSandboxPath', () => {
     expect(resolveSandboxPath(resources, 'mint-sandbox://app/README.md')).toBeNull()
     expect(resolveSandboxPath(resources, 'mint-sandbox://app/vendor')).toBeNull()
     expect(resolveSandboxPath(resources, 'not a url')).toBeNull()
+    expect(resolveSandboxPath(resources, 'mint-sandbox://app/fixtures.json')).toBeNull()
+    expect(resolveSandboxPath(resources, 'mint-sandbox://app/.hidden.js')).toBeNull()
+  })
+
+  it('serves the code runner and its local Python runtime', () => {
+    expect(resolveSandboxPath(resources, 'mint-sandbox://app/runner.html')).toMatch(/runner\.html$/)
+    expect(resolveSandboxPath(resources, 'mint-sandbox://app/pyodide/pyodide.asm.wasm')).toMatch(/pyodide\.asm\.wasm$/)
+    expect(resolveSandboxPath(resources, 'mint-sandbox://app/pyodide/pyodide-lock.json')).toMatch(/pyodide-lock\.json$/)
   })
 })

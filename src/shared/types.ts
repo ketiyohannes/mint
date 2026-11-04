@@ -87,6 +87,7 @@ export interface ClassSummary {
   title: string
   stage: ClassStage
   topic: string
+  createdAt: string
   updatedAt: string
   hue: number
   topicsTotal: number
@@ -337,7 +338,79 @@ export interface ThreadMessage {
   rung?: Rung
   via?: 'text' | 'voice'
   error?: boolean
+  /** Interactive content shown under the text (questions, a quiz, a code exercise, a lesson…). */
+  widget?: Widget
 }
+
+// ---------------------------------------------------------------------------
+// Chat widgets: the tutor's "tool calls" rendered inline in the conversation
+// ---------------------------------------------------------------------------
+
+export interface QuestionOption {
+  label: string
+  description?: string
+}
+
+/** One multiple-choice question, asked the way a coding agent asks (options plus "Other"). */
+export interface ChoiceQuestion {
+  id: string
+  /** Very short chip label, e.g. "Goal". */
+  header: string
+  question: string
+  options: QuestionOption[]
+  multiSelect: boolean
+}
+
+export interface QuizQuestion {
+  prompt: string
+  options: string[]
+  /** Index of the correct option. */
+  answer: number
+  explanation: string
+}
+
+export type CodeLanguage = 'javascript' | 'python'
+
+export interface CodeExercise {
+  title: string
+  /** Markdown task description. */
+  prompt: string
+  language: CodeLanguage
+  starter: string
+  /**
+   * Tests run after the learner's code in the same scope.
+   * JavaScript: `test('name', () => { assertEqual(actual, expected) })`.
+   * Python: functions named `test_*` using `assert`.
+   */
+  tests: string
+  hint?: string
+}
+
+export interface CodeRunResult {
+  ok: boolean
+  output: string[]
+  tests: { name: string; pass: boolean; message?: string }[]
+  error?: string
+}
+
+export type Widget =
+  | { kind: 'questions'; questions: ChoiceQuestion[]; answers?: Record<string, string[]>; skipped?: boolean }
+  | { kind: 'plan'; version: number }
+  | { kind: 'lesson'; sessionId: ID }
+  | { kind: 'quiz'; title: string; questions: QuizQuestion[]; choices?: number[] }
+  | { kind: 'code'; exercise: CodeExercise; submission?: { code: string; passed: number; total: number } }
+  | { kind: 'diagram'; explorableId: ID }
+  | { kind: 'sources' }
+
+/** The learner's response to a widget. */
+export type WidgetAnswer =
+  | { kind: 'questions'; answers: Record<string, string[]>; note?: string }
+  | { kind: 'questions'; skip: true }
+  | { kind: 'quiz'; choices: number[] }
+  | { kind: 'code'; code: string; result: CodeRunResult; streamId: string }
+
+/** Tools the learner (or a tutor offer chip) can invoke in a chat. */
+export type ChatCommand = 'quiz' | 'code' | 'diagram' | 'lesson' | 'plan'
 
 export interface Thread {
   id: ID
@@ -427,12 +500,16 @@ export interface GlossaryTerm {
   updatedAt: string
 }
 
+export type NoteFormat = 'markdown' | 'html'
+
 export interface NoteDoc {
   id: ID
   classId: ID
   kind: 'note' | 'reference'
   title: string
   body: string
+  /** "html" for notes written in the rich notepad; markdown otherwise (tutor drafts, saved side chats). */
+  format?: NoteFormat
   authoredBy: 'learner' | 'tutor-draft'
   createdAt: string
   updatedAt: string
@@ -523,4 +600,6 @@ export interface ProgressEvent {
   label: string
   state: 'running' | 'done' | 'error'
   detail?: string
+  /** A background failure nobody awaits: the UI shows it as a toast. */
+  notice?: boolean
 }

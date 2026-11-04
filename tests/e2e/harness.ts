@@ -19,8 +19,10 @@ export async function launch(opts: { pick?: string[] } = {}): Promise<Launched> 
   const dataDir = mkdtempSync(join(tmpdir(), 'mint-e2e-'))
   // The host may run us inside another Electron app with ELECTRON_RUN_AS_NODE set.
   const { ELECTRON_RUN_AS_NODE: _runAsNode, ...env } = process.env
+  // MINT_E2E_EXECUTABLE runs the same flow against a packaged app (e.g. dist/mac-arm64/mint.app/Contents/MacOS/mint).
+  const packaged = process.env.MINT_E2E_EXECUTABLE
   const app = await electron.launch({
-    args: [join(root, 'out/main/index.js')],
+    ...(packaged ? { executablePath: packaged, args: [] } : { args: [join(root, 'out/main/index.js')] }),
     env: {
       ...env,
       MINT_E2E: '1',

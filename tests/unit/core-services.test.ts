@@ -230,7 +230,13 @@ describe('mint core with the demo runtime', () => {
     await core.handlers.sources.remove(classId, trusted.id)
     expect((await core.handlers.classes.get(classId)).sources.some((s) => s.id === trusted.id)).toBe(false)
     expect((await core.handlers.classes.list()).length).toBe(1)
+    // Delete while a markdown export is due and another is mid-write: the folder must still go.
+    core.kernel.changed(classId)
+    const racing = core.kernel.writeExports(classId)
     await core.handlers.classes.remove(classId)
+    await racing
+    await new Promise((r) => setTimeout(r, 600))
+    expect(existsSync(join(dir, 'classes', classId))).toBe(false)
     await expect(core.handlers.classes.get(classId)).rejects.toThrow(/no longer exists/)
     expect(await core.handlers.classes.list()).toEqual([])
   })

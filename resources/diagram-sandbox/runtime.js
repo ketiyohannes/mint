@@ -45,9 +45,9 @@
   const MAX_STACK_LENGTH = 16000
   const MAX_REGISTERED = 500
 
-  const HIGHLIGHT_COLOR = '#f5a524'
-  const HIGHLIGHT_SHADOW = 'rgba(17, 17, 17, 0.45)'
-  const HOVER_COLOR = 'rgba(70, 110, 255, 0.85)'
+  const HIGHLIGHT_COLOR = '#3a5fcd'
+  const HIGHLIGHT_SHADOW = 'rgba(255, 255, 255, 0.9)'
+  const HOVER_COLOR = 'rgba(58, 95, 205, 0.55)'
 
   /** p5 global-mode hooks that sketch code may define as top-level functions. */
   const P5_HOOKS = [
@@ -887,7 +887,7 @@
       if (helper.parent !== sceneRoot) sceneRoot.add(helper)
       helper.update()
       helper.visible = isVisibleInScene(object)
-      helper.material.opacity = 0.55 + 0.45 * pulse
+      helper.material.opacity = 1
     }
     const needsRender = state.boxHelpers.size > 0 || state.threeDirty
     state.threeDirty = false
@@ -974,18 +974,13 @@
       ctx.setLineDash([])
     }
 
-    const pad = (4 + 3 * pulse) * dpr
+    // A crisp, steady ring (no halo or pulsing glow): a light contrast line under the colored ring.
+    const pad = 5 * dpr
     for (const id of state.highlight) {
       const region = state.regions.get(id)
       if (!region) continue
       traceShape(ctx, region.shape, t, pad)
-      // Soft halo, dark contrast line, then the bright ring: readable on any background.
-      ctx.globalAlpha = 0.18 + 0.17 * pulse
-      ctx.lineWidth = (8 + 4 * pulse) * dpr
-      ctx.strokeStyle = HIGHLIGHT_COLOR
-      ctx.stroke()
-      ctx.globalAlpha = 1
-      ctx.lineWidth = 4 * dpr
+      ctx.lineWidth = 4.5 * dpr
       ctx.strokeStyle = HIGHLIGHT_SHADOW
       ctx.stroke()
       ctx.lineWidth = 2.5 * dpr

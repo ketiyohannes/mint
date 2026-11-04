@@ -9,3 +9,4 @@ playwright-report/
 .DS_Store
 .vitest/
 src/renderer/public/ort/
+resources/diagram-sandbox/pyodide/

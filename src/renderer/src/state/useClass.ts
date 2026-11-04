@@ -3,13 +3,14 @@ import type { ClassBundle, SourceDoc } from '@shared/types'
 import { api, errorMessage } from '../lib/api'
 
 /** Live snapshot of one class; refetches whenever the main process reports a change. */
-export function useClassBundle(classId: string): { bundle: ClassBundle | null; error: string | null; reload: () => Promise<void> } {
+export function useClassBundle(classId: string | null): { bundle: ClassBundle | null; error: string | null; reload: () => Promise<void> } {
   const [bundle, setBundle] = useState<ClassBundle | null>(null)
   const [error, setError] = useState<string | null>(null)
   const seq = useRef(0)
 
   const reload = useCallback(async () => {
     const mine = ++seq.current
+    if (!classId) return
     try {
       const b = await api.classes.get(classId)
       if (mine === seq.current) {
@@ -23,6 +24,8 @@ export function useClassBundle(classId: string): { bundle: ClassBundle | null; e
 
   useEffect(() => {
     setBundle(null)
+    setError(null)
+    if (!classId) return
     void reload()
     let timer: ReturnType<typeof setTimeout> | undefined
     const off = api.on.classChanged((id) => {

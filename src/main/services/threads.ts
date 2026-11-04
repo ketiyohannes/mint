@@ -1,4 +1,5 @@
-import type { Anchor, HelpEvent, Rung, Thread, ThreadMessage } from '@shared/types'
+import type { Anchor, HelpEvent, Rung, Thread, ThreadMessage, Widget } from '@shared/types'
+import { titleText } from '@shared/quote'
 import { findTopic } from '@shared/curriculum'
 import { tutorReply, type ThreadContext } from '../jobs'
 import { AgentError } from '../agents/types'
@@ -108,32 +109,85 @@ export class ThreadService {
   }
 
   private async reply(classId: string, threadId: string, rung: Rung, input: AskInput): Promise<Thread> {
-    const controller = new AbortController()
-    this.inflight.set(input.streamId, controller)
-    this.k.emitter.stream({ streamId: input.streamId, threadId })
-    let text: string
-    let failed = false
-    try {
+    return this.streamReply(classId, threadId, input.streamId, rung, async (signal, onDelta) => {
       const threads = await this.k.repo.read(classId, 'threads')
       const thread = threads.find((t) => t.id === threadId)
       if (!thread) throw userError('That thread no longer exists.')
       const ctx = await this.k.context(classId)
       const tctx = await this.threadContext(classId, thread, rung, Boolean(input.voice))
-      text = await tutorReply({ runtime: await this.k.runtime(), ctx, signal: controller.signal }, tctx, (delta) =>
-        this.k.emitter.stream({ streamId: input.streamId, delta })
-      )
-      this.k.emitter.stream({ streamId: input.streamId, done: true })
+      return tutorReply({ runtime: await this.k.runtime(), ctx, signal }, tctx, onDelta)
+    })
+  }
+
+  /**
+   * Stream a tutor message produced by `produce` into a thread (cancellable via
+   * `cancel(streamId)`); failures become an error message instead of throwing.
+   */
+  async streamReply(
+    classId: string,
+    threadId: string,
+    streamId: string,
+    rung: Rung | undefined,
+    produce: (signal: AbortSignal, onDelta: (d: string) => void) => Promise<string>
+  ): Promise<Thread> {
+    const controller = new AbortController()
+    this.inflight.set(streamId, controller)
+    this.k.emitter.stream({ streamId, threadId })
+    let text: string
+    let failed = false
+    try {
+      text = await produce(controller.signal, (delta) => this.k.emitter.stream({ streamId, delta }))
+      this.k.emitter.stream({ streamId, done: true })
     } catch (err) {
       failed = true
       const aborted = err instanceof AgentError && err.kind === 'aborted'
       text = aborted ? '_Stopped._' : `Sorry, I could not answer: ${userMessage(err)}`
-      this.k.emitter.stream({ streamId: input.streamId, error: aborted ? 'Stopped' : userMessage(err), done: true })
+      this.k.emitter.stream({ streamId, error: aborted ? 'Stopped' : userMessage(err), done: true })
     } finally {
-      this.inflight.delete(input.streamId)
+      this.inflight.delete(streamId)
     }
-    const msg: ThreadMessage = { id: newId('msg'), role: 'tutor', text, at: nowIso(), rung, error: failed || undefined }
+    return this.append(classId, threadId, [{ role: 'tutor', text, rung, error: failed || undefined }])
+  }
+
+  /** A new top-level chat (general anchor) that starts with the given messages. */
+  async createChat(classId: string, title: string, messages: NewMessage[] = [], sessionId?: string): Promise<Thread> {
+    const independence = await this.k.independence(classId)
+    const now = nowIso()
+    const t = titleText(title)
+    const thread: Thread = {
+      id: newId('thr'),
+      classId,
+      anchor: { kind: 'general' },
+      title: (t.length > 70 ? `${t.slice(0, 67)}…` : t) || 'New chat',
+      messages: messages.map(toMessage),
+      rung: independence.defaultRung,
+      pinned: false,
+      sessionId,
+      createdAt: now,
+      updatedAt: now
+    }
+    await this.k.repo.lock(classId, () => this.k.repo.update(classId, 'threads', (list) => [...list, thread]))
+    this.k.changed(classId)
+    return thread
+  }
+
+  /** Append messages to a thread (no tutor reply). */
+  async append(classId: string, threadId: string, messages: NewMessage[], patch: Partial<Pick<Thread, 'sessionId'>> = {}): Promise<Thread> {
     const updated = await this.k.repo.lock(classId, () =>
-      this.mutate(classId, threadId, (t) => ({ ...t, messages: [...t.messages, msg], updatedAt: nowIso() }))
+      this.mutate(classId, threadId, (t) => ({ ...t, ...patch, messages: [...t.messages, ...messages.map(toMessage)], updatedAt: nowIso() }))
+    )
+    this.k.changed(classId)
+    return updated
+  }
+
+  /** Update one message's widget (the learner answered a quiz, submitted code, …). */
+  async patchWidget(classId: string, threadId: string, messageId: string, fn: (w: Widget) => Widget): Promise<Thread> {
+    const updated = await this.k.repo.lock(classId, () =>
+      this.mutate(classId, threadId, (t) => {
+        const m = t.messages.find((x) => x.id === messageId)
+        if (!m?.widget) throw userError('That item is no longer in the chat.')
+        return { ...t, messages: t.messages.map((x) => (x.id === messageId ? { ...x, widget: fn(x.widget!) } : x)), updatedAt: nowIso() }
+      })
     )
     this.k.changed(classId)
     return updated
@@ -216,8 +270,14 @@ export class ThreadService {
   }
 }
 
+export type NewMessage = Omit<ThreadMessage, 'id' | 'at'>
+
+function toMessage(m: NewMessage): ThreadMessage {
+  return { ...m, id: newId('msg'), at: nowIso() }
+}
+
 function titleFor(anchor: Anchor, message: string): string {
-  const base = anchor.kind === 'source' || anchor.kind === 'message' ? anchor.quote : anchor.kind === 'diagram' ? anchor.label : message
-  const t = (base || message).replace(/\s+/g, ' ').trim()
+  const base = anchor.kind === 'source' || anchor.kind === 'message' ? anchor.quote : anchor.kind === 'diagram' ? anchor.label : titleText(message)
+  const t = (base || titleText(message)).replace(/\s+/g, ' ').trim()
   return t.length > 70 ? `${t.slice(0, 67)}…` : t
 }

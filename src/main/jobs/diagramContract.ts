@@ -13,6 +13,7 @@ Return a DiagramSpec: { engine: "p5" | "three", title, code, elements: [{id, lab
 ## Code rules (plain browser JavaScript, ES2022, runs in a locked sandbox)
 1. No network or assets: no fetch, loadImage(url), loadFont, loadJSON, import, external scripts. Draw procedurally.
 2. Draw into mint.stage, sized mint.width x mint.height (CSS px). Use a light background and clear, legible labels (textSize 13 to 16).
+   Palette (matches mint's quiet UI): near-black ink (40) and greys for structure, at most two accents: blue '#3a5fcd' and slate '#7c8798'. Avoid saturated greens, oranges and glow effects.
 3. Register EVERY element id every frame where it is drawn so it is clickable and can be highlighted:
    - p5: mint.region(id, shape) in canvas coordinates. Shapes: {circle:[x,y,r]}, {rect:[x,y,w,h]}, {segment:[x1,y1,x2,y2], width:w}, {polygon:[[x,y],...]}.
    - three: mint.object(id, object3D) and call mint.useCamera(camera, renderer) once.

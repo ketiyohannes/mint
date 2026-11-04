@@ -91,7 +91,8 @@ function createWindow(): void {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      webviewTag: false,
+      // The Browser tab is a <webview>; it is hardened in will-attach-webview below.
+      webviewTag: true,
       spellcheck: true
     }
   })
@@ -106,6 +107,17 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
+  // Browser tab: an isolated, sandboxed guest with no preload and its own session.
+  contents.on('will-attach-webview', (event, prefs, params) => {
+    delete (prefs as { preload?: string }).preload
+    prefs.nodeIntegration = false
+    prefs.nodeIntegrationInSubFrames = false
+    prefs.contextIsolation = true
+    prefs.sandbox = true
+    prefs.webSecurity = true
+    params.partition = BROWSER_PARTITION
+    if (params.src && !/^https?:\/\//i.test(params.src) && params.src !== 'about:blank') event.preventDefault()
+  })
 
   mainWindow.once('ready-to-show', () => {
     if (!isE2E || process.env.MINT_E2E_SHOW === '1') mainWindow?.show()
@@ -113,6 +125,25 @@ function createWindow(): void {
 
   if (process.env.ELECTRON_RENDERER_URL) void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void mainWindow.loadFile(join(here, '../renderer/index.html'))
+}
+
+const BROWSER_PARTITION = 'persist:mint-browser'
+
+/** The Browser tab's guest pages: web only, popups open in the same tab, no permissions. */
+function configureBrowser(): void {
+  const ses = session.fromPartition(BROWSER_PARTITION)
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+  ses.setPermissionCheckHandler(() => false)
+  app.on('web-contents-created', (_e, wc) => {
+    if (wc.getType() !== 'webview') return
+    wc.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) void wc.loadURL(url)
+      return { action: 'deny' }
+    })
+    wc.on('will-navigate', (event, url) => {
+      if (!/^https?:\/\//i.test(url)) event.preventDefault()
+    })
+  })
 }
 
 function configureSession(): void {
@@ -136,6 +167,7 @@ app.whenReady().then(async () => {
   // Packaged: <resources>/resources. Dev and tests: <repo>/resources (out/main is two levels down).
   handleDiagramProtocol(app.isPackaged ? diagramResourcesDir() : join(here, '../../resources'))
   configureSession()
+  configureBrowser()
 
   const fixtures = isE2E ? process.env.MINT_E2E_FIXTURES : undefined
   core = createCore({
@@ -154,11 +186,12 @@ app.whenReady().then(async () => {
       openPath: async (p) => {
         await shell.openPath(p)
       },
-      pickFiles: async () => {
+      pickFiles: async (pick) => {
         if (isE2E) return (process.env.MINT_E2E_PICK ?? '').split(delimiter).filter(Boolean)
         const res = await dialog.showOpenDialog(mainWindow!, {
           title: 'Add your materials',
-          properties: ['openFile', 'multiSelections'],
+          buttonLabel: 'Add',
+          properties: pick?.folders ? ['openFile', 'openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'],
           filters: [{ name: 'Readable files', extensions: ['pdf', 'md', 'markdown', 'txt', 'html', 'htm', 'docx'] }]
         })
         return res.canceled ? [] : res.filePaths

@@ -127,7 +127,7 @@ export function useVoice({ settings, onTranscript, onDirective, onError }: Optio
   // Hold Space to talk, unless typing or a button has focus.
   useEffect(() => {
     const typing = (el: Element | null) =>
-      el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || el instanceof HTMLButtonElement || (el instanceof HTMLElement && el.isContentEditable)
+      el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || el instanceof HTMLButtonElement || (el instanceof HTMLElement && (el.isContentEditable || el.tagName === 'WEBVIEW' || el.tagName === 'IFRAME'))
     const down = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.repeat || e.metaKey || e.ctrlKey || e.altKey || typing(document.activeElement)) return
       e.preventDefault()

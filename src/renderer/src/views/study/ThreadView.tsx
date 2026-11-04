@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { RUNG_LABELS, type Anchor, type Thread, type ThreadMessage } from '@shared/types'
 import { api, errorMessage, newStreamId } from '../../lib/api'
 import { useApp } from '../../state/app'
-import { Markdown } from '../../components/Markdown'
+import { RichText } from '../../components/RichText'
 import { Icon } from '../../components/Icon'
 import { useStudy } from './context'
 
@@ -24,12 +24,15 @@ interface Props {
   suggestions?: boolean
   /** Submit this transcript as the first question as soon as the view mounts. */
   initialVoice?: string
+  /** Shown in place of the conversation before the first message. */
+  intro?: ReactNode
+  placeholder?: string
 }
 
 const SUGGESTIONS = ['What does this mean?', 'Why is this true?', 'Give me an example', 'How does this connect to what I know?']
 
 /** One Ask conversation: messages, the help ladder, and the composer. */
-export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, suggestions, initialVoice }: Props): JSX.Element {
+export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, suggestions, initialVoice, intro, placeholder }: Props): JSX.Element {
   const { toast, settings } = useApp()
   const study = useStudy()
   const [draft, setDraft] = useState('')
@@ -165,6 +168,7 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
   return (
     <>
       <div className="thread-body" ref={bodyRef} onMouseUp={onBodyMouseUp} data-testid="thread-body">
+        {!shown?.messages.length && !pending && intro}
         {!shown?.messages.length && !pending && suggestions && (
           <div className="chips" style={{ marginTop: 2 }}>
             {SUGGESTIONS.map((s) => (
@@ -178,7 +182,7 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
         {pending?.user && !(lastMessage?.role === 'user' && lastMessage.text === pending.user) && <div className="msg user">{pending.user}</div>}
         {pending && (
           <div className="msg tutor" data-testid="tutor-streaming">
-            {pending.text ? <Markdown text={pending.text} streaming sourceTitle={study.sourceTitle} onDirective={study.handleDirective} /> : <span className="muted small">Reading your materials…</span>}
+            {pending.text ? <RichText text={pending.text} streaming /> : <span className="muted small">Reading your materials…</span>}
           </div>
         )}
       </div>
@@ -198,20 +202,22 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
           <Icon name="ask" size={13} /> Ask about this
         </button>
       )}
-      <div className="rung-bar" data-testid="rung-bar">
-        <span className="rung-steps" aria-hidden="true">
-          {[1, 2, 3, 4].map((r) => (
-            <i key={r} className={r <= rung ? 'on' : ''} />
-          ))}
-        </span>
-        <span>
-          Help: <b>{RUNG_LABELS[rung]}</b>
-        </span>
-        <span className="spacer" />
-        <button className="btn ghost sm" disabled={!canMoreHelp} onClick={moreHelp} title="Climb one rung of the help ladder" data-testid="more-help">
-          More help
-        </button>
-      </div>
+      {(shown || pending) && (
+        <div className="rung-bar" data-testid="rung-bar">
+          <span className="rung-steps" aria-hidden="true">
+            {[1, 2, 3, 4].map((r) => (
+              <i key={r} className={r <= rung ? 'on' : ''} />
+            ))}
+          </span>
+          <span>
+            Help: <b>{RUNG_LABELS[rung]}</b>
+          </span>
+          <span className="spacer" />
+          <button className="btn ghost sm" disabled={!canMoreHelp} onClick={moreHelp} title="Climb one rung of the help ladder" data-testid="more-help">
+            <Icon name="lifebuoy" size={13} /> More help
+          </button>
+        </div>
+      )}
       <form
         className="composer"
         onSubmit={(e) => {
@@ -222,7 +228,7 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
         <textarea
           ref={inputRef}
           rows={1}
-          placeholder={shown ? 'Reply… (hold Space outside the box to talk)' : 'Ask about this…'}
+          placeholder={shown ? 'Reply… (hold Space outside the box to talk)' : (placeholder ?? 'Ask about this…')}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -257,7 +263,7 @@ function Message({ m }: { m: ThreadMessage }): JSX.Element {
           <Icon name="sparkle" size={11} /> {RUNG_LABELS[m.rung]}
         </div>
       )}
-      <Markdown text={m.text} sourceTitle={study.sourceTitle} onDirective={study.handleDirective} />
+      <RichText text={m.text} />
     </div>
   )
 }

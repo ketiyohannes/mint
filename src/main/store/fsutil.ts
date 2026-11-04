@@ -33,7 +33,8 @@ export async function writeJson(path: string, value: unknown): Promise<void> {
 }
 
 export async function removePath(path: string): Promise<void> {
-  await rm(path, { recursive: true, force: true })
+  // Retries cover transient ENOTEMPTY/EBUSY (e.g. Spotlight or an editor touching a file mid-delete).
+  await rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 40 })
 }
 
 /**

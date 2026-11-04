@@ -45,6 +45,7 @@ export class ClassService {
           title: meta.title,
           stage: meta.stage,
           topic: meta.mission.topic,
+          createdAt: meta.createdAt,
           updatedAt: meta.updatedAt,
           hue: meta.hue,
           topicsTotal: topics.length,
@@ -140,6 +141,7 @@ export class ClassService {
   }
 
   async remove(classId: string): Promise<void> {
+    this.k.cancelExports(classId)
     await this.k.repo.lock(classId, () => this.k.repo.removeClass(classId))
     this.k.emitter.classChanged(classId)
   }

@@ -1,7 +1,8 @@
 import type { Brief, CheckKind, Diagnostic, NoteDoc, Session, Topic, Verdict } from '@shared/types'
 import type { ClassContext } from './context'
 import type { ThreadContext } from './index'
-import type { CurriculumOutput, DiagramOutput } from './schemas'
+import type { CurriculumOutput, DiagramOutput, ExerciseOutput, IntakeQuestionsOutput, QuizOutput } from './schemas'
+import type { CodeLanguage } from '@shared/types'
 import { slugify } from '../store/fsutil'
 
 /**
@@ -114,7 +115,7 @@ export function brief(ctx: ClassContext, topic: Topic): Brief {
     win: `You can explain "${topic.title}" in your own words and use it once.`,
     whyItMatters: `It moves you toward your mission: ${(ctx.meta.mission.why || ctx.meta.title).replace(/[.!?]+$/, '')}.`,
     readings: reading ? [{ sourceId: reading.sourceId, section: reading.section, note: 'Read for the main claim and the reason behind it.' }] : [],
-    questions: [`What is the main idea of "${topic.title}"?`, 'What reason or evidence does the text give for it?']
+    questions: [`What is the main idea of "${topic.title}"?`, 'What reason or evidence does the text give for it?', 'Where does a statement like $A\\mathbf{x} = \\lambda \\mathbf{x}$ appear, and what does each symbol stand for?']
   }
 }
 
@@ -216,8 +217,8 @@ function draw() {
   const a = radians(mint.param('angle'));
   const x = cx + r * cos(a), y = cy - r * sin(a);
   stroke(200); line(20, cy, width - 20, cy);
-  stroke(40, 120, 90); strokeWeight(4); line(cx, cy, x, y);
-  stroke(180, 120, 40); strokeWeight(3); line(cx, cy, x, cy);
+  stroke(58, 95, 205); strokeWeight(4); line(cx, cy, x, y);
+  stroke(124, 135, 152); strokeWeight(3); line(cx, cy, x, cy);
   noStroke(); fill(30); circle(cx, cy, 10);
   fill(60); textSize(13); text('vector', x + 6, y - 6); text('projection', (cx + x) / 2 - 24, cy + 18);
   mint.region('vector', { segment: [cx, cy, x, y], width: 8 });
@@ -247,4 +248,103 @@ export function noteReview(note: NoteDoc): string {
   return n < 20
     ? 'This is a good start, but it is short. Add the reason behind the main idea and one example, in your own words.'
     : 'This reads accurately and is in your own words. One thing worth adding: a short example that shows the idea at work, and where in your materials it comes from.'
+}
+
+export function intakeQuestions(ctx: ClassContext, firstMessage: string): IntakeQuestionsOutput {
+  const subject = ctx.sources[0]?.meta.title ?? (firstMessage.replace(/^(i want to |teach me |help me )?(learn|understand|study)?\s*/i, '').split(/[.?!]/)[0].trim() || 'your topic')
+  const derived = subject.split(/\s+/).slice(0, 5).join(' ')
+  const title = ctx.meta.title !== 'New class' ? ctx.meta.title : derived.charAt(0).toUpperCase() + derived.slice(1)
+  return {
+    title,
+    intro: `Got it. ${ctx.sources.length ? `I can see ${ctx.sources.length} source${ctx.sources.length > 1 ? 's' : ''} in this class, starting with "${ctx.sources[0].meta.title}".` : 'You have not added materials yet, so I will find trusted ones.'} A few quick questions so the plan fits you:`,
+    questions: [
+      {
+        header: 'Goal',
+        question: 'What do you want to be able to do when you are done?',
+        multiSelect: false,
+        options: [
+          { label: 'Understand it deeply', description: 'Explain the ideas and why they are true.' },
+          { label: 'Use it in a project', description: 'Apply it to real work, with practice.' },
+          { label: 'Pass an exam', description: 'Cover the syllabus and drill problems.' },
+          { label: 'Get the big picture', description: 'A quick, solid overview.' }
+        ]
+      },
+      {
+        header: 'Background',
+        question: 'How much do you already know about this?',
+        multiSelect: false,
+        options: [
+          { label: 'New to it', description: 'Start from the foundations.' },
+          { label: 'Some basics', description: 'I have seen the core ideas before.' },
+          { label: 'Comfortable', description: 'Skip the basics, go deeper.' }
+        ]
+      },
+      {
+        header: 'Style',
+        question: 'How do you like to practice?',
+        multiSelect: true,
+        options: [
+          { label: 'Diagrams', description: 'Visual intuition first.' },
+          { label: 'Quizzes', description: 'Quick retrieval practice.' },
+          { label: 'Code exercises', description: 'Small programs that use the idea.' },
+          { label: 'Worked examples', description: 'Step-by-step solutions.' }
+        ]
+      }
+    ]
+  }
+}
+
+export function quiz(ctx: ClassContext, focus: string): QuizOutput {
+  const src = ctx.sources[0]
+  const cite = src ? ` [[cite:${src.meta.id}|${src.sectionLabels[0] ?? ''}|]]` : ''
+  return {
+    title: `Quick check: ${focus.slice(0, 60)}`,
+    questions: [
+      {
+        prompt: 'What happens to an eigenvector when the matrix multiplies it?',
+        options: ['It rotates by 90 degrees', 'It stays on its line and is only scaled', 'It becomes the zero vector', 'It always doubles in length'],
+        answer: 1,
+        explanation: `By definition $A x = \\lambda x$: the direction is kept and only the length changes.${cite}`
+      },
+      {
+        prompt: 'An eigenvalue of $-1$ means the eigenvector…',
+        options: ['vanishes', 'is unchanged', 'flips to point the other way', 'rotates slightly'],
+        answer: 2,
+        explanation: `A negative eigenvalue reverses the direction along the same line.${cite}`
+      },
+      {
+        prompt: 'Which equation finds the eigenvalues?',
+        options: ['$\\det(A - \\lambda I) = 0$', '$A + \\lambda I = 0$', '$A x = 0$', '$\\lambda = \\det A$'],
+        answer: 0,
+        explanation: `The characteristic equation: $A - \\lambda I$ must squash some direction to zero.${cite}`
+      }
+    ]
+  }
+}
+
+export function exercise(focus: string, language: CodeLanguage | null): ExerciseOutput {
+  if (language === 'python') {
+    return {
+      title: 'Scale a vector',
+      prompt: `Write \`scale(v, k)\` that returns a new list with every entry of \`v\` multiplied by \`k\` (this is what a matrix does to an eigenvector). Focus: ${focus}.\n\nExample: \`scale([1, 2], 3)\` returns \`[3, 6]\`.`,
+      language: 'python',
+      starter: 'def scale(v, k):\n    # return a new list\n    pass\n',
+      tests: 'def test_basic():\n    assert scale([1, 2], 3) == [3, 6], "scale([1, 2], 3) should be [3, 6]"\n\ndef test_negative():\n    assert scale([1, -2], -1) == [-1, 2], "a negative k flips the vector"\n\ndef test_new_list():\n    v = [1, 2]\n    scale(v, 2)\n    assert v == [1, 2], "do not modify the input"\n',
+      hint: 'Build a new list with one multiplication per entry.'
+    }
+  }
+  return {
+    title: 'Scale a vector',
+    prompt: `Write \`scale(v, k)\` that returns a new array with every entry of \`v\` multiplied by \`k\` (this is what a matrix does to an eigenvector). Focus: ${focus}.\n\nExample: \`scale([1, 2], 3)\` returns \`[3, 6]\`.`,
+    language: 'javascript',
+    starter: 'function scale(v, k) {\n  // return a new array\n  return null\n}\n',
+    tests: "test('scales every entry', () => assertEqual(scale([1, 2], 3), [3, 6]))\ntest('negative k flips the vector', () => assertEqual(scale([1, -2], -1), [-1, 2]))\ntest('does not modify the input', () => { const v = [1, 2]; scale(v, 2); assertEqual(v, [1, 2]) })\n",
+    hint: 'Use map to build a new array.'
+  }
+}
+
+export function codeReview(passed: number, total: number): string {
+  return passed === total && total > 0
+    ? `All ${total} tests pass. Your function keeps the input untouched and scales each entry, which is exactly what $A x = \\lambda x$ does along an eigenvector. **Next:** what should \`scale(v, 0)\` return, and what does that mean geometrically?`
+    : `${passed} of ${total} tests pass. Look at the first failing test: what does it expect, and what does your function return for that input? Re-read the definition of scaling and try again.`
 }

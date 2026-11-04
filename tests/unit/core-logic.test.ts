@@ -264,3 +264,17 @@ describe('settings store', () => {
     expect(saved.trustedDomains).toEqual(['example.org'])
   })
 })
+
+describe('tutor offers', () => {
+  it('parses quiz, code and diagram offers, rejects unknown tools, and keeps them out of speech', () => {
+    const text = 'Try it. [[offer:quiz|eigenvalues]] Or [[offer:code|scaling | in python]] and [[offer:diagram|a stretch]] [[offer:shell|rm -rf]]'
+    const ds = extractDirectives(text)
+    expect(ds).toEqual([
+      { type: 'offer', tool: 'quiz', arg: 'eigenvalues' },
+      { type: 'offer', tool: 'code', arg: 'scaling | in python' },
+      { type: 'offer', tool: 'diagram', arg: 'a stretch' }
+    ])
+    expect(stripForSpeech(text)).not.toMatch(/offer|eigenvalues/)
+    expect(toSpeechChunks(text).flatMap((c) => c.directives)).toEqual([])
+  })
+})

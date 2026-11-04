@@ -1,0 +1,45 @@
+# Packaging for releases: `npm run dist` builds the macOS (Apple silicon) app into dist/.
+appId: com.ketiyohannes.mint
+productName: mint
+copyright: Copyright © 2026 Keti Yohannes
+artifactName: mint-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: dist
+  buildResources: build
+
+# The main, preload and renderer bundles. Production dependencies are added automatically.
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+
+# Diagram, code runner and Python runtimes are served from Resources/resources.
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - "**/*"
+      - "!**/.DS_Store"
+
+# The Claude agent is a native binary; it must sit outside app.asar to be spawned.
+asarUnpack:
+  - "node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+
+mac:
+  category: public.app-category.education
+  icon: build/icon.icns
+  # Ad-hoc signed (no Developer ID yet), so macOS asks once before the first launch.
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  extendInfo:
+    NSMicrophoneUsageDescription: mint uses the microphone for the voice tutor. Speech is transcribed on your Mac.
+
+dmg:
+  title: mint ${version}

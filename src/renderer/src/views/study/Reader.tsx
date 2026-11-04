@@ -92,7 +92,12 @@ export const Reader = memo(function Reader(props: Props): JSX.Element {
     if (!el) return
     // Wait one frame so a freshly mounted document has laid out.
     requestAnimationFrame(() => {
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      // Scroll only the reader (scrollIntoView would also scroll the app shell).
+      const scroller = scrollRef.current
+      if (scroller) {
+        const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+        scroller.scrollTo({ top: top - scroller.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' })
+      }
       el.classList.remove('flash')
       void el.offsetWidth
       el.classList.add('flash')
@@ -147,7 +152,7 @@ export const Reader = memo(function Reader(props: Props): JSX.Element {
     <div className={`reader ${hidePins ? 'reader-hidden-pins' : ''}`} ref={scrollRef} data-testid="reader">
       <div className="reader-doc" ref={containerRef} onMouseUp={handleMouseUp}>
         <h1 className="reader-title">{doc.title}</h1>
-        <div className="small muted" style={{ fontFamily: 'var(--font-sans)', marginBottom: 18 }}>
+        <div className="small muted" style={{ marginBottom: 18 }}>
           {doc.author ? `${doc.author} · ` : ''}
           {doc.origin === 'user' ? 'Your material' : `Found by mint${doc.domain ? ` · ${doc.domain}` : ''}`}
           {doc.url && (
@@ -179,7 +184,7 @@ export const Reader = memo(function Reader(props: Props): JSX.Element {
         )}
 
         {doc.needsTranscript && (
-          <div className="card soft" style={{ fontFamily: 'var(--font-sans)', fontSize: 14 }}>
+          <div className="card soft">
             <div className="card-title">This video has no transcript yet</div>
             <p className="small muted" style={{ marginTop: -6 }}>
               Paste one (from YouTube's "Show transcript", or your own notes with timestamps) so you can highlight and ask about it.

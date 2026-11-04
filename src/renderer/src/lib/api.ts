@@ -38,12 +38,3 @@ export function dueLabel(iso: string | undefined): string {
   if (d === 1) return 'due tomorrow'
   return `due in ${d} days`
 }
-
-export function hueColor(hue: number): string {
-  return `hsl(${hue} 45% 45%)`
-}
-
-export function initials(title: string): string {
-  const words = title.trim().split(/\s+/).filter(Boolean)
-  return ((words[0]?.[0] ?? 'M') + (words[1]?.[0] ?? '')).toUpperCase()
-}

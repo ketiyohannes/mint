@@ -1,4 +1,6 @@
-import { isAbsolute, relative, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { query, type HookCallback, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { isDomainAllowed } from '../sources'
 import { AgentError, type AgentRuntime, type AgentTurnRequest, type AgentTurnResult, type ProviderCheck } from './types'
@@ -54,6 +56,8 @@ export class ClaudeRuntime implements AgentRuntime {
         if (stderr.length > 40) stderr.shift()
       }
     }
+    const bundled = bundledClaudeBinary()
+    if (bundled) options.pathToClaudeCodeExecutable = bundled
     if (this.opts.model) options.model = this.opts.model
     if (req.effort) options.effort = req.effort
     if (req.schema) options.outputFormat = { type: 'json_schema', schema: req.schema }
@@ -103,7 +107,14 @@ export class ClaudeRuntime implements AgentRuntime {
     }
     const q = query({
       prompt: idle(),
-      options: { settingSources: [], persistSession: false, tools: [], env: this.env(), ...(this.opts.model ? { model: this.opts.model } : {}) }
+      options: {
+        settingSources: [],
+        persistSession: false,
+        tools: [],
+        env: this.env(),
+        ...(bundledClaudeBinary() ? { pathToClaudeCodeExecutable: bundledClaudeBinary() } : {}),
+        ...(this.opts.model ? { model: this.opts.model } : {})
+      }
     })
     try {
       const info = await withTimeout(q.accountInfo(), 30_000, 'Timed out starting the Claude agent.')
@@ -236,4 +247,26 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
       }
     )
   })
+}
+
+/**
+ * In a packaged app the SDK's platform binary lives inside app.asar, which a
+ * process cannot be spawned from; electron-builder unpacks it next to the
+ * archive (asarUnpack). Point the SDK there. In development the SDK finds its
+ * binary itself, so this returns undefined.
+ */
+let bundledPath: string | null | undefined
+function bundledClaudeBinary(): string | undefined {
+  if (bundledPath !== undefined) return bundledPath ?? undefined
+  bundledPath = null
+  try {
+    const require = createRequire(import.meta.url)
+    const pkg = require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)
+    if (!pkg.includes(`app.asar${sep}`)) return undefined
+    const bin = join(dirname(pkg), process.platform === 'win32' ? 'claude.exe' : 'claude').replace(`app.asar${sep}`, `app.asar.unpacked${sep}`)
+    if (existsSync(bin)) bundledPath = bin
+  } catch {
+    // Not packaged for this platform: the SDK falls back to its own lookup.
+  }
+  return bundledPath ?? undefined
 }

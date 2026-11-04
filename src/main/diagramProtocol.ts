@@ -19,20 +19,28 @@ import electron, { type WebContents } from 'electron'
 
 // Electron's ESM loader only exposes a default export for 'electron'.
 const { app, protocol } = electron
-import { DIAGRAM_SANDBOX_CSP, DIAGRAM_SANDBOX_HOST, DIAGRAM_SANDBOX_SCHEME } from '@shared/diagramProtocol'
+import { CODE_RUNNER_CSP, DIAGRAM_SANDBOX_CSP, DIAGRAM_SANDBOX_HOST, DIAGRAM_SANDBOX_SCHEME } from '@shared/diagramProtocol'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8'
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  // Pyodide runtime files for the code runner.
+  '.wasm': 'application/wasm',
+  '.zip': 'application/zip',
+  '.json': 'application/json; charset=utf-8'
 }
+
+const RUNTIME_ONLY = new Set(['.wasm', '.zip', '.json'])
 
 /** Must run before the app's 'ready' event. */
 export function registerDiagramScheme(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: DIAGRAM_SANDBOX_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false }
+      // fetch + CORS let the code runner's workers (opaque origin) load the local Pyodide files.
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
     }
   ])
 }
@@ -62,8 +70,12 @@ export function resolveSandboxPath(resourcesDir: string, url: string): string | 
   if (pathname.includes('\0') || pathname.includes('\\')) return null
   const segments = pathname.split('/').filter((s) => s.length > 0)
   if (segments.length === 0) segments.push('index.html')
-  if (segments.some((s) => s === '.' || s === '..')) return null
-  if (!(extname(segments[segments.length - 1]).toLowerCase() in CONTENT_TYPES)) return null
+  // No dot-segments and no hidden files (build stamps and the like).
+  if (segments.some((s) => s.startsWith('.'))) return null
+  const ext = extname(segments[segments.length - 1]).toLowerCase()
+  if (!(ext in CONTENT_TYPES)) return null
+  // Runtime data files are only served from the Pyodide folder.
+  if (RUNTIME_ONLY.has(ext) && segments[0] !== 'pyodide') return null
 
   const root = resolve(resourcesDir, 'diagram-sandbox')
   const filePath = resolve(root, ...segments)
@@ -90,7 +102,9 @@ export function handleDiagramProtocol(resourcesDir: string): void {
       status: 200,
       headers: {
         'Content-Type': CONTENT_TYPES[extname(filePath).toLowerCase()],
-        'Content-Security-Policy': DIAGRAM_SANDBOX_CSP,
+        'Content-Security-Policy': filePath.endsWith(`${sep}runner.html`) ? CODE_RUNNER_CSP : DIAGRAM_SANDBOX_CSP,
+        // Sandboxed frames have an opaque ("null") origin; their workers fetch these files cross-origin.
+        'Access-Control-Allow-Origin': '*',
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'no-referrer',
         'Cache-Control': 'no-cache'

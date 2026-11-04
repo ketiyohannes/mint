@@ -1,82 +1,153 @@
-# mint
+<p align="center">
+  <img src="build/icon.png" width="128" alt="mint" />
+</p>
 
-An agent harness for self-study. Bring your own materials (or let mint build a reading list from trusted public sources), get a curriculum that adapts to you, and learn by reading the source, explaining it back, and applying it. The tutor gives less help as you need less: **the more you use mint, the less you need it.**
+<h1 align="center">mint</h1>
 
-mint does not have its own agent loop. Every model turn runs in the **Claude Agent SDK** or the **Codex app-server**. mint owns everything around the turn: the curriculum, the session loop, the help ladder, and your records. In short: code remembers, models judge.
+<p align="center">
+  <b>An agent harness for self-study.</b><br />
+  Bring your own books, papers and notes. The tutor plans, teaches and checks you, then steps back.<br />
+  <i>The more you use mint, the less you need it.</i>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ketiyohannes/mint/releases">Download (macOS, Apple silicon, alpha)</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#build-from-source">Build from source</a>
+</p>
+
+![mint: the chat in the middle, your sources on the right](docs/screenshots/code.png)
+
+mint is laid out like the coding agents you already use (Claude Code, Codex, T3), but the project is a subject you are learning. Open a folder of materials and you get a class: a chat with a tutor, your sources open beside it, and a curriculum built from what you brought.
+
+mint has no agent loop of its own. Every model turn runs in the **Claude Agent SDK** or the **Codex app-server**. mint owns everything around the turn: the curriculum, the lesson loop, the help ladder and your learning records. Code remembers; models judge.
+
+## How it works
+
+1. **Open a folder.** The folder button in the sidebar turns a folder of PDFs, Markdown, Word files, web links or YouTube lectures into a class. No materials? mint searches trusted sites and imports only what you approve.
+2. **Say what you want.** A new chat opens with the prompt in the middle. The tutor asks two to four quick multiple-choice questions (goal, background, time, style), like a coding agent clarifying a task, then posts a plan.
+3. **Learn in the chat.** Lessons, quizzes, code exercises and diagrams appear as cards in the conversation. Type `/` for tools:
+
+   | Tool | What it does |
+   | --- | --- |
+   | `/lesson [topic]` | A lesson in its own chat: brief, read, explain, apply, distinguish, wrap up |
+   | `/quiz [focus]` | Retrieval practice, graded, with explanations that cite your sources |
+   | `/code [focus] [python\|js]` | A small IDE with tests that run offline (JavaScript, or Python via a local Pyodide) |
+   | `/diagram <what>` | An interactive p5 or three.js diagram; click a part to ask about it |
+   | `/plan [change]` | Re-plan the curriculum |
+
+4. **Read the source.** The right panel holds your **Sources** (real PDF pages), **Lessons**, a **Browser** for your own research, and **Notes**. Split it to see two at once, for example notes beside a paper.
+5. **Ask about anything.** Select a passage and choose **Chat** to quote it into the conversation, or **Side chat** to ask in a small floating window that stays out of the way.
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/intake-questions.png" alt="The tutor asks setup questions as cards in the chat" /></td>
+    <td><img src="docs/screenshots/brief.png" alt="A lesson brief with readings and questions" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/split.png" alt="Split panel: a source above your notes" /></td>
+    <td><img src="docs/screenshots/diagram.png" alt="An interactive diagram in the chat" /></td>
+  </tr>
+</table>
+
+## The teaching method
+
+The tutor follows a modified version of [teach-skills](https://github.com/ketiyohannes/teach-skills) (itself based on Matt Pocock's `teach` skill), bundled at [`src/main/pedagogy/teach/SKILL.md`](src/main/pedagogy/teach/SKILL.md). Each tool loads the core rules plus only the sections it needs.
+
+- **Your materials are the authority.** The tutor reads and cites them (citations jump to the exact quote on the page) and labels anything from outside them.
+- **A help ladder.** Help starts as a pointer to the passage, then a guiding question, then a hint, and only then a full explanation. As you show independence, help starts lower.
+- **Mastery, not coverage.** A topic counts as learned when you can explain it, apply it to a new case, and tell it apart from nearby ideas. Mastered topics come back as spaced reviews.
+- **Records of what you know.** Learning records and a glossary hold only what you have shown you understand. They set what to teach next.
+
+Every class is also a plain folder you own, in the `/teach` workspace format: `MISSION.md`, `CURRICULUM.md`, `RESOURCES.md`, `GLOSSARY.md`, `learning-records/`, `notes/` and `sources/`.
 
 ## Features
 
-- **Intake → curriculum.** Mission, constraints, time, prior experience, then a short diagnostic. The tutor proposes milestones and topics, each tied to exact sections of your materials. Code validates the plan (ids, prerequisites without loops, real source sections) and you approve it, or ask for changes.
-- **Trusted-source fallback.** No materials? mint searches only an allowlist of trusted domains plus YouTube, explains why each source is trustworthy, and imports a source only after you approve it. Gaps in your materials become research tasks: mint suggests sources early on, and later asks you to find them.
-- **Interactive reader.** PDFs, web pages, Markdown, Word, text and YouTube (synced transcript with a player you can seek). Select text to **Ask**, **Note**, **Highlight**, **Diagram** or add a **Term**.
-- **Ask popovers and stickies.** Questions open in a floating, draggable, non-modal popover beside the passage. Press Esc or minimize and the thread becomes a sticky pin in the margin. Highlight part of a reply to ask a follow-up (nesting is capped at one level). Pop any thread out to the side panel.
-- **Help ladder.** Every answer is a pointer, a guiding question, a hint, or a full explanation. Each new question starts at the rung your independence level allows, and you climb with **More help**. Citations are chips that jump to the exact quote.
-- **Session loop.** Brief (one win, why it matters, where to read, questions to read with) → Read → Explain → Apply → Distinguish → Wrap. Mastery requires all three checks. Mastered topics come back as spaced reviews (1, 3, 7, 14, 30 and 60 days).
-- **Interactive diagrams.** The tutor writes p5.js (2D) or three.js (3D) explorables that run in a locked sandbox. Drag sliders, click any labeled part to ask about it, and watch the tutor highlight parts and move sliders while it explains.
-- **Voice tutor.** Hold **Space** (or click the mic) to talk. Speech-to-text runs locally with Whisper. Replies are spoken sentence by sentence, with the diagram pointer moving in sync and captions you can ask about. Speaking an explanation also works for the explain-back checks. OpenAI voices are optional.
-- **Notebook.** Your notes, stickies, an *earned* glossary (a term is added only once you can define it, and the tutor checks it against your sources), reference sheets (the tutor drafts them only while your independence is low; later you write and it reviews), and saved explorables.
-- **Progress.** Independence score and trend, help-rung usage, mastery per topic, and ADR-style learning records (numbered, with evidence, superseded rather than deleted).
+- **Rich rendering everywhere.** Markdown, LaTeX, code, and arrays or matrices as cells look the same in the chat, side chats, lesson briefs, checks and quizzes.
+- **Notes.** A notepad with headings, lists and checklists, highlights, code, links and LaTeX formulas (type `$x^2$`). It saves as you type.
+- **Voice tutor.** Hold Space to talk. Speech is transcribed on your Mac with Whisper; replies are spoken, and diagram pointers move in sync.
+- **Layout.** Swap the chat and the panel, resize them, or split the panel into two tabs, side by side or stacked.
 
-Every class is a plain folder you own: `MISSION.md`, `CURRICULUM.md`, `RESOURCES.md`, `GLOSSARY.md`, `learning-records/`, `notes/`, `reference/`, and `sources/<id>/content.md`, following the `/teach` workspace format.
+## Install
 
-## Run it
+Download the latest `.dmg` from [Releases](https://github.com/ketiyohannes/mint/releases) and drag mint to Applications.
 
-Requirements: macOS (Windows and Linux should work but are untested), Node 22 or newer, and at least one harness:
+This alpha is for **Apple silicon Macs** only and is not yet notarized by Apple, so macOS blocks the first launch. To open it:
 
-- **Claude**: Claude Code installed and logged in (`claude`), or an Anthropic API key entered in Settings.
+- Right-click (or Control-click) **mint** in Applications and choose **Open**, then **Open** again; or
+- run `xattr -dr com.apple.quarantine /Applications/mint.app` once in Terminal.
+
+Then pick a harness in **Settings** and press **Test connection**:
+
+- **Claude**: an Anthropic API key, entered in Settings. (A local Claude Code login also works for your own use; Anthropic asks third-party apps to use API keys.)
 - **Codex**: the `codex` CLI installed and logged in (`codex login`).
 - **Demo**: offline, scripted answers for exploring the app. No model is involved.
 
+Your classes, notes and settings stay on your Mac (`~/Library/Application Support/mint`). API keys are encrypted with the macOS keychain.
+
+## Build from source
+
+Requires Node 22 or newer.
+
 ```bash
 npm install
-npm run dev        # development, with hot reload
-# or
-npm run build && npm start
+npm run dev          # development, with hot reload
+npm run dist         # build the macOS app into dist/ (dmg and zip)
+npm run icon         # redraw the app icon (Python 3 with Pillow)
 ```
 
-Pick the harness in **Settings** and press **Test connection**.
+If you start it from inside another Electron app's terminal (VS Code, T3 Code), run `env -u ELECTRON_RUN_AS_NODE npm run dev`.
 
-## Tests
+### Tests
 
 ```bash
 npm run typecheck
-npm test                        # unit and integration tests (headless, Demo runtime)
-npm run test:e2e                # builds, then drives the real app with Playwright
-MINT_VOICE=1 npx playwright test tests/e2e/voice.spec.ts    # local Whisper on real speech, plus system TTS (macOS)
+npm test                    # unit and integration tests (headless, Demo runtime)
+npm run test:e2e            # builds, then drives the whole app with Playwright
+MINT_E2E_EXECUTABLE=dist/mac-arm64/mint.app/Contents/MacOS/mint npx playwright test   # the same flow on the packaged app
 MINT_LIVE=claude npx vitest run tests/unit/live-harness.test.ts   # real Claude Agent SDK (uses your account)
 MINT_LIVE=codex  npx vitest run tests/unit/live-harness.test.ts   # real Codex app-server
-MINT_LIVE_CODEX=1 npx vitest run tests/unit/codex.live.test.ts    # Codex protocol smoke test
 ```
 
-The end-to-end test walks the whole product: intake, diagnostic, plan approval, a session to mastery, Ask, the help ladder, citations, follow-ups, stickies, notes, glossary, diagrams (including clicking a part inside the sandbox), the notebook, progress, and the trusted-source fallback. It fails on any console error.
+The end-to-end test walks the whole product: opening a folder, the setup questions, the help ladder, side chats, quoting a passage into the chat, `/quiz`, a code exercise, a diagram, PDF highlights and notes, web search, a lesson to mastery, the notepad, the split panel, the trusted-source fallback and deleting a class. It fails on any console error.
 
 ## Architecture
 
 ```
-src/main            Electron main process: owns all state
-  agents/           AgentRuntime: claude.ts (Agent SDK), codex/ (app-server JSON-RPC), demo.ts
-  jobs/             every prompt + zod schema + demo answer (pedagogy lives here)
-  learning/         deterministic rules: curriculum validation, mastery, reviews, independence
-  services/         classes, sources, intake, sessions, threads, notebook, diagrams, voice
-  sources/          importers: PDF, HTML (Readability), Markdown, text, Word, YouTube
-  store/            atomic JSON state, settings, keychain-encrypted secrets, /teach exports
-  diagramProtocol   mint-sandbox:// scheme serving the diagram sandbox
-src/preload         the only bridge: typed invoke channels + 3 event streams
-src/renderer        React UI (reader, popovers, session loop, diagrams, voice)
-resources/diagram-sandbox   sandboxed runtime for model-written p5/three code
+src/main             Electron main process: owns all state
+  agents/            AgentRuntime: claude.ts (Agent SDK), codex/ (app-server JSON-RPC), demo.ts
+  jobs/              every prompt, zod schema and demo answer; format.ts is the shared formatting contract
+  pedagogy/          the teach skill (mint edition) and its section loader
+  learning/          deterministic rules: curriculum validation, mastery, reviews, independence
+  services/          chat (intake, tools, widgets), classes, sources, sessions, threads, notebook, diagrams, voice
+  sources/           importers: PDF, HTML (Readability), Markdown, text, Word, YouTube
+  store/             atomic JSON state, settings, keychain-encrypted secrets, /teach exports
+src/preload          the only bridge: typed invoke channels and three event streams
+src/renderer         React UI: chat and widgets, reader, panel, notes, popovers, voice
+                     (components/RichText.tsx is the one renderer for tutor text)
+resources/diagram-sandbox   sandboxed runtimes for model-written diagrams and learner code
 ```
 
-Guardrails worth knowing:
+Guardrails:
 
-- **Claude turns.** Built-in tools are an explicit allowlist (read and search only, plus web search and fetch only when building from trusted sources). A PreToolUse hook keeps file reads inside the class folder and web calls inside the class's trusted domains. Your own Claude Code settings, hooks and `CLAUDE.md` are not loaded.
-- **Codex turns.** These run in an ephemeral read-only thread with approvals auto-declined and web search limited to `allowed_domains`.
-- **Structured output.** All model output that changes state is schema-validated, then validated again by code (for example, curriculum repairs and diagram sanitizing).
-- **Diagram code** runs in an opaque-origin iframe with a strict CSP and no network access.
+- **Claude turns** get an explicit tool allowlist (read and search, plus web search only on trusted domains). A PreToolUse hook keeps file reads inside the class folder. Your own Claude Code settings, hooks and `CLAUDE.md` are not loaded.
+- **Codex turns** run in an ephemeral read-only thread with approvals declined and web search limited to allowed domains.
+- **Model output that changes state** is schema-validated, then checked again by code.
+- **Diagram code and learner code** run in opaque-origin iframes with strict CSPs and no network. Learner code runs in workers that are stopped after a timeout.
+- **The Browser tab** is a sandboxed `<webview>` with its own session and no permissions.
 
 ## Known limitations
 
-- PDFs are shown as reflowed text (page by page), not with the original layout or figures. Scanned PDFs need OCR first.
+- macOS on Apple silicon only for now. The code is cross-platform, but Windows and Linux builds are untested.
+- Scanned PDFs show their pages but need OCR before you can select or ask about text.
 - Codex runs with your `~/.codex` configuration, so your Codex hooks and MCP servers also run on mint's turns.
-- Using your personal Claude login is fine for your own use. A distributed product must use API keys, because Anthropic does not allow third-party products to offer claude.ai login.
-- Local Whisper downloads its model (about 80 MB) the first time you talk. The system voice's quality depends on which voices are installed. Download a "Premium" voice in macOS System Settings → Accessibility → Spoken Content.
-- This is a prototype run from source. There is no packaged installer or auto-update yet.
+- Local Whisper downloads its model (about 80 MB) the first time you talk.
+
+## Credits
+
+- The teaching method builds on Matt Pocock's [`teach` skill](https://github.com/mattpocock/skills) (MIT) via [teach-skills](https://github.com/ketiyohannes/teach-skills).
+- Icons by [Phosphor](https://phosphoricons.com); type set in [Geist](https://vercel.com/font).
+
+## License
+
+[MIT](LICENSE) © Keti Yohannes

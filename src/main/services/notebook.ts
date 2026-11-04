@@ -42,21 +42,22 @@ export class NotebookService {
 
   // --- notes and reference sheets ----------------------------------------
 
-  async saveNote(classId: string, input: Pick<NoteDoc, 'kind' | 'title' | 'body'> & { id?: string }): Promise<NoteDoc> {
-    const title = input.title.trim().slice(0, 160) || 'Untitled'
-    const body = String(input.body ?? '').slice(0, 200_000)
+  async saveNote(classId: string, input: Pick<NoteDoc, 'kind' | 'title' | 'body' | 'format'> & { id?: string }): Promise<NoteDoc> {
+    const title = String(input.title ?? '').trim().slice(0, 160) || 'Untitled'
+    const body = String(input.body ?? '').slice(0, 400_000)
     const kind = input.kind === 'reference' ? 'reference' : 'note'
+    const format = input.format === 'html' ? ('html' as const) : undefined
     const note = await this.k.repo.lock(classId, async () => {
       let saved: NoteDoc | undefined
       await this.k.repo.update(classId, 'notes', (list) => {
         const existing = input.id ? list.find((n) => n.id === input.id) : undefined
         if (existing) {
           // Once the learner edits a tutor draft, it is theirs.
-          saved = { ...existing, title, body, kind, authoredBy: existing.body !== body ? 'learner' : existing.authoredBy, updatedAt: nowIso() }
+          saved = { ...existing, title, body, kind, format: format ?? existing.format, authoredBy: existing.body !== body ? 'learner' : existing.authoredBy, updatedAt: nowIso() }
           return list.map((n) => (n.id === existing.id ? saved! : n))
         }
         const now = nowIso()
-        saved = { id: newId('note'), classId, kind, title, body, authoredBy: 'learner', createdAt: now, updatedAt: now }
+        saved = { id: newId('note'), classId, kind, title, body, ...(format ? { format } : {}), authoredBy: 'learner', createdAt: now, updatedAt: now }
         return [...list, saved]
       })
       return saved!
