@@ -2,7 +2,8 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  timeout: 120_000,
+  // The whole product is one long flow; CI runners (software rendering) need more time.
+  timeout: process.env.CI ? 360_000 : 120_000,
   expect: { timeout: 15_000 },
   workers: 1,
   reporter: [['list']],

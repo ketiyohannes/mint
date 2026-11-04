@@ -1,4 +1,4 @@
 {
-  "https://en.wikipedia.org/wiki/Linear_algebra": "/Users/ketiyohannes/Documents/development/personal/mint/tests/fixtures/sources/article.html",
-  "https://www.britannica.com/search?query=Linear%20algebra": "/Users/ketiyohannes/Documents/development/personal/mint/tests/fixtures/sources/article.html"
+  "https://en.wikipedia.org/wiki/Linear_algebra": "../sources/article.html",
+  "https://www.britannica.com/search?query=Linear%20algebra": "../sources/article.html"
 }

@@ -56,7 +56,7 @@ describe('folder expansion', () => {
     writeFileSync(join(f, '.git', 'HEAD.md'), 'x')
     writeFileSync(join(f, 'node_modules', 'readme.md'), 'x')
     const { files, truncated } = await expandPaths([f])
-    expect(files.map((p) => p.slice(f.length + 1))).toEqual(['chapters/ch2.md', 'chapters/ch10.md', 'notes.txt'])
+    expect(files.map((p) => p.slice(f.length + 1).replaceAll('\\', '/'))).toEqual(['chapters/ch2.md', 'chapters/ch10.md', 'notes.txt'])
     expect(truncated).toBe(false)
     expect(await titleFromPaths([f])).toBe('Linear Algebra')
     expect(await titleFromPaths([join(f, 'chapters', 'ch2.md')])).toBe('ch2')
