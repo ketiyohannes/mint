@@ -1,3 +1,4 @@
+import type { ModelOption } from '@shared/types'
 import { AgentError, type AgentRuntime, type AgentTurnRequest, type AgentTurnResult, type ProviderCheck } from './types'
 
 /**
@@ -30,6 +31,10 @@ export class DemoRuntime implements AgentRuntime {
 
   async check(): Promise<ProviderCheck> {
     return { ok: true, message: 'Demo mode is offline and scripted. Answers are not from a model.' }
+  }
+
+  async listModels(): Promise<ModelOption[]> {
+    return []
   }
 
   async dispose(): Promise<void> {}

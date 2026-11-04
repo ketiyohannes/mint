@@ -1,7 +1,8 @@
 import type { MintApi } from '@shared/api'
 import { ClassRepo } from './store/classRepo'
 import { SettingsStore, type SecretCipher } from './store/settingsStore'
-import { Kernel, userError, type Emitter, type KernelOptions } from './services/kernel'
+import { Kernel, userError, userMessage, type Emitter, type KernelOptions } from './services/kernel'
+import type { ModelOption, ProviderId } from '@shared/types'
 import { ClassService } from './services/classes'
 import { SourceService } from './services/sources'
 import { IntakeService } from './services/intake'
@@ -47,6 +48,8 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
   const setup = new SetupService(kernel, classes, sources, intake)
   const chat = new ChatService(kernel, threads, classes, sessions, setup, sources, diagrams)
 
+  /** Models each harness offers, asked once per session (the list rarely changes). */
+  const modelCache = new Map<ProviderId, ModelOption[]>()
   const handlers: Handlers = {
     settings: {
       get: () => settings.view(),
@@ -64,6 +67,23 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
         const runtime = await kernel.runtime(provider)
         try {
           return await runtime.check()
+        } finally {
+          const s = await settings.get()
+          if (s.provider !== provider) await runtime.dispose().catch(() => undefined)
+        }
+      },
+      models: async (provider, refresh) => {
+        if (!['claude', 'codex', 'demo'].includes(provider)) throw userError('Unknown provider.')
+        const cached = modelCache.get(provider)
+        if (cached && !refresh) return { models: cached }
+        const runtime = await kernel.runtime(provider)
+        try {
+          const models = await runtime.listModels()
+          modelCache.set(provider, models)
+          return { models }
+        } catch (err) {
+          // Not installed or not signed in: the picker still offers the default and a custom id.
+          return { models: cached ?? [], error: userMessage(err) }
         } finally {
           const s = await settings.get()
           if (s.provider !== provider) await runtime.dispose().catch(() => undefined)

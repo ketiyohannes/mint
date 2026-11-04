@@ -3,6 +3,7 @@ import type { ProviderId, Settings } from '@shared/types'
 import { useApp } from '../state/app'
 import { api } from '../lib/api'
 import { Icon } from '../components/Icon'
+import { ModelSelect } from '../components/ModelPicker'
 import { pickSystemVoice, speak } from '../lib/voice/tts'
 
 const OPENAI_VOICES = ['coral', 'alloy', 'ash', 'ballad', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse']
@@ -85,10 +86,7 @@ export function SettingsView(): JSX.Element {
 
           {settings.provider === 'claude' && (
             <div className="card" style={{ marginTop: 14 }}>
-              <div className="field">
-                <label htmlFor="claude-model">Model (optional)</label>
-                <input id="claude-model" className="input" placeholder="Default: the Claude Code default model" defaultValue={settings.claudeModel} onBlur={(e) => e.target.value !== settings.claudeModel && void update({ claudeModel: e.target.value })} />
-              </div>
+              <ModelSelect provider="claude" />
               <div className="field" style={{ marginBottom: 0 }}>
                 <label htmlFor="ak">Anthropic API key (optional)</label>
                 <div className="row">
@@ -108,11 +106,8 @@ export function SettingsView(): JSX.Element {
           )}
           {settings.provider === 'codex' && (
             <div className="card" style={{ marginTop: 14 }}>
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label htmlFor="codex-model">Model (optional)</label>
-                <input id="codex-model" className="input" placeholder="Default: your Codex default" defaultValue={settings.codexModel} onBlur={(e) => e.target.value !== settings.codexModel && void update({ codexModel: e.target.value })} />
-                <span className="hint">Requires the `codex` CLI to be installed and logged in (`codex login`).</span>
-              </div>
+              <ModelSelect provider="codex" />
+              <span className="hint">Requires the `codex` CLI to be installed and logged in (`codex login`).</span>
             </div>
           )}
 

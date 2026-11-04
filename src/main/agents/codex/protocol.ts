@@ -268,6 +268,7 @@ export const Method = {
   initialize: 'initialize',
   initialized: 'initialized',
   accountRead: 'account/read',
+  modelList: 'model/list',
   threadStart: 'thread/start',
   threadUnsubscribe: 'thread/unsubscribe',
   turnStart: 'turn/start',
@@ -290,3 +291,9 @@ export const Method = {
   mcpElicitation: 'mcpServer/elicitation/request',
   currentTimeRead: 'currentTime/read'
 } as const
+
+/** model/list (v2): the models this Codex account can use, paginated. */
+export interface ModelListResponse {
+  data: Array<{ id: string; model: string; displayName: string; description: string; hidden: boolean; isDefault: boolean }>
+  nextCursor: string | null
+}

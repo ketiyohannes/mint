@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { query, type HookCallback, type Options, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { isDomainAllowed } from '../sources'
+import type { ModelOption } from '@shared/types'
 import { AgentError, type AgentRuntime, type AgentTurnRequest, type AgentTurnResult, type ProviderCheck } from './types'
 
 export interface ClaudeRuntimeOptions {
@@ -97,9 +98,11 @@ export class ClaudeRuntime implements AgentRuntime {
     }
   }
 
-  async check(): Promise<ProviderCheck> {
-    // Start a session in streaming-input mode (no prompt is sent, so no model
-    // turn runs), read the account, then close.
+  /**
+   * Start a session in streaming-input mode (no prompt is sent, so no model
+   * turn runs) for control requests like accountInfo or supportedModels.
+   */
+  private idleSession(): { q: ReturnType<typeof query>; close: () => void } {
     let release!: () => void
     const hold = new Promise<void>((r) => (release = r))
     async function* idle(): AsyncGenerator<SDKUserMessage> {
@@ -116,6 +119,28 @@ export class ClaudeRuntime implements AgentRuntime {
         ...(this.opts.model ? { model: this.opts.model } : {})
       }
     })
+    return {
+      q,
+      close: () => {
+        release()
+        q.close()
+      }
+    }
+  }
+
+  async listModels(): Promise<ModelOption[]> {
+    const { q, close } = this.idleSession()
+    try {
+      const models = await withTimeout(q.supportedModels(), 30_000, 'Timed out asking Claude for its models.')
+      return models.map((m) => ({ id: m.value, label: m.displayName || m.value, description: m.description ?? '', isDefault: m.value === 'default' }))
+    } finally {
+      close()
+    }
+  }
+
+  async check(): Promise<ProviderCheck> {
+    // Read the account on an idle session, then close.
+    const { q, close } = this.idleSession()
     try {
       const info = await withTimeout(q.accountInfo(), 30_000, 'Timed out starting the Claude agent.')
       const who = info.email ? ` as ${info.email}` : ''
@@ -127,8 +152,7 @@ export class ClaudeRuntime implements AgentRuntime {
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) }
     } finally {
-      release()
-      q.close()
+      close()
     }
   }
 

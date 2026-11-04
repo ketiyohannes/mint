@@ -17,7 +17,6 @@ interface Pending {
   label: string
 }
 
-const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude', codex: 'Codex', demo: 'Demo' }
 
 interface Props {
   bundle: ClassBundle
@@ -208,7 +207,6 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')
   const showPendingUser = pending?.user && !(lastUser?.text === pending.user && messages[messages.length - 1] === lastUser)
   const empty = !messages.length && !pending
-  const provider = PROVIDER_LABEL[settings?.provider ?? 'claude'] ?? 'Claude'
   const job = jobs.filter((j) => j.classId === classId).at(-1)
 
   const composer = (
@@ -219,8 +217,6 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
       placeholder={empty ? (bundle.meta.stage === 'intake' ? 'What do you want to learn from this?' : 'Ask anything, or type / for tools') : 'Reply…  (/ for tools, hold Space to talk)'}
       centered={empty}
       autoFocus
-      providerLabel={provider}
-      onProvider={() => go({ name: 'settings' })}
       mic={mic}
       onAddMaterials={onAddMaterials}
       prefill={prefill}

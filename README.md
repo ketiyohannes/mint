@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ketiyohannes/mint/releases">Download (macOS, Apple silicon, alpha)</a> ·
+  <a href="https://github.com/ketiyohannes/mint/releases">Download (macOS, Windows, Linux · alpha)</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#build-from-source">Build from source</a>
 </p>
@@ -70,20 +70,23 @@ Every class is also a plain folder you own, in the `/teach` workspace format: `M
 
 ## Install
 
-Download the latest `.dmg` from [Releases](https://github.com/ketiyohannes/mint/releases) and drag mint to Applications.
+Download the latest build from [Releases](https://github.com/ketiyohannes/mint/releases). These alphas are not yet signed by Apple or Microsoft, so each system asks once before the first launch.
 
-This alpha is for **Apple silicon Macs** only and is not yet notarized by Apple, so macOS blocks the first launch. To open it:
-
-- Right-click (or Control-click) **mint** in Applications and choose **Open**, then **Open** again; or
-- run `xattr -dr com.apple.quarantine /Applications/mint.app` once in Terminal.
+| System | File | First launch |
+| --- | --- | --- |
+| macOS (Apple silicon) | `mint-…-mac-arm64.dmg` | Drag mint to Applications. Right-click it and choose **Open**, then **Open** again (or run `xattr -dr com.apple.quarantine /Applications/mint.app`). |
+| Windows (x64) | `mint-…-win-x64-setup.exe` | If SmartScreen appears, choose **More info**, then **Run anyway**. A portable `.zip` is also attached. |
+| Linux (x64) | `mint-…-linux-….deb` or `mint-…-linux-….AppImage` | `sudo apt install ./mint-….deb`, or `chmod +x mint-….AppImage` and run it. |
 
 Then pick a harness in **Settings** and press **Test connection**:
 
-- **Claude**: an Anthropic API key, entered in Settings. (A local Claude Code login also works for your own use; Anthropic asks third-party apps to use API keys.)
+- **Claude**: an Anthropic API key, entered in Settings. (A local Claude Code login also works for your own use; Anthropic asks third-party apps to use API keys.) The Claude agent is bundled with mint.
 - **Codex**: the `codex` CLI installed and logged in (`codex login`).
 - **Demo**: offline, scripted answers for exploring the app. No model is involved.
 
-Your classes, notes and settings stay on your Mac (`~/Library/Application Support/mint`). API keys are encrypted with the macOS keychain.
+Choose the model from the pill in the prompt box (or in Settings). mint asks each harness which models it offers; each harness remembers its own choice, and it applies to every class.
+
+Your classes, notes and settings stay on your computer (on macOS, `~/Library/Application Support/mint`). API keys are encrypted with the system keychain.
 
 ## Build from source
 
@@ -92,11 +95,13 @@ Requires Node 22 or newer.
 ```bash
 npm install
 npm run dev          # development, with hot reload
-npm run dist         # build the macOS app into dist/ (dmg and zip)
+npm run dist         # package for this system into dist/ (npm run dist:mac for the Apple silicon dmg)
 npm run icon         # redraw the app icon (Python 3 with Pillow)
 ```
 
 If you start it from inside another Electron app's terminal (VS Code, T3 Code), run `env -u ELECTRON_RUN_AS_NODE npm run dev`.
+
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml): pushing a `v*` tag builds macOS, Windows and Linux on their own runners, runs the end-to-end test against each packaged app, and uploads the installers to the release for that tag.
 
 ### Tests
 
@@ -138,7 +143,8 @@ Guardrails:
 
 ## Known limitations
 
-- macOS on Apple silicon only for now. The code is cross-platform, but Windows and Linux builds are untested.
+- Builds are for Apple silicon Macs, Windows x64 and Linux x64. Each is tested end to end on CI, but Windows and Linux have had less hands-on use.
+- On Linux, the AppImage may need `--no-sandbox` on systems that restrict unprivileged user namespaces; the `.deb` sets up Chromium's sandbox itself.
 - Scanned PDFs show their pages but need OCR before you can select or ask about text.
 - Codex runs with your `~/.codex` configuration, so your Codex hooks and MCP servers also run on mint's turns.
 - Local Whisper downloads its model (about 80 MB) the first time you talk.

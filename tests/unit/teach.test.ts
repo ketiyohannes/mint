@@ -18,6 +18,9 @@ function capturingRuntime(): AgentRuntime & { requests: AgentTurnRequest[] } {
     async check() {
       return { ok: true, message: 'ok' }
     },
+    async listModels() {
+      return []
+    },
     async dispose() {}
   }
 }

@@ -1,3 +1,4 @@
+import type { ModelOption } from '@shared/types'
 import { accessSync, constants as fsConstants } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
@@ -24,6 +25,7 @@ import {
   type JsonValue,
   type LegacyApprovalResponse,
   type McpServerElicitationRequestResponse,
+  type ModelListResponse,
   type PermissionsRequestApprovalResponse,
   type ThreadStartParams,
   type ThreadStartResponse,
@@ -264,6 +266,20 @@ export class CodexRuntime implements AgentRuntime {
     } catch (err) {
       return { ok: false, message: toAgentError(err, 'startup').message }
     }
+  }
+
+  async listModels(): Promise<ModelOption[]> {
+    const client = await this.ensureClient()
+    const out: ModelOption[] = []
+    let cursor: string | null = null
+    // Pages are small; stop after a few in case a server keeps returning cursors.
+    for (let page = 0; page < 10; page++) {
+      const res: ModelListResponse = await client.request<ModelListResponse>(Method.modelList, { cursor, includeHidden: false })
+      for (const m of res.data ?? []) if (!m.hidden) out.push({ id: m.model || m.id, label: m.displayName || m.model || m.id, description: m.description ?? '', isDefault: Boolean(m.isDefault) })
+      cursor = res.nextCursor
+      if (!cursor) break
+    }
+    return out
   }
 
   async dispose(): Promise<void> {

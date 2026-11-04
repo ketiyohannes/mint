@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import type { ChatCommand } from '@shared/types'
 import { Icon, type IconName } from '../../components/Icon'
+import { ModelPicker } from '../../components/ModelPicker'
 
 export const SLASH_COMMANDS: { command: ChatCommand; args: string; description: string; icon: IconName }[] = [
   { command: 'lesson', args: '[topic]', description: 'Start the next lesson (or a named one)', icon: 'lesson' },
@@ -25,8 +26,6 @@ interface Props {
   placeholder: string
   centered?: boolean
   autoFocus?: boolean
-  providerLabel: string
-  onProvider: () => void
   mic: { status: string; toggle: () => void }
   onAddMaterials: () => void
   /** Prefill (e.g. from a suggestion chip) without sending. */
@@ -38,7 +37,7 @@ interface Props {
 
 /** The prompt box: auto-growing input, slash commands, actions menu, provider, mic, send/stop. */
 export function Composer(props: Props): JSX.Element {
-  const { onSubmit, busy, onStop, placeholder, centered, autoFocus, providerLabel, onProvider, mic, onAddMaterials, prefill, quote, onClearQuote } = props
+  const { onSubmit, busy, onStop, placeholder, centered, autoFocus, mic, onAddMaterials, prefill, quote, onClearQuote } = props
   const [draft, setDraft] = useState('')
   const [menu, setMenu] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
@@ -200,11 +199,7 @@ export function Composer(props: Props): JSX.Element {
             </div>
           )}
         </div>
-        <button className="provider-pill" onClick={onProvider} title="Change the agent harness in Settings">
-          <Icon name="sparkle" size={12} />
-          {providerLabel}
-          <Icon name="caret" size={10} />
-        </button>
+        <ModelPicker />
         <span className="spacer" />
         <span className="composer-hint">/ for tools</span>
         <button

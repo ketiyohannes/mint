@@ -50,6 +50,14 @@ describe('mint core with the demo runtime', () => {
     await core.handlers.settings.update({ provider: 'demo' })
   })
 
+  it('lists models per harness and remembers each provider\'s model', async () => {
+    expect(await core.handlers.settings.models('demo')).toEqual({ models: [] })
+    await expect(core.handlers.settings.models('bogus' as never)).rejects.toThrow(/Unknown provider/)
+    const view = await core.handlers.settings.update({ claudeModel: 'sonnet', codexModel: 'gpt-x' })
+    expect(view).toMatchObject({ provider: 'demo', claudeModel: 'sonnet', codexModel: 'gpt-x' })
+    await core.handlers.settings.update({ claudeModel: '', codexModel: '' })
+  })
+
   it('runs intake: class, materials, diagnostic, curriculum approval', async () => {
     await expect(core.handlers.classes.create({ title: ' ', mission: { topic: '', why: '', successLooksLike: [], constraints: [], outOfScope: [] }, intake: {} as never })).rejects.toThrow(/name or a topic/)
     const meta = await core.handlers.classes.create({

@@ -14,6 +14,16 @@ export type ID = string
 // ---------------------------------------------------------------------------
 
 export type ProviderId = 'claude' | 'codex' | 'demo'
+
+/** A model a harness offers (from the Agent SDK's supportedModels or Codex's model/list). */
+export interface ModelOption {
+  /** The id passed to the harness. */
+  id: string
+  label: string
+  description: string
+  /** The harness's own default. */
+  isDefault?: boolean
+}
 export type SttEngine = 'local-whisper' | 'openai'
 export type TtsEngine = 'system' | 'openai'
 export type ThemePref = 'light' | 'dark' | 'system'

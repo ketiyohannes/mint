@@ -95,6 +95,12 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('chat-hero')).toContainText('What do you want to learn?')
   await expect(page.getByTestId('source-tab')).toHaveCount(2, { timeout: 20_000 })
   await expect(page.getByTestId('composer')).toBeVisible()
+  // The model picker lives in the prompt box (Demo has no models to choose).
+  await expect(page.getByTestId('model-picker')).toContainText('Demo')
+  await page.getByTestId('model-picker').click()
+  await expect(page.getByTestId('model-menu')).toContainText('Demo mode is scripted and has no models.')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('model-menu')).toHaveCount(0)
   await shot(page, 'new-class')
 
   // --- Intake as questions in the chat (like a coding agent asking before it plans) ------

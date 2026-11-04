@@ -1,4 +1,4 @@
-import type { ProviderId } from '@shared/types'
+import type { ModelOption, ProviderId } from '@shared/types'
 
 /**
  * One agent turn, run by a harness (Claude Agent SDK or Codex app-server).
@@ -56,6 +56,8 @@ export interface AgentRuntime {
   readonly id: ProviderId
   run(req: AgentTurnRequest): Promise<AgentTurnResult>
   check(): Promise<ProviderCheck>
+  /** The models this harness offers (empty when it has no choice of model). */
+  listModels(): Promise<ModelOption[]>
   dispose(): Promise<void>
 }
 

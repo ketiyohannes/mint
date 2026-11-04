@@ -51,7 +51,8 @@ export class Kernel {
     const key = JSON.stringify([p, s.claudeModel, s.codexModel, Boolean(apiKey), apiKey?.slice(-6)])
     if (this.runtimeCache?.key === key) return this.runtimeCache.runtime
     const runtime = this.createRuntime(p, s, apiKey)
-    if (!provider) {
+    // The current provider's runtime is shared; another provider's is the caller's to dispose.
+    if (p === s.provider) {
       const old = this.runtimeCache
       this.runtimeCache = { key, runtime }
       if (old) void old.runtime.dispose().catch(() => undefined)

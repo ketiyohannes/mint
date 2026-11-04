@@ -1,6 +1,6 @@
 {
   "name": "mint",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "mint: an agent harness for self-study. Bring your own materials; the tutor plans, teaches and checks you, then steps back.",
   "private": true,
   "type": "module",
@@ -15,8 +15,9 @@
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
     "verify": "npm run typecheck && npm test && npm run test:e2e",
-    "dist": "npm run build && electron-builder --mac --arm64 --publish never",
-    "icon": "python3 -I scripts/make-icon.py build"
+    "dist": "npm run build && electron-builder --publish never",
+    "icon": "python3 -I scripts/make-icon.py build",
+    "dist:mac": "npm run build && electron-builder --mac --arm64 --publish never"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.316",

@@ -1,4 +1,4 @@
-import type {
+import type { ModelOption,
   Anchor,
   ChatCommand,
   WidgetAnswer,
@@ -33,6 +33,8 @@ export interface MintApi {
     update(patch: Partial<Settings>): Promise<SettingsView>
     setSecret(name: SecretName, value: string | null): Promise<SettingsView>
     testProvider(provider: ProviderId): Promise<{ ok: boolean; message: string }>
+    /** The models a harness offers. Cached per session; `refresh` asks the harness again. */
+    models(provider: ProviderId, refresh?: boolean): Promise<{ models: ModelOption[]; error?: string }>
     openDataDir(): Promise<void>
   }
   classes: {
@@ -149,7 +151,7 @@ export interface MintApi {
 
 /** Flattened channel names: "<group>:<method>". */
 export const API_GROUPS = {
-  settings: ['get', 'update', 'setSecret', 'testProvider', 'openDataDir'],
+  settings: ['get', 'update', 'setSecret', 'testProvider', 'models', 'openDataDir'],
   classes: ['list', 'get', 'create', 'start', 'update', 'remove', 'activate'],
   sources: ['addFiles', 'original', 'addUrl', 'get', 'remove', 'setTranscript', 'proposeTrusted', 'resolveProposals'],
   intake: ['startDiagnostic', 'submitDiagnostic', 'skipDiagnostic', 'proposeCurriculum', 'resolveCurriculum', 'autoPlan'],

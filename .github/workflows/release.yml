@@ -1,0 +1,107 @@
+# Builds mint on macOS, Windows and Linux, runs the end-to-end test against each
+# packaged app, and uploads the installers to the GitHub release for the tag.
+#
+#   git tag v0.1.0-alpha.3 && git push origin v0.1.0-alpha.3
+#   gh release create v0.1.0-alpha.3 --prerelease --notes "…"   # the jobs upload into it
+#
+# Or run it by hand for an existing tag (Actions → Release builds → Run workflow).
+name: Release builds
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload to (for example v0.1.0-alpha.2)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            os: macos-latest
+            builder: --mac --arm64
+            app: dist/mac-arm64/mint.app/Contents/MacOS/mint
+          - name: Windows (x64)
+            os: windows-latest
+            builder: --win --x64
+            app: dist/win-unpacked/mint.exe
+          - name: Linux (x64)
+            os: ubuntu-latest
+            builder: --linux --x64
+            app: dist/linux-unpacked/mint
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # Install scripts stay off (some dependencies fetch optional GPU runtimes); Electron's own is run explicitly.
+      - name: Install
+        run: |
+          npm ci --ignore-scripts
+          node node_modules/electron/install.js
+
+      - name: Typecheck and unit tests
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build and package
+        run: |
+          npm run build
+          npx electron-builder ${{ matrix.builder }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: End-to-end test on the packaged app
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a npx playwright test tests/e2e/flow.spec.ts
+          else
+            npx playwright test tests/e2e/flow.spec.ts
+          fi
+        env:
+          MINT_E2E_EXECUTABLE: ${{ github.workspace }}/${{ matrix.app }}
+          # CI runners restrict unprivileged user namespaces, which Chromium's sandbox needs.
+          ELECTRON_DISABLE_SANDBOX: ${{ runner.os == 'Linux' && '1' || '' }}
+
+      - name: Upload to the release
+        run: |
+          shopt -s nullglob
+          files=(dist/*.dmg dist/*.zip dist/*-setup.exe dist/*.AppImage dist/*.deb)
+          echo "Uploading: ${files[*]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Keep the failure trace
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ runner.os }}
+          path: test-results/
+          if-no-files-found: ignore
