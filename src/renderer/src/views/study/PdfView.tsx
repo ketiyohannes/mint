@@ -372,7 +372,7 @@ interface PageProps {
   onPin: (pin: Pin, rect: DOMRect) => void
 }
 
-/** One page: rendered when near the viewport, re-rendered when the width changes. */
+/** One page: rendered when near the viewport; the canvas is redrawn when the width settles. */
 const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onTextReady, register, pins, onPin }: PageProps): JSX.Element {
   const pageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -411,11 +411,11 @@ const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onText
     return () => io.disconnect()
   }, [scrollRoot])
 
+  // The canvas: drawn at the settled width (sharp at any zoom).
   useEffect(() => {
     if (!near) return
     let cancelled = false
     let task: RenderTask | null = null
-    let textLayer: pdfjs.TextLayer | null = null
     void (async () => {
       try {
         const page = await pdf.getPage(n)
@@ -423,24 +423,16 @@ const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onText
         const base = page.getViewport({ scale: 1 })
         baseWidth.current = base.width
         setPageRatio(base.height / base.width)
-        const scale = renderWidth / base.width
-        const viewport = page.getViewport({ scale })
-        // The width may have moved on while this page rendered (pinching): scale the text to the latest one.
+        // The width may have moved on while this page loaded (pinching): scale the text to the latest one.
         pageRef.current?.style.setProperty('--total-scale-factor', String(widthRef.current / base.width))
+        const viewport = page.getViewport({ scale: renderWidth / base.width })
         const canvas = canvasRef.current
-        const textDiv = textRef.current
-        if (!canvas || !textDiv) return
+        if (!canvas) return
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
         canvas.width = Math.floor(viewport.width * dpr)
         canvas.height = Math.floor(viewport.height * dpr)
         task = page.render({ canvas, viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined })
         await task.promise
-        if (cancelled) return
-        onTextReady(n, null)
-        textDiv.replaceChildren()
-        textLayer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: textDiv, viewport })
-        await textLayer.render()
-        if (!cancelled) onTextReady(n, textDiv)
       } catch (err) {
         if (!cancelled && !(err instanceof Error && err.name === 'RenderingCancelledException')) console.warn(`mint: page ${n} failed to render`, err)
       }
@@ -448,11 +440,37 @@ const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onText
     return () => {
       cancelled = true
       task?.cancel()
-      textLayer?.cancel()
     }
-  }, [near, pdf, n, renderWidth, onTextReady])
+  }, [near, pdf, n, renderWidth])
 
-  useEffect(() => () => onTextReady(n, null), [n, onTextReady])
+  // The selectable text: built once per page and sized by --total-scale-factor, so a
+  // selection (and highlights) survive zooming and resizing.
+  useEffect(() => {
+    if (!near) return
+    let cancelled = false
+    let textLayer: pdfjs.TextLayer | null = null
+    void (async () => {
+      try {
+        const page = await pdf.getPage(n)
+        const textDiv = textRef.current
+        if (cancelled || !textDiv) return
+        const viewport = page.getViewport({ scale: 1 })
+        baseWidth.current = viewport.width
+        pageRef.current?.style.setProperty('--total-scale-factor', String(widthRef.current / viewport.width))
+        textDiv.replaceChildren()
+        textLayer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: textDiv, viewport })
+        await textLayer.render()
+        if (!cancelled) onTextReady(n, textDiv)
+      } catch (err) {
+        if (!cancelled) console.warn(`mint: page ${n} text failed to load`, err)
+      }
+    })()
+    return () => {
+      cancelled = true
+      textLayer?.cancel()
+      onTextReady(n, null)
+    }
+  }, [near, pdf, n, onTextReady])
 
   return (
     <div className="pdf-page" ref={pageRef} data-page={n} style={{ width, height }}>

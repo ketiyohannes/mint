@@ -396,6 +396,8 @@ a {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* Classic scrollbars (Windows, Linux) must not change the fit width, or the pages re-fit in a loop. */
+  scrollbar-gutter: stable;
   background: var(--surface-2);
   padding: 20px 0 80px;
 }
