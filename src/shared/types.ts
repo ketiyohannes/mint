@@ -44,6 +44,28 @@ export interface SettingsView extends Settings {
 export type SecretName = 'anthropic'
 
 // ---------------------------------------------------------------------------
+// App updates (new releases from GitHub, installed from inside the app)
+// ---------------------------------------------------------------------------
+
+export type UpdateState =
+  /** Development and test builds never check. */
+  | { status: 'disabled'; reason: string }
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'current'; checkedAt: string }
+  /** `installable` is false when mint cannot replace itself here (e.g. run from a disk image); the release page is offered instead. */
+  | { status: 'available'; version: string; releaseUrl: string; installable: boolean }
+  | { status: 'downloading'; version: string; releaseUrl: string; percent: number }
+  /** Downloaded and verified; applied on restart (or when mint quits). */
+  | { status: 'ready'; version: string; releaseUrl: string }
+  | { status: 'error'; message: string; releaseUrl: string }
+
+export interface UpdateStatus {
+  currentVersion: string
+  state: UpdateState
+}
+
+// ---------------------------------------------------------------------------
 // Class (one learning project; mirrors a /teach workspace)
 // ---------------------------------------------------------------------------
 

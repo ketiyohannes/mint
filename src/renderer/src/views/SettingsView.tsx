@@ -1,7 +1,8 @@
 import { useState, type JSX } from 'react'
 import type { ProviderId, SecretName, Settings } from '@shared/types'
 import { useApp } from '../state/app'
-import { api } from '../lib/api'
+import { api, timeAgo } from '../lib/api'
+import { useUpdates } from '../lib/useUpdates'
 import { Icon } from '../components/Icon'
 import { ModelSelect } from '../components/ModelPicker'
 
@@ -148,7 +149,94 @@ export function SettingsView(): JSX.Element {
             </div>
             <span className="hint">Every class is a plain folder: MISSION.md, CURRICULUM.md, GLOSSARY.md, learning-records/, notes/ and your sources. It is yours.</span>
           </div>
+
+          <UpdatesCard />
         </div>
+      </div>
+    </>
+  )
+}
+
+function UpdatesCard(): JSX.Element | null {
+  const { status, check, download, install, openRelease } = useUpdates()
+  if (!status) return null
+  const { state } = status
+
+  let text: string
+  switch (state.status) {
+    case 'disabled':
+      text = state.reason
+      break
+    case 'idle':
+      text = 'mint checks for new versions in the background.'
+      break
+    case 'checking':
+      text = 'Checking for updates…'
+      break
+    case 'current':
+      text = `You have the latest version. Checked ${timeAgo(state.checkedAt)}.`
+      break
+    case 'available':
+      text = state.installable
+        ? `mint ${state.version} is available.`
+        : `mint ${state.version} is available. This copy can't update itself (on a Mac, move it to Applications first), so get it from the release page.`
+      break
+    case 'downloading':
+      text = `Downloading mint ${state.version}… ${state.percent}%`
+      break
+    case 'ready':
+      text = `mint ${state.version} is ready. It installs when you restart, or the next time mint quits.`
+      break
+    case 'error':
+      text = state.message
+      break
+  }
+
+  return (
+    <>
+      <h2 className="section-title">Updates</h2>
+      <div className="card stack" data-testid="updates">
+        <div className="row">
+          <span style={{ width: 120 }}>Version</span>
+          <code className="small" data-testid="app-version">
+            {status.currentVersion}
+          </code>
+        </div>
+        <div className="row">
+          <span className="small muted" style={{ flex: 1 }} data-testid="update-status">
+            {text}
+          </span>
+          {(state.status === 'available' || state.status === 'ready') && (
+            <button className="btn sm ghost" onClick={openRelease}>
+              What's new
+            </button>
+          )}
+          {(state.status === 'idle' || state.status === 'current' || state.status === 'error') && (
+            <button className="btn sm" onClick={check} data-testid="update-check">
+              <Icon name="refresh" size={14} /> Check for updates
+            </button>
+          )}
+          {state.status === 'checking' && (
+            <button className="btn sm" disabled>
+              <span className="spinner" /> Checking
+            </button>
+          )}
+          {state.status === 'available' && (
+            <button className="btn sm primary" onClick={download} data-testid="update-download">
+              <Icon name="update" size={14} /> {state.installable ? 'Download and install' : 'Open the release page'}
+            </button>
+          )}
+          {state.status === 'ready' && (
+            <button className="btn sm primary" onClick={install} data-testid="update-install">
+              <Icon name="update" size={14} /> Restart to update
+            </button>
+          )}
+        </div>
+        {state.status === 'downloading' && (
+          <div className="progress-bar">
+            <div style={{ width: `${state.percent}%` }} />
+          </div>
+        )}
       </div>
     </>
   )

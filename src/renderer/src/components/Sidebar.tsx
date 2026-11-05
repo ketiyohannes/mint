@@ -2,6 +2,7 @@ import { useState, type JSX } from 'react'
 import type { ClassBundle, SourceMeta } from '@shared/types'
 import { useApp } from '../state/app'
 import { api, timeAgo } from '../lib/api'
+import { useUpdates } from '../lib/useUpdates'
 import { Icon, type IconName } from './Icon'
 
 export const KIND_ICON: Record<SourceMeta['kind'], IconName> = {
@@ -105,10 +106,41 @@ export function Sidebar({ bundle }: { bundle: ClassBundle | null }): JSX.Element
       </nav>
 
       <div className="sidebar-foot">
+        <UpdateRow />
         <button className={`class-row plain ${route.name === 'settings' ? 'active' : ''}`} onClick={() => go({ name: 'settings' })} data-testid="nav-settings">
           <Icon name="settings" size={14} /> Settings
         </button>
       </div>
     </aside>
   )
+}
+
+/** A new version, once found: download it, follow the download, then restart into it. */
+function UpdateRow(): JSX.Element | null {
+  const { status, download, install } = useUpdates()
+  const state = status?.state
+  if (state?.status === 'available') {
+    return (
+      <button className="class-row plain update-row" onClick={download} title={`mint ${state.version} is available`} data-testid="update-row">
+        <Icon name="update" size={14} /> {state.installable ? 'Update mint' : 'Get the new mint'}
+        <span className="update-row-note">{state.version}</span>
+      </button>
+    )
+  }
+  if (state?.status === 'downloading') {
+    return (
+      <div className="class-row plain update-row" data-testid="update-row">
+        <span className="spinner" /> Downloading update
+        <span className="update-row-note">{state.percent}%</span>
+      </div>
+    )
+  }
+  if (state?.status === 'ready') {
+    return (
+      <button className="class-row plain update-row" onClick={install} title={`Restart into mint ${state.version}`} data-testid="update-row">
+        <Icon name="update" size={14} /> Restart to update
+      </button>
+    )
+  }
+  return null
 }

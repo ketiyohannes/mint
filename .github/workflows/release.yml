@@ -1,8 +1,8 @@
 # Builds mint on macOS, Windows and Linux, runs the end-to-end test against each
 # packaged app, and uploads the installers to the GitHub release for the tag.
 #
-#   git tag v0.1.0-alpha.3 && git push origin v0.1.0-alpha.3
-#   gh release create v0.1.0-alpha.3 --prerelease --notes "…"   # the jobs upload into it
+#   git tag v0.1.0-alpha.4 && git push origin v0.1.0-alpha.4
+#   gh release create v0.1.0-alpha.4 --prerelease --notes "…"   # the jobs upload into it
 #
 # Or run it by hand for an existing tag (Actions → Release builds → Run workflow).
 name: Release builds
@@ -92,7 +92,8 @@ jobs:
       - name: Upload to the release
         run: |
           shopt -s nullglob
-          files=(dist/*.dmg dist/*.zip dist/*-setup.exe dist/*.AppImage dist/*.deb)
+          # latest*.yml are the update feeds the installed apps read; blockmaps allow partial downloads.
+          files=(dist/*.dmg dist/*.zip dist/*-setup.exe dist/*.AppImage dist/*.deb dist/latest*.yml dist/*.blockmap)
           echo "Uploading: ${files[*]}"
           gh release upload "$TAG" "${files[@]}" --clobber
         env:

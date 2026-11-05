@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import * as pdfjs from 'pdfjs-dist'
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import type { Annotation, SourceDoc, SourceSection, Thread } from '@shared/types'
 import { quoteToRanges, rangeForQuote, type SelectionAnchor } from '../../lib/anchors'
 import { api, errorMessage } from '../../lib/api'
+import { Icon } from '../../components/Icon'
 import type { ReaderFocus } from './Reader'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
@@ -21,6 +22,8 @@ interface Props {
   onOpenNote: (annotation: Annotation, rect: DOMRect) => void
   /** The original file is not available: the caller shows the text view instead. */
   onUnavailable: () => void
+  /** Show the pages dark (light text on a dark page). */
+  dark?: boolean
 }
 
 interface Pin {
@@ -32,6 +35,13 @@ interface Pin {
 
 const HIGHLIGHTS = ['mint-hl', 'mint-note', 'mint-thread', 'mint-flash'] as const
 const MAX_WIDTH = 980
+/** Zoom is relative to fitting the page to the column (1 = fit width). */
+const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 2.5, 3]
+const MIN_ZOOM = ZOOM_STEPS[0]
+const MAX_ZOOM = ZOOM_STEPS[ZOOM_STEPS.length - 1]
+/** Re-render page canvases this long after the zoom settles (pinching stretches them meanwhile). */
+const RENDER_SETTLE_MS = 140
+const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
 
 /** Bytes of recently opened PDFs (switching tabs should not refetch). */
 const bytesCache = new Map<string, Uint8Array>()
@@ -47,11 +57,15 @@ function pageOf(label: string | undefined): number | null {
  * highlights and citations work exactly as in the text view.
  */
 export const PdfView = memo(function PdfView(props: Props): JSX.Element {
-  const { doc, annotations, threads, focus, hidePins, openThreadId, onSelection, onOpenThread, onOpenNote, onUnavailable } = props
+  const { doc, annotations, threads, focus, hidePins, openThreadId, onSelection, onOpenThread, onOpenNote, onUnavailable, dark } = props
   const scrollRef = useRef<HTMLDivElement>(null)
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [width, setWidth] = useState(0)
+  const [fitWidth, setFitWidth] = useState(0)
+  const [zoom, setZoom] = useState(1)
+  const width = Math.round(fitWidth * zoom)
+  /** The point to keep still while zooming: a fraction of the content, and where it sat in the view. */
+  const zoomAnchor = useRef<{ fx: number; fy: number; px: number; py: number } | null>(null)
   const [ratio, setRatio] = useState(1.294) // height / width of page 1 (A4/Letter-ish until known)
   const [ready, setReady] = useState<Set<number>>(new Set())
   const [pins, setPins] = useState<Pin[]>([])
@@ -102,7 +116,7 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
     const el = scrollRef.current
     if (!el) return
     let timer: ReturnType<typeof setTimeout> | undefined
-    const measure = () => setWidth(Math.min(MAX_WIDTH, Math.max(240, el.clientWidth - 84)))
+    const measure = () => setFitWidth(Math.min(MAX_WIDTH, Math.max(240, el.clientWidth - 84)))
     measure()
     const ro = new ResizeObserver(() => {
       clearTimeout(timer)
@@ -114,6 +128,46 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
       clearTimeout(timer)
     }
   }, [])
+
+  /** Zoom to `next`, keeping the content under `at` (a screen point; default the view's center) in place. */
+  const zoomTo = useCallback((next: number, at?: { x: number; y: number }) => {
+    const el = scrollRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const px = at ? at.x - rect.left : el.clientWidth / 2
+    const py = at ? at.y - rect.top : el.clientHeight / 2
+    zoomAnchor.current = { fx: (el.scrollLeft + px) / el.scrollWidth, fy: (el.scrollTop + py) / el.scrollHeight, px, py }
+    setZoom(clampZoom(next))
+  }, [])
+  const zoomStep = (dir: 1 | -1) => {
+    const next = dir > 0 ? ZOOM_STEPS.find((z) => z > zoom + 0.001) : [...ZOOM_STEPS].reverse().find((z) => z < zoom - 0.001)
+    zoomTo(next ?? zoom)
+  }
+
+  // Page sizes follow the width in the same render, so the anchor can be restored before paint.
+  useLayoutEffect(() => {
+    const a = zoomAnchor.current
+    const el = scrollRef.current
+    if (!a || !el) return
+    zoomAnchor.current = null
+    el.scrollLeft = a.fx * el.scrollWidth - a.px
+    el.scrollTop = a.fy * el.scrollHeight - a.py
+  }, [width])
+
+  // Pinch on a trackpad (or Ctrl/⌘ + scroll) zooms the pages, not the app.
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      zoomTo(zoomRef.current * Math.exp(-e.deltaY * 0.01), { x: e.clientX, y: e.clientY })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [zoomTo, pdf])
 
   const sectionByPage = useMemo(() => {
     const map = new Map<number, SourceSection>()
@@ -257,7 +311,8 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
   }
 
   return (
-    <div className="pdf-scroll" ref={scrollRef} onMouseUp={handleMouseUp} data-testid="pdf-view">
+    <div className="pdf-frame">
+    <div className={`pdf-scroll ${dark ? 'dark' : ''}`} ref={scrollRef} onMouseUp={handleMouseUp} data-testid="pdf-view">
       {error ? (
         <div className="empty">
           <p>This PDF could not be displayed: {error}</p>
@@ -270,7 +325,8 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
           <span className="spinner" />
         </div>
       ) : (
-        [...Array(pdf.numPages)].map((_, i) => (
+        <div className="pdf-pages">
+        {[...Array(pdf.numPages)].map((_, i) => (
           <PdfPage
             key={i + 1}
             pdf={pdf}
@@ -283,7 +339,22 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
             pins={hidePins ? [] : pins.filter((p) => p.page === i + 1)}
             onPin={openPin}
           />
-        ))
+        ))}
+        </div>
+      )}
+    </div>
+      {pdf && !error && (
+        <div className="pdf-zoom" role="group" aria-label="Zoom">
+          <button className="icon-btn" onClick={() => zoomStep(-1)} disabled={zoom <= MIN_ZOOM + 0.001} title="Zoom out" aria-label="Zoom out" data-testid="pdf-zoom-out">
+            <Icon name="minus" size={13} />
+          </button>
+          <button className="pdf-zoom-level" onClick={() => zoomTo(1)} title="Fit to width" data-testid="pdf-zoom-level">
+            {Math.round(zoom * 100)}%
+          </button>
+          <button className="icon-btn" onClick={() => zoomStep(1)} disabled={zoom >= MAX_ZOOM - 0.001} title="Zoom in" aria-label="Zoom in" data-testid="pdf-zoom-in">
+            <Icon name="plus" size={13} />
+          </button>
+        </div>
       )}
     </div>
   )
@@ -307,7 +378,23 @@ const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onText
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
   const [near, setNear] = useState(false)
-  const [height, setHeight] = useState(Math.round(width * ratio))
+  // Height follows the width at once (the page's own ratio once known), so zooming lays out in one pass.
+  const [pageRatio, setPageRatio] = useState(ratio)
+  const height = Math.round(width * pageRatio)
+  const baseWidth = useRef<number | null>(null)
+  const widthRef = useRef(width)
+  widthRef.current = width
+  // The canvas re-renders once the width settles; until then it is stretched to the new size.
+  const [renderWidth, setRenderWidth] = useState(width)
+  useEffect(() => {
+    if (renderWidth === width) return
+    const t = setTimeout(() => setRenderWidth(width), RENDER_SETTLE_MS)
+    return () => clearTimeout(t)
+  }, [width, renderWidth])
+  // Keep the selectable text aligned with the stretched canvas meanwhile.
+  useLayoutEffect(() => {
+    if (baseWidth.current) pageRef.current?.style.setProperty('--total-scale-factor', String(width / baseWidth.current))
+  }, [width])
   const registerRef = useRef(register)
   registerRef.current = register
 
@@ -333,18 +420,19 @@ const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onText
       try {
         const page = await pdf.getPage(n)
         if (cancelled) return
-        const scale = width / page.getViewport({ scale: 1 }).width
+        const base = page.getViewport({ scale: 1 })
+        baseWidth.current = base.width
+        setPageRatio(base.height / base.width)
+        const scale = renderWidth / base.width
         const viewport = page.getViewport({ scale })
-        setHeight(Math.round(viewport.height))
-        pageRef.current?.style.setProperty('--total-scale-factor', String(scale))
+        // The width may have moved on while this page rendered (pinching): scale the text to the latest one.
+        pageRef.current?.style.setProperty('--total-scale-factor', String(widthRef.current / base.width))
         const canvas = canvasRef.current
         const textDiv = textRef.current
         if (!canvas || !textDiv) return
         const dpr = Math.min(window.devicePixelRatio || 1, 2)
         canvas.width = Math.floor(viewport.width * dpr)
         canvas.height = Math.floor(viewport.height * dpr)
-        canvas.style.width = `${Math.floor(viewport.width)}px`
-        canvas.style.height = `${Math.floor(viewport.height)}px`
         task = page.render({ canvas, viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined })
         await task.promise
         if (cancelled) return
@@ -362,7 +450,7 @@ const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onText
       task?.cancel()
       textLayer?.cancel()
     }
-  }, [near, pdf, n, width, onTextReady])
+  }, [near, pdf, n, renderWidth, onTextReady])
 
   useEffect(() => () => onTextReady(n, null), [n, onTextReady])
 

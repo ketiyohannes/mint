@@ -9,6 +9,7 @@ import type { SecretCipher } from './store/settingsStore'
 import { AgentError } from './agents/types'
 import { diagramResourcesDir, handleDiagramProtocol, registerDiagramScheme, restrictDiagramFrameNavigation } from './diagramProtocol'
 import { createFixtureFetch } from './testing/fixtureFetch'
+import { Updater } from './updater'
 
 // Electron's ESM loader only exposes a default export for 'electron'.
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = electron
@@ -24,6 +25,7 @@ if (!isE2E && !app.requestSingleInstanceLock()) app.quit()
 
 let mainWindow: BrowserWindowType | null = null
 let core: MintCore | null = null
+let updater: Updater | null = null
 
 function dataDir(): string {
   const dir = process.env.MINT_DATA_DIR || join(app.getPath('userData'), 'data')
@@ -163,11 +165,19 @@ app.whenReady().then(async () => {
   configureSession()
   configureBrowser()
 
+  updater = new Updater({
+    disabledReason: isE2E ? 'Updates are off during tests.' : app.isPackaged ? undefined : 'This is a development build; installed copies of mint update themselves.',
+    emit: (status) => send(EVENT_CHANNELS.update, status),
+    log: (m) => console.log(`[mint] ${m}`),
+    feedUrl: process.env.MINT_UPDATE_FEED || undefined
+  })
+
   const fixtures = isE2E ? process.env.MINT_E2E_FIXTURES : undefined
   core = createCore({
     dataDir: dataDir(),
     cipher: cipher(),
     fetchImpl: fixtures ? createFixtureFetch(fixtures) : undefined,
+    updates: updater,
     log: (m) => console.log(`[mint] ${m}`),
     emitter: {
       stream: (e) => send(EVENT_CHANNELS.stream, e),
@@ -194,6 +204,7 @@ app.whenReady().then(async () => {
   })
   registerIpc(core)
   createWindow()
+  updater.start()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -213,4 +224,9 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   void core?.dispose()
+})
+
+app.on('will-quit', () => {
+  updater?.stop()
+  updater?.applyOnQuit()
 })

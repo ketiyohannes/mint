@@ -1,12 +1,11 @@
 import { useState, type JSX } from 'react'
 import type { ThreadMessage } from '@shared/types'
-import { allTopics } from '@shared/curriculum'
+import { allTopics, findTopic } from '@shared/curriculum'
 import { api, errorMessage } from '../../lib/api'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
 import { RichText } from '../../components/RichText'
 import { Proposals } from '../../components/Proposals'
-import { SessionPanel } from '../study/SessionPanel'
 import { useStudy } from '../study/context'
 import { useChat } from './chatContext'
 import { QuestionsWidget } from './QuestionsWidget'
@@ -56,9 +55,21 @@ export function Widget({ message }: { message: ThreadMessage }): JSX.Element | n
     case 'lesson': {
       const session = study.bundle.sessions.find((s) => s.id === w.sessionId)
       if (!session) return <div className="widget muted small">This lesson is no longer available.</div>
+      // The lesson itself lives in the Study tab; the chat keeps a pointer to it.
+      const topic = findTopic(study.bundle.curriculum, session.topicId)
+      const passed = new Set(session.attempts.filter((a) => a.verdict?.result === 'pass').map((a) => a.kind)).size
       return (
-        <div className="widget lesson" data-testid="lesson-widget">
-          <SessionPanel session={session} onOpenReading={(sid, sec) => study.openSource(sid, sec)} onDone={() => undefined} />
+        <div className="widget lesson-card" data-testid="lesson-widget">
+          <Icon name="study" size={18} />
+          <div className="lesson-card-body">
+            <RichText text={topic?.title ?? 'Lesson'} inline className="lesson-card-title" />
+            <div className="small muted">
+              {session.type === 'review' ? 'Review' : 'Lesson'} · {session.endedAt ? 'complete' : session.phase === 'wrap' ? 'wrapping up' : session.phase} · {passed}/3 checks passed
+            </div>
+          </div>
+          <button className="btn sm" onClick={study.openStudy} data-testid="open-study">
+            Open in Study <Icon name="arrow" size={12} />
+          </button>
         </div>
       )
     }

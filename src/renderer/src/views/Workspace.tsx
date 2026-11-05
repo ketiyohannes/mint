@@ -14,11 +14,13 @@ import { AskPopover, NotePopover, SelectionToolbar, TermPopover, placeNear, type
 import { StudyCtx, type DiagramController, type StudyApi } from './study/context'
 import { ChatView } from './chat/ChatView'
 import { LessonsPanel } from './LessonsPanel'
+import { StudyTab } from './study/StudyTab'
+import { useDarkTheme } from '../lib/useDarkTheme'
 import { BrowserPanel } from './BrowserPanel'
 import { NotesPanel } from './notes/NotesPanel'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 
-type PanelTab = 'sources' | 'lessons' | 'browser' | 'notes'
+type PanelTab = 'sources' | 'lessons' | 'study' | 'browser' | 'notes'
 
 interface SplitState {
   /** The second tab, or null when the panel shows one tab. */
@@ -30,7 +32,7 @@ interface SplitState {
 }
 
 const SPLIT_KEY = 'mint.split'
-const PANEL_TAB_IDS: PanelTab[] = ['sources', 'lessons', 'browser', 'notes']
+const PANEL_TAB_IDS: PanelTab[] = ['sources', 'lessons', 'study', 'browser', 'notes']
 
 function loadSplit(): SplitState {
   try {
@@ -48,19 +50,23 @@ function loadSplit(): SplitState {
 const PANEL_TABS: { id: PanelTab; label: string; icon: IconName }[] = [
   { id: 'sources', label: 'Sources', icon: 'book' },
   { id: 'lessons', label: 'Lessons', icon: 'lesson' },
+  { id: 'study', label: 'Study', icon: 'study' },
   { id: 'browser', label: 'Browser', icon: 'globe' },
   { id: 'notes', label: 'Notes', icon: 'notebook' }
 ]
 
 const PANEL_W_KEY = 'mint.panelWidth'
+/** 'dark' or 'light' PDF pages; unset follows the app theme. */
+const PDF_PAGES_KEY = 'mint.pdfPages'
 const SWAP_KEY = 'mint.swapped'
 const MIN_PANEL = 340
 const MIN_CHAT = 420
 
 /**
  * A class, like a project in a coding agent: the chat with the tutor, and a
- * panel with your sources, lessons, a browser for your own research, and notes.
- * The chat and the panel can swap sides.
+ * panel with your sources, lessons, the study box of the open lesson, a browser
+ * for your own research, and notes. The chat and the panel can swap sides.
+ * The middle is only ever the conversation.
  */
 export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: string | null | undefined }): JSX.Element {
   const { toast, run, studyFocus, go, classes } = useApp()
@@ -85,7 +91,9 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     if (!(chatId && chatId === adoptedChat.current)) chatKey.current.key += 1
     chatKey.current.chatId = chatId
   }
-  const session = thread?.sessionId ? bundle.sessions.find((s) => s.id === thread.sessionId && !s.endedAt) : undefined
+  /** The open chat's lesson, finished or not (the Study tab shows a finished one's summary). */
+  const lessonSession = thread?.sessionId ? bundle.sessions.find((s) => s.id === thread.sessionId) : undefined
+  const session = lessonSession && !lessonSession.endedAt ? lessonSession : undefined
 
   // --- layout --------------------------------------------------------------------
   const [panelTab, setPanelTab] = useState<PanelTab>('sources')
@@ -118,14 +126,27 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     [panelTab, splitTab]
   )
 
-  /** Bring a tab into view (from a citation, a search…), leaving a split layout as it is when the tab is already showing. */
+  // Side by side needs room: widen a narrow panel when a split opens.
+  const widenForSplit = useCallback(() => {
+    if (split.dir === 'row') setPanelW((w) => Math.max(w, Math.min(820, Math.round(window.innerWidth * 0.55))))
+  }, [split.dir])
+
+  /**
+   * Bring a tab into view (from a citation, a search…), leaving a split layout
+   * as it is when the tab is already showing. The Study tab stays in view: a
+   * reading opened during a lesson goes beside it.
+   */
   const showPanel = useCallback(
     (tab: PanelTab) => {
       setPanelOpen(true)
       if (tab === panelTab || tab === splitTab) return
+      if (tab !== 'study' && panelTab === 'study') {
+        if (!splitTab) widenForSplit()
+        return setPaneTab('b', tab)
+      }
       setPaneTab('a', tab)
     },
-    [panelTab, splitTab, setPaneTab]
+    [panelTab, splitTab, setPaneTab, widenForSplit]
   )
 
   const toggleSplit = () => {
@@ -133,8 +154,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     const other: PanelTab = panelTab === 'browser' ? 'notes' : 'browser'
     setVisited((v) => new Set(v).add(other))
     setSplit((s) => ({ ...s, tab: other }))
-    // Side by side needs room: widen a narrow panel once.
-    if (split.dir === 'row') setPanelW((w) => Math.max(w, Math.min(820, Math.round(window.innerWidth * 0.55))))
+    widenForSplit()
   }
 
   const startSplitResize = (e: React.MouseEvent) => {
@@ -188,6 +208,21 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const { doc, error: docError } = useSourceDoc(classId, activeMeta ? activeSourceId : null, activeMeta ? `${activeMeta.wordCount}:${activeMeta.needsTranscript}` : undefined)
   const pageView = Boolean(activeMeta && activeMeta.kind === 'pdf' && !textMode.has(activeMeta.id))
   const showText = useCallback((id: string) => setTextMode((s) => new Set(s).add(id)), [])
+  // PDF pages follow the app theme until you pick dark or light pages yourself.
+  const appDark = useDarkTheme()
+  const [pdfPages, setPdfPages] = useState<'dark' | 'light' | null>(() => {
+    const v = localStorage.getItem(PDF_PAGES_KEY)
+    return v === 'dark' || v === 'light' ? v : null
+  })
+  const pdfDark = pdfPages ? pdfPages === 'dark' : appDark
+  const togglePdfDark = () => {
+    const next = pdfDark ? 'light' : 'dark'
+    // Picking what the theme would show anyway goes back to following the theme.
+    const pick = (next === 'dark') === appDark ? null : next
+    setPdfPages(pick)
+    if (pick) localStorage.setItem(PDF_PAGES_KEY, pick)
+    else localStorage.removeItem(PDF_PAGES_KEY)
+  }
   const onPdfUnavailable = useCallback(() => activeSourceId && showText(activeSourceId), [activeSourceId, showText])
 
   useEffect(() => {
@@ -212,15 +247,30 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     }
   }, [studyFocus, bundle.sources, openSource])
 
-  // A lesson chat opens its first reading once.
-  const openedFor = useRef<string | null>(null)
+  // Opening a lesson chat brings its study box to the front of the panel, with
+  // the first reading beside it (once the brief has picked one).
+  const studyShownFor = useRef<string | null>(null)
+  const readingOpenedFor = useRef<string | null>(null)
   useEffect(() => {
-    const r = session?.brief?.readings[0]
-    if (session && r && openedFor.current !== session.id) {
-      openedFor.current = session.id
-      openSource(r.sourceId, r.section)
-    }
-  }, [session, openSource])
+    if (!session) return
+    const r = session.brief?.readings[0]
+    const showStudy = studyShownFor.current !== session.id
+    const openReading = Boolean(r) && readingOpenedFor.current !== session.id
+    studyShownFor.current = session.id
+    if (r) readingOpenedFor.current = session.id
+    if (showStudy) {
+      // Set the layout directly: showPanel would read the panel state from before this render.
+      setPanelOpen(true)
+      setPaneTab('a', 'study')
+      if (r && openReading) {
+        setVisited((v) => new Set(v).add('sources'))
+        if (!splitTab) widenForSplit()
+        setSplit((sp) => ({ ...sp, tab: 'sources' }))
+        setActiveSourceId(r.sourceId)
+        setFocus({ section: r.section, nonce: Date.now() })
+      }
+    } else if (r && openReading) openSource(r.sourceId, r.section)
+  }, [session, openSource, splitTab, setPaneTab, widenForSplit])
 
   async function addMaterials(paths?: string[]) {
     const picked = paths ?? (await api.system.pickMaterials())
@@ -242,6 +292,17 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       setCommandRequest({ command: cmd, arg, nonce: Date.now() })
     },
     [go, classId]
+  )
+  /** Open a lesson's chat; its study box comes to the front of the panel. */
+  const resumeLesson = useCallback(
+    (sessionId: string) => {
+      const t = chats.find((x) => x.sessionId === sessionId)
+      if (!t) return command('lesson', bundle.sessions.find((s) => s.id === sessionId)?.topicId)
+      go({ name: 'class', classId, chatId: t.id })
+      setPanelOpen(true)
+      setPaneTab('a', 'study')
+    },
+    [chats, command, bundle.sessions, go, classId, setPaneTab]
   )
   /** A highlighted passage to discuss in the main chat ("Chat" on a selection). */
   const [quoteRequest, setQuoteRequest] = useState<{ text: string; source: string; nonce: number } | null>(null)
@@ -332,9 +393,10 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       ask: askAt,
       openSource,
       command,
+      openStudy: () => showPanel('study'),
       registerDiagram
     }),
-    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, registerDiagram]
+    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, showPanel, registerDiagram]
   )
   const onOpenThread = useCallback((t: Thread, rect: DOMRect) => askAt(t.anchor, rect, t.id), [askAt])
   const onOpenNote = useCallback((a: Annotation, rect: DOMRect) => setNote({ annotation: a, pos: placeNear(rect) }), [])
@@ -364,7 +426,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
 
   // --- render --------------------------------------------------------------------------
   const chatPane = (
-    <section className="chat-pane">
+    <section className="chat-pane" data-testid="chat-pane">
       <div className="pane-head">
         <div className="crumbs">
           <Icon name="folder" size={14} />
@@ -520,6 +582,18 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                 </button>
               </div>
             )}
+            {pageView && linkInput === null && (
+              <button
+                className={`icon-btn ${pdfDark ? 'on' : ''}`}
+                onClick={togglePdfDark}
+                title={pdfDark ? 'Light pages' : 'Dark pages'}
+                aria-label="Dark pages"
+                aria-pressed={pdfDark}
+                data-testid="pdf-dark"
+              >
+                <Icon name={pdfDark ? 'sun' : 'moon'} size={14} />
+              </button>
+            )}
             {linkInput === null && (
               <button className="icon-btn" onClick={() => setHidePins((h) => !h)} title={hidePins ? 'Show stickies' : 'Hide stickies'} aria-label="Toggle stickies" data-testid="toggle-pins">
                 <Icon name={hidePins ? 'eyeOff' : 'eye'} size={14} />
@@ -611,6 +685,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                 onOpenThread={onOpenThread}
                 onOpenNote={onOpenNote}
                 onUnavailable={onPdfUnavailable}
+                dark={pdfDark}
               />
             ) : (
               <Reader
@@ -637,17 +712,26 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
             </ErrorBoundary>
           </div>
         )}
+        {/* The study box stays mounted, so a half-written answer survives a tab switch. */}
+        <div className={pageClass('study', 'scroll')} data-testid="page-study">
+          <ErrorBoundary label="the study box">
+            <StudyTab
+              bundle={bundle}
+              session={lessonSession}
+              onOpenReading={(sid, sec) => openSource(sid, sec)}
+              onResume={resumeLesson}
+              onStartNext={() => command('lesson')}
+              onDone={() => showPanel('lessons')}
+            />
+          </ErrorBoundary>
+        </div>
         {slot('lessons') && (
           <div className={pageClass('lessons', 'scroll')} data-testid="page-lessons">
             <ErrorBoundary label="lessons">
             <LessonsPanel
               bundle={bundle}
               onStart={(topicId) => command('lesson', topicId)}
-              onResume={(sessionId) => {
-                const t = chats.find((x) => x.sessionId === sessionId)
-                if (t) go({ name: 'class', classId, chatId: t.id })
-                else command('lesson', bundle.sessions.find((s) => s.id === sessionId)?.topicId)
-              }}
+              onResume={resumeLesson}
               openSource={(sid, sec) => openSource(sid, sec)}
             />
             </ErrorBoundary>

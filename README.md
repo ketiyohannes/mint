@@ -26,17 +26,17 @@ mint has no agent loop of its own. Every model turn runs in the **Claude Agent S
 
 1. **Open a folder.** The folder button in the sidebar turns a folder of PDFs, Markdown, Word files, web links or YouTube lectures into a class. No materials? mint searches trusted sites and imports only what you approve.
 2. **Say what you want.** A new chat opens with the prompt in the middle. The tutor asks two to four quick multiple-choice questions (goal, background, time, style), like a coding agent clarifying a task, then posts a plan.
-3. **Learn in the chat.** Lessons, quizzes, code exercises and diagrams appear as cards in the conversation. Type `/` for tools:
+3. **Learn in the chat.** Quizzes, code exercises and diagrams appear as cards in the conversation; a lesson opens in the **Study** tab beside it. Type `/` for tools:
 
    | Tool | What it does |
    | --- | --- |
-   | `/lesson [topic]` | A lesson in its own chat: brief, read, explain, apply, distinguish, wrap up |
+   | `/lesson [topic]` | A lesson in its own chat, worked in the Study tab: brief, read, explain, apply, distinguish, wrap up |
    | `/quiz [focus]` | Retrieval practice, graded, with explanations that cite your sources |
    | `/code [focus] [python\|js]` | A small IDE with tests that run offline (JavaScript, or Python via a local Pyodide) |
    | `/diagram <what>` | An interactive p5 or three.js diagram; click a part to ask about it |
    | `/plan [change]` | Re-plan the curriculum |
 
-4. **Read the source.** The right panel holds your **Sources** (real PDF pages), **Lessons**, a **Browser** for your own research, and **Notes**. Split it to see two at once, for example notes beside a paper.
+4. **Read the source.** The right panel holds your **Sources** (real PDF pages, with optional dark pages), **Lessons**, **Study** (the open lesson's brief and checks), a **Browser** for your own research, and **Notes**. Split it to see two at once, for example notes beside a paper; a lesson opens its reading beside the study box.
 5. **Ask about anything.** Select a passage and choose **Chat** to quote it into the conversation, or **Side chat** to ask in a small floating window that stays out of the way.
 
 <table>
@@ -85,6 +85,8 @@ Then pick a harness in **Settings** and press **Test connection**:
 
 Choose the model from the pill in the prompt box (or in Settings). mint asks each harness which models it offers; each harness remembers its own choice, and it applies to every class.
 
+**Updates.** From 0.1.0-alpha.4 on, mint checks GitHub for new releases and shows **Update mint** at the bottom of the sidebar. One click downloads the new version and checks it; **Restart to update** installs it (or it installs the next time mint quits). **Settings → Updates** shows your version and checks on demand. In-app updates work from `/Applications` on macOS, the setup installer on Windows, and the AppImage or `.deb` on Linux. Other copies (a disk image, the Windows `.zip`) link to the release page instead.
+
 Your classes, notes and settings stay on your computer (on macOS, `~/Library/Application Support/mint`). API keys are encrypted with the system keychain.
 
 ## Build from source
@@ -100,7 +102,7 @@ npm run icon         # redraw the app icon (Python 3 with Pillow)
 
 If you start it from inside another Electron app's terminal (VS Code, T3 Code), run `env -u ELECTRON_RUN_AS_NODE npm run dev`.
 
-Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml): pushing a `v*` tag builds macOS, Windows and Linux on their own runners, runs the end-to-end test against each packaged app, and uploads the installers to the release for that tag.
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml): pushing a `v*` tag builds macOS, Windows and Linux on their own runners, runs the end-to-end test against each packaged app, and uploads the installers and update feeds (`latest*.yml`) to the release for that tag. Installed copies pick the release up from there.
 
 ### Tests
 
@@ -126,7 +128,8 @@ src/main             Electron main process: owns all state
   services/          chat (intake, tools, widgets), classes, sources, sessions, threads, notebook, diagrams
   sources/           importers: PDF, HTML (Readability), Markdown, text, Word, YouTube
   store/             atomic JSON state, settings, keychain-encrypted secrets, /teach exports
-src/preload          the only bridge: typed invoke channels and three event streams
+  updater.ts         in-app updates from GitHub releases (electron-updater; on macOS a verified bundle swap)
+src/preload          the only bridge: typed invoke channels and four event streams
 src/renderer         React UI: chat and widgets, reader, panel, notes, popovers
                      (components/RichText.tsx is the one renderer for tutor text)
 resources/diagram-sandbox   sandboxed runtimes for model-written diagrams and learner code

@@ -2,7 +2,7 @@ import type { MintApi } from '@shared/api'
 import { ClassRepo } from './store/classRepo'
 import { SettingsStore, type SecretCipher } from './store/settingsStore'
 import { Kernel, userError, userMessage, type Emitter, type KernelOptions } from './services/kernel'
-import type { ModelOption, ProviderId } from '@shared/types'
+import type { ModelOption, ProviderId, UpdateStatus } from '@shared/types'
 import { ClassService } from './services/classes'
 import { SourceService } from './services/sources'
 import { IntakeService } from './services/intake'
@@ -23,6 +23,14 @@ export interface HostBridge {
   platform: string
 }
 
+/** The app updater lives in the Electron layer; headless cores (tests) report updates as disabled. */
+export type UpdateController = MintApi['updates']
+
+function disabledUpdates(): UpdateController {
+  const status = async (): Promise<UpdateStatus> => ({ currentVersion: '0.0.0', state: { status: 'disabled', reason: 'Updates are off in this build.' } })
+  return { status, check: status, download: status, install: async () => undefined }
+}
+
 export type Handlers = { [G in Exclude<keyof MintApi, 'on'>]: MintApi[G] }
 
 export interface MintCore {
@@ -31,7 +39,9 @@ export interface MintCore {
   dispose(): Promise<void>
 }
 
-export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge } & KernelOptions): MintCore {
+export function createCore(
+  opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge; updates?: UpdateController } & KernelOptions
+): MintCore {
   const repo = new ClassRepo(join(opts.dataDir, 'classes'))
   const settings = new SettingsStore(opts.dataDir, opts.cipher)
   void settings.forgetRetiredSecrets().catch(() => undefined)
@@ -186,7 +196,8 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
         await opts.host.openExternal(url)
       },
       platform: async () => opts.host.platform
-    }
+    },
+    updates: opts.updates ?? disabledUpdates()
   }
 
   return { kernel, handlers, dispose: () => kernel.dispose() }

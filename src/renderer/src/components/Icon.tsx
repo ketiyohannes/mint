@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import {
+  ArrowCircleUpIcon,
   ArrowClockwiseIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -20,6 +21,7 @@ import {
   CubeIcon,
   DotsThreeIcon,
   EyeIcon,
+  ExamIcon,
   EyeSlashIcon,
   FilePdfIcon,
   FileTextIcon,
@@ -100,6 +102,7 @@ const ICONS = {
   eyeOff: EyeSlashIcon,
   star: StarIcon,
   refresh: ArrowClockwiseIcon,
+  update: ArrowCircleUpIcon,
   help: QuestionIcon,
   folder: FolderSimpleIcon,
   folderOpen: FolderOpenIcon,
@@ -118,6 +121,7 @@ const ICONS = {
   moon: MoonIcon,
   copy: CopyIcon,
   lesson: GraduationCapIcon,
+  study: ExamIcon,
   quiz: ListChecksIcon,
   code: CodeIcon,
   lifebuoy: LifebuoyIcon,

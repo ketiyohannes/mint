@@ -20,7 +20,8 @@ import type { ModelOption,
   SourceDoc,
   SourceMeta,
   StreamEvent,
-  Thread
+  Thread,
+  UpdateStatus
 } from './types'
 
 /**
@@ -128,10 +129,19 @@ export interface MintApi {
     openExternal(url: string): Promise<void>
     platform(): Promise<string>
   }
+  /** New releases: checked in the background, downloaded and installed on request. */
+  updates: {
+    status(): Promise<UpdateStatus>
+    check(): Promise<UpdateStatus>
+    download(): Promise<UpdateStatus>
+    /** Quit, apply the downloaded update and relaunch. */
+    install(): Promise<void>
+  }
   on: {
     stream(cb: (e: StreamEvent) => void): () => void
     progress(cb: (e: ProgressEvent) => void): () => void
     classChanged(cb: (classId: string) => void): () => void
+    update(cb: (status: UpdateStatus) => void): () => void
   }
 }
 
@@ -149,13 +159,15 @@ export const API_GROUPS = {
   glossary: ['propose', 'update', 'remove'],
   records: ['supersede'],
   diagrams: ['create', 'repair', 'setKept', 'remove'],
-  system: ['pickMaterials', 'openExternal', 'platform']
+  system: ['pickMaterials', 'openExternal', 'platform'],
+  updates: ['status', 'check', 'download', 'install']
 } as const satisfies { [K in Exclude<keyof MintApi, 'on'>]: readonly (keyof MintApi[K])[] }
 
 export const EVENT_CHANNELS = {
   stream: 'event:stream',
   progress: 'event:progress',
-  classChanged: 'event:classChanged'
+  classChanged: 'event:classChanged',
+  update: 'event:update'
 } as const
 
 /** Errors cross IPC as plain messages; this prefix marks user-facing ones. */

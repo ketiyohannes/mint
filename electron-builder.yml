@@ -9,6 +9,13 @@ directories:
   output: dist
   buildResources: build
 
+# In-app updates: the build writes app-update.yml into the app and latest-*.yml
+# next to the installers; the release workflow uploads both kinds of file.
+publish:
+  provider: github
+  owner: ketiyohannes
+  repo: mint
+
 # The main, preload and renderer bundles. Production dependencies are added automatically.
 files:
   - out/**

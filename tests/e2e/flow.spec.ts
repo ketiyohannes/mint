@@ -88,6 +88,10 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await page.getByTestId('provider-demo').click()
   await page.getByTestId('test-provider').click()
   await expect(page.getByTestId('test-result')).toContainText('Demo mode')
+  // Updates: the version shows; tests never reach out to GitHub.
+  await expect(page.getByTestId('app-version')).toHaveText(/^\d+\.\d+\.\d+/)
+  await expect(page.getByTestId('update-status')).toContainText('off during tests')
+  await expect(page.getByTestId('update-row')).toHaveCount(0)
 
   // --- Open a folder: a class, with the prompt in the middle ---------------------------
   await page.getByTestId('open-folder').click()
@@ -185,6 +189,38 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   if (!(await page.getByTestId('pdf-view').count())) await page.getByTestId('source-tab').nth(1).click()
   await expect(page.getByTestId('pdf-view')).toBeVisible()
   await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeAttached({ timeout: 20_000 })
+  // Dark pages: the paper inverts, the selectable text layer and highlights do not.
+  await page.getByTestId('pdf-dark').click()
+  await expect(page.getByTestId('pdf-view')).toHaveClass(/dark/)
+  await expect(page.locator('.pdf-page canvas').first()).toHaveCSS('filter', /invert/)
+  await shot(page, 'pdf-dark')
+  await page.getByTestId('pdf-dark').click()
+  await expect(page.getByTestId('pdf-view')).not.toHaveClass(/dark/)
+  // Zoom: buttons step it, the level resets to fit width, and Ctrl + scroll (a trackpad pinch) zooms the pages.
+  const pageWidth = async () => (await page.locator('.pdf-page[data-page="1"]').boundingBox())!.width
+  const fit = await pageWidth()
+  await page.getByTestId('pdf-zoom-in').click()
+  await expect(page.getByTestId('pdf-zoom-level')).toHaveText('125%')
+  await expect.poll(pageWidth).toBeCloseTo(fit * 1.25, -1)
+  await page.getByTestId('pdf-zoom-in').click()
+  await expect(page.getByTestId('pdf-zoom-level')).toHaveText('150%')
+  const scroller = page.getByTestId('pdf-view')
+  expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true) // wider than the column: scrolls sideways
+  await shot(page, 'pdf-zoom')
+  await page.getByTestId('pdf-zoom-level').click()
+  await expect(page.getByTestId('pdf-zoom-level')).toHaveText('100%')
+  await page.getByTestId('pdf-zoom-out').click()
+  await expect(page.getByTestId('pdf-zoom-level')).toHaveText('80%')
+  await expect.poll(pageWidth).toBeCloseTo(fit * 0.8, -1)
+  const view = (await scroller.boundingBox())!
+  await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, -40)
+  await page.keyboard.up('Control')
+  await expect.poll(async () => Number((await page.getByTestId('pdf-zoom-level').innerText()).replace('%', ''))).toBeGreaterThan(80)
+  await page.getByTestId('pdf-zoom-level').click()
+  await expect.poll(pageWidth).toBeCloseTo(fit, -1)
+  await expect(page.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeAttached()
   await selectText(page, '[data-testid=pdf-view] .textLayer', 'a typical vector ends up pointing somewhere new')
   await page.getByTestId('sel-ask').click()
   const pop = page.getByTestId('ask-popover')
@@ -244,8 +280,13 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await page.getByTestId('tab-lessons').click()
   await page.getByTestId('start-session').click()
   await expect(page.getByTestId('chat-title')).toContainText('Lesson:')
-  const lesson = page.getByTestId('lesson-widget')
+  // The chat keeps a pointer; the lesson itself opens in the Study tab, its first reading beside it.
+  await expect(page.getByTestId('lesson-widget')).toContainText('checks passed')
+  await expect(page.getByTestId('tab-study')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('chat-pane').getByTestId('session-panel')).toHaveCount(0)
+  const lesson = page.getByTestId('page-study')
   await expect(lesson.getByTestId('brief')).toBeVisible()
+  await expect(page.getByTestId('split-tab-sources')).toHaveAttribute('aria-selected', 'true')
   // Formulas render the same way in the brief as in the chat (one renderer everywhere).
   await expect(lesson.getByTestId('brief').locator('.katex').first()).toBeVisible()
   await shot(page, 'brief')
@@ -265,6 +306,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   }
   await lesson.getByTestId('finish-session').click()
   await expect(lesson).toContainText('Session complete')
+  await expect(page.getByTestId('lesson-widget')).toContainText('complete')
   await page.getByTestId('tab-lessons').click()
   await expect(page.locator('.status-dot.mastered').first()).toBeVisible()
 
@@ -306,6 +348,9 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
 
   // --- Split the panel: two tabs at once ---------------------------------------------------------
   const box = async (id: string) => (await page.getByTestId(id).boundingBox())!
+  // The lesson left its reading open in the split; close it first.
+  await page.getByTestId('split-close').click()
+  await expect(page.getByTestId('split-head')).toHaveCount(0)
   await page.getByTestId('split-toggle').click()
   await expect(page.getByTestId('split-head')).toBeVisible()
   await expect(page.getByTestId('page-notes')).toHaveClass(/slot-a/)
