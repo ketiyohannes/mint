@@ -18,12 +18,8 @@ interface Props {
   thread: Thread | undefined
   /** Called as soon as the thread id is known (start of the reply stream, and again on completion). */
   onThread: (threadId: string) => void
-  /** Owner key for voice dictation routing. */
-  voiceOwner: string
   autoFocus?: boolean
   suggestions?: boolean
-  /** Submit this transcript as the first question as soon as the view mounts. */
-  initialVoice?: string
   /** Shown in place of the conversation before the first message. */
   intro?: ReactNode
   placeholder?: string
@@ -32,8 +28,8 @@ interface Props {
 const SUGGESTIONS = ['What does this mean?', 'Why is this true?', 'Give me an example', 'How does this connect to what I know?']
 
 /** One Ask conversation: messages, the help ladder, and the composer. */
-export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, suggestions, initialVoice, intro, placeholder }: Props): JSX.Element {
-  const { toast, settings } = useApp()
+export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, intro, placeholder }: Props): JSX.Element {
+  const { toast } = useApp()
   const study = useStudy()
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<Pending | null>(null)
@@ -41,7 +37,6 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
   const [follow, setFollow] = useState<{ messageId: string; quote: string; x: number; y: number } | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const viaVoice = useRef(false)
   const onThreadRef = useRef(onThread)
   onThreadRef.current = onThread
 
@@ -73,18 +68,17 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
     []
   )
 
-  async function submit(text: string, via: 'text' | 'voice') {
+  async function submit(text: string) {
     const message = text.trim()
     if (!message || pending) return
-    viaVoice.current = via === 'voice'
     const streamId = newStreamId()
     streamRef.current = streamId
     setPending({ streamId, user: message, text: '' })
     setDraft('')
     try {
       const out = shown
-        ? await api.threads.send({ classId: study.classId, threadId: shown.id, message, via, streamId, voice: via === 'voice' || settings?.speakReplies })
-        : await api.threads.create({ classId: study.classId, anchor, message, via, sessionId: study.sessionId, streamId, voice: via === 'voice' || settings?.speakReplies })
+        ? await api.threads.send({ classId: study.classId, threadId: shown.id, message, streamId })
+        : await api.threads.create({ classId: study.classId, anchor, message, sessionId: study.sessionId, streamId })
       setLocal(out)
       onThreadRef.current(out.id)
       afterReply(out)
@@ -102,7 +96,7 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
     streamRef.current = streamId
     setPending({ streamId, text: '' })
     try {
-      const out = await api.threads.moreHelp({ classId: study.classId, threadId: shown.id, streamId, voice: viaVoice.current || settings?.speakReplies })
+      const out = await api.threads.moreHelp({ classId: study.classId, threadId: shown.id, streamId })
       setLocal(out)
       onThreadRef.current(out.id)
       afterReply(out)
@@ -116,36 +110,10 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
   function afterReply(t: Thread) {
     const last = t.messages[t.messages.length - 1]
     if (last?.role !== 'tutor' || last.error) return
-    study.speakReply(last.text, last.id, viaVoice.current)
-    // Diagram directives also apply when not speaking: point at the first part mentioned.
-    if (!(viaVoice.current || settings?.speakReplies)) {
-      const first = /\[\[highlight:([^\]]+)\]\]/.exec(last.text)
-      if (first) study.handleDirective({ type: 'highlight', elementId: first[1].trim() })
-    }
+    // Point the diagram at the first part the reply mentions.
+    const first = /\[\[highlight:([^\]]+)\]\]/.exec(last.text)
+    if (first) study.handleDirective({ type: 'highlight', elementId: first[1].trim() })
   }
-
-  const sentInitial = useRef<string | null>(null)
-  useEffect(() => {
-    if (initialVoice && sentInitial.current !== initialVoice) {
-      sentInitial.current = initialVoice
-      void submit(initialVoice, 'voice')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialVoice])
-
-  // Dictation goes into this thread while it is open.
-  useEffect(() => {
-    study.setVoiceSink(voiceOwner, (text) => {
-      if (pending) {
-        toast('The tutor is still answering. Ask again when it finishes.')
-        return true
-      }
-      void submit(text, 'voice')
-      return true
-    })
-    return () => study.setVoiceSink(voiceOwner, null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceOwner, shown?.id, pending])
 
   function onBodyMouseUp() {
     setTimeout(() => {
@@ -172,7 +140,7 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
         {!shown?.messages.length && !pending && suggestions && (
           <div className="chips" style={{ marginTop: 2 }}>
             {SUGGESTIONS.map((s) => (
-              <button key={s} className="chip" style={{ cursor: 'pointer', border: 0, paddingRight: 10 }} onClick={() => void submit(s, 'text')}>
+              <button key={s} className="chip" style={{ cursor: 'pointer', border: 0, paddingRight: 10 }} onClick={() => void submit(s)}>
                 {s}
               </button>
             ))}
@@ -222,19 +190,19 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
         className="composer"
         onSubmit={(e) => {
           e.preventDefault()
-          void submit(draft, 'text')
+          void submit(draft)
         }}
       >
         <textarea
           ref={inputRef}
           rows={1}
-          placeholder={shown ? 'Reply… (hold Space outside the box to talk)' : (placeholder ?? 'Ask about this…')}
+          placeholder={shown ? 'Reply…' : (placeholder ?? 'Ask about this…')}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
-              void submit(draft, 'text')
+              void submit(draft)
             }
           }}
           data-testid="ask-input"
@@ -254,7 +222,6 @@ export function ThreadView({ anchor, thread, onThread, voiceOwner, autoFocus, su
 }
 
 function Message({ m }: { m: ThreadMessage }): JSX.Element {
-  const study = useStudy()
   if (m.role === 'user') return <div className="msg user">{m.text}</div>
   return (
     <div className={`msg tutor ${m.error ? 'error' : ''}`} data-message-id={m.id} data-testid="tutor-message">

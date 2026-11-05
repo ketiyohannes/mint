@@ -106,10 +106,10 @@ export class SessionService {
     return this.load(classId, sessionId)
   }
 
-  async submitCheck(classId: string, sessionId: string, kind: CheckKind, answer: string, via: 'text' | 'voice'): Promise<Session> {
+  async submitCheck(classId: string, sessionId: string, kind: CheckKind, answer: string): Promise<Session> {
     if (!CHECK_KINDS.includes(kind)) throw userError('Unknown check.')
     const text = answer.trim().slice(0, 6000)
-    if (!text) throw userError('Write (or say) your answer first. "I don\'t know" is a fine answer too.')
+    if (!text) throw userError('Write your answer first. "I don\'t know" is a fine answer too.')
     const session = await this.load(classId, sessionId)
     if (session.endedAt) throw userError('This session has ended.')
     const prompt = session.prompts[kind]
@@ -121,7 +121,7 @@ export class SessionService {
     const verdict = await this.k.job(classId, 'Checking your answer', async () =>
       judgeCheck({ runtime: await this.k.runtime(), ctx }, topic, kind, prompt, text, reading)
     )
-    const attempt: CheckAttempt = { id: newId('att'), kind, prompt, answer: text, via, at: nowIso(), verdict }
+    const attempt: CheckAttempt = { id: newId('att'), kind, prompt, answer: text, at: nowIso(), verdict }
     await this.k.repo.lock(classId, async () => {
       const fresh = await this.load(classId, sessionId)
       const next = { ...fresh, attempts: [...fresh.attempts, attempt] }

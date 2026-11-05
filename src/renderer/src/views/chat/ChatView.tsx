@@ -23,15 +23,12 @@ interface Props {
   thread: Thread | undefined
   /** The chat now exists (or was replaced): show it. */
   onThread: (threadId: string) => void
-  mic: { status: string; toggle: () => void }
   onAddMaterials: () => void
   /** Tool requests from elsewhere (tutor offers, lesson buttons) to run in this chat. One-shot: call onHandled. */
   commandRequest: { command: ChatCommand; arg?: string; nonce: number } | null
-  /** A transcript that should be sent in this chat. One-shot: call onHandled. */
-  voiceRequest: { text: string; nonce: number } | null
   /** A highlighted passage to attach to the next message. One-shot: call onHandled. */
   quoteRequest: { text: string; source: string; nonce: number } | null
-  onHandled: (kind: 'command' | 'voice' | 'quote') => void
+  onHandled: (kind: 'command' | 'quote') => void
 }
 
 /** The main chat: a conversation with the tutor in which tools post interactive widgets. */
@@ -39,8 +36,8 @@ interface Props {
  * Mounted per chat (the parent remounts it when another chat is opened), so
  * in-flight state never leaks between chats.
  */
-export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, commandRequest, voiceRequest, quoteRequest, onHandled }: Props): JSX.Element {
-  const { settings, toast, go, jobs } = useApp()
+export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequest, quoteRequest, onHandled }: Props): JSX.Element {
+  const { toast, jobs } = useApp()
   const study = useStudy()
   const classId = bundle.meta.id
   const [pending, setPending] = useState<Pending | null>(null)
@@ -54,7 +51,6 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
   onThreadRef.current = onThread
   /** The chat this view shows (or created itself). */
   const adopted = useRef<string | null>(thread?.id ?? null)
-  const viaVoice = useRef(false)
 
   // Prefer the freshest copy: the live bundle once it has caught up with our own result.
   const shown = useMemo(() => {
@@ -89,14 +85,6 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
     if (el && stickToBottom.current) el.scrollTo({ top: el.scrollHeight })
   }, [shown?.messages.length, pending?.text, pending?.user])
 
-  const speak = useCallback(
-    (t: Thread) => {
-      const last = t.messages[t.messages.length - 1]
-      if (last?.role === 'tutor' && last.text && !last.error) study.speakReply(last.text, last.id, viaVoice.current)
-    },
-    [study]
-  )
-
   /** Run a call that may stream a tutor message into this chat. */
   const run = useCallback(
     async (label: string, user: string | undefined, task: (streamId: string) => Promise<Thread>) => {
@@ -108,7 +96,6 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
       try {
         const out = await task(streamId)
         adopt(out)
-        speak(out)
       } catch (err) {
         toast(errorMessage(err), 'error')
         if (user && !user.startsWith('/')) setPrefill({ text: user, nonce: Date.now() })
@@ -117,12 +104,11 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
         setPending(null)
       }
     },
-    [pending, adopt, speak, toast]
+    [pending, adopt, toast]
   )
 
   const submit = useCallback(
-    (input: string, via: 'text' | 'voice') => {
-      viaVoice.current = via === 'voice'
+    (input: string) => {
       const attached = quote
       setQuote(null)
       const slash = parseSlash(input)
@@ -134,22 +120,19 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
         return
       }
       const text = attached ? quoteMessage(attached.text, attached.source, input || 'Can you help me understand this passage?') : input
-      void run('Thinking', text, (streamId) =>
-        api.chat.send({ classId, threadId: shown?.id, message: text, via, streamId, voice: via === 'voice' || settings?.speakReplies })
-      )
+      void run('Thinking', text, (streamId) => api.chat.send({ classId, threadId: shown?.id, message: text, streamId }))
     },
-    [run, classId, shown?.id, settings?.speakReplies, quote]
+    [run, classId, shown?.id, quote]
   )
 
   const command = useCallback(
     (cmd: ChatCommand, arg?: string) => {
-      viaVoice.current = false
       void run(TOOL_LABEL[cmd], `/${cmd}${arg ? ` ${arg}` : ''}`, () => api.chat.command({ classId, threadId: shown?.id, command: cmd, arg }))
     },
     [run, classId, shown?.id]
   )
 
-  // Requests from outside the chat (offer chips, lesson buttons, voice). Each runs once.
+  // Requests from outside the chat (offer chips, lesson buttons, quotes). Each runs once.
   const handled = useRef(new Set<number>())
   useEffect(() => {
     if (!commandRequest || handled.current.has(commandRequest.nonce) || pending) return
@@ -157,14 +140,6 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
     onHandled('command')
     command(commandRequest.command, commandRequest.arg)
   }, [commandRequest, command, onHandled, pending])
-  useEffect(() => {
-    if (!voiceRequest || handled.current.has(voiceRequest.nonce)) return
-    handled.current.add(voiceRequest.nonce)
-    onHandled('voice')
-    if (pending) toast('The tutor is still answering. Ask again when it finishes.')
-    else submit(voiceRequest.text, 'voice')
-  }, [voiceRequest, submit, onHandled, pending, toast])
-
   useEffect(() => {
     if (!quoteRequest || handled.current.has(quoteRequest.nonce)) return
     handled.current.add(quoteRequest.nonce)
@@ -174,7 +149,7 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
 
   const moreHelp = () => {
     if (!shown) return
-    void run('More help', undefined, (streamId) => api.threads.moreHelp({ classId, threadId: shown.id, streamId, voice: viaVoice.current || settings?.speakReplies }))
+    void run('More help', undefined, (streamId) => api.threads.moreHelp({ classId, threadId: shown.id, streamId }))
   }
 
   const chatApi = useMemo<ChatApi>(
@@ -211,13 +186,12 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
 
   const composer = (
     <Composer
-      onSubmit={(t) => submit(t, 'text')}
+      onSubmit={submit}
       busy={Boolean(pending)}
       onStop={pending?.streamId ? () => void api.threads.cancel(pending.streamId!) : undefined}
-      placeholder={empty ? (bundle.meta.stage === 'intake' ? 'What do you want to learn from this?' : 'Ask anything, or type / for tools') : 'Reply…  (/ for tools, hold Space to talk)'}
+      placeholder={empty ? (bundle.meta.stage === 'intake' ? 'What do you want to learn from this?' : 'Ask anything, or type / for tools') : 'Reply…  (/ for tools)'}
       centered={empty}
       autoFocus
-      mic={mic}
       onAddMaterials={onAddMaterials}
       prefill={prefill}
       quote={quote}
@@ -251,7 +225,7 @@ export function ChatView({ bundle, thread, onThread, mic, onAddMaterials, comman
                 ? ['I want to understand this deeply', 'I have an exam coming up', 'I need this for a project at work']
                 : ['/lesson', '/quiz', 'Explain the main idea in plain words', '/code']
               ).map((s) => (
-                <button key={s} className="hero-chip" onClick={() => submit(s, 'text')} data-testid="hero-chip">
+                <button key={s} className="hero-chip" onClick={() => submit(s)} data-testid="hero-chip">
                   {s.startsWith('/') && <Icon name={commandIcon(s)} size={13} />}
                   {s.startsWith('/') ? TOOL_CHIP[s] : s}
                 </button>
@@ -358,7 +332,6 @@ function UserMessage({ text }: { text: string }): JSX.Element {
 }
 
 function MessageView({ m, isLast, canMoreHelp, onMoreHelp }: { m: ThreadMessage; isLast: boolean; canMoreHelp: boolean; onMoreHelp: () => void }): JSX.Element {
-  const study = useStudy()
   if (m.role === 'user') return <UserMessage text={m.text} />
   return (
     <div className={`msg tutor ${m.error ? 'error' : ''}`} data-message-id={m.id} data-testid="tutor-message">
@@ -368,9 +341,6 @@ function MessageView({ m, isLast, canMoreHelp, onMoreHelp }: { m: ThreadMessage;
         <div className={`msg-actions ${isLast ? 'last' : ''}`}>
           <button className="icon-btn" title="Copy" aria-label="Copy reply" onClick={() => void navigator.clipboard.writeText(m.text)}>
             <Icon name="copy" size={14} />
-          </button>
-          <button className="icon-btn" title="Read aloud" aria-label="Read aloud" onClick={() => study.speakReply(m.text, m.id, true)}>
-            <Icon name="volume" size={14} />
           </button>
           {m.rung && !m.widget && (
             <span className="rung-tag" title="Help ladder: the tutor gives as little help as you need">

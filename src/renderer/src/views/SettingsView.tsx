@@ -1,28 +1,16 @@
-import { useEffect, useState, type JSX } from 'react'
-import type { ProviderId, Settings } from '@shared/types'
+import { useState, type JSX } from 'react'
+import type { ProviderId, SecretName, Settings } from '@shared/types'
 import { useApp } from '../state/app'
 import { api } from '../lib/api'
 import { Icon } from '../components/Icon'
 import { ModelSelect } from '../components/ModelPicker'
-import { pickSystemVoice, speak } from '../lib/voice/tts'
-
-const OPENAI_VOICES = ['coral', 'alloy', 'ash', 'ballad', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse']
 
 export function SettingsView(): JSX.Element {
-  const { settings, setSettings, run, toast } = useApp()
+  const { settings, setSettings, run } = useApp()
   const [testing, setTesting] = useState<ProviderId | null>(null)
   const [test, setTest] = useState<{ provider: ProviderId; ok: boolean; message: string } | null>(null)
   const [anthropicKey, setAnthropicKey] = useState('')
-  const [openaiKey, setOpenaiKey] = useState('')
   const [domain, setDomain] = useState('')
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
-
-  useEffect(() => {
-    const load = () => setVoices(speechSynthesis.getVoices().filter((v) => v.lang.startsWith('en')))
-    load()
-    speechSynthesis.addEventListener('voiceschanged', load)
-    return () => speechSynthesis.removeEventListener('voiceschanged', load)
-  }, [])
 
   if (!settings) return <div className="page-inner empty">Loading…</div>
 
@@ -38,12 +26,11 @@ export function SettingsView(): JSX.Element {
     if (res) setTest({ provider: p, ...res })
   }
 
-  async function saveKey(name: 'anthropic' | 'openai', value: string | null) {
+  async function saveKey(name: SecretName, value: string | null) {
     const s = await run(() => api.settings.setSecret(name, value), value ? 'Key saved securely.' : 'Key removed.')
     if (s) {
       setSettings(s)
-      if (name === 'anthropic') setAnthropicKey('')
-      else setOpenaiKey('')
+      setAnthropicKey('')
     }
   }
 
@@ -110,88 +97,6 @@ export function SettingsView(): JSX.Element {
               <span className="hint">Requires the `codex` CLI to be installed and logged in (`codex login`).</span>
             </div>
           )}
-
-          <h2 className="section-title">Voice tutor</h2>
-          <div className="card stack">
-            <div className="grid-2">
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label htmlFor="stt">Speech to text</label>
-                <select id="stt" className="select" value={settings.sttEngine} onChange={(e) => void update({ sttEngine: e.target.value as Settings['sttEngine'] })}>
-                  <option value="local-whisper">Local Whisper (private, ~80 MB download once)</option>
-                  <option value="openai">OpenAI (needs a key)</option>
-                </select>
-              </div>
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label htmlFor="tts">Text to speech</label>
-                <select id="tts" className="select" value={settings.ttsEngine} onChange={(e) => void update({ ttsEngine: e.target.value as Settings['ttsEngine'], ttsVoice: '' })}>
-                  <option value="system">System voice (offline)</option>
-                  <option value="openai">OpenAI voice (natural, needs a key)</option>
-                </select>
-              </div>
-            </div>
-            <div className="grid-2">
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label htmlFor="voice">Voice</label>
-                <select id="voice" className="select" value={settings.ttsVoice} onChange={(e) => void update({ ttsVoice: e.target.value })}>
-                  {settings.ttsEngine === 'openai' ? (
-                    OPENAI_VOICES.map((v) => (
-                      <option key={v} value={v === 'coral' ? '' : v}>
-                        {v}
-                        {v === 'coral' ? ' (default)' : ''}
-                      </option>
-                    ))
-                  ) : (
-                    <>
-                      <option value="">Best available ({pickSystemVoice('')?.name ?? 'system default'})</option>
-                      {voices.map((v) => (
-                        <option key={v.name} value={v.name}>
-                          {v.name} ({v.lang})
-                        </option>
-                      ))}
-                    </>
-                  )}
-                </select>
-                <span className="hint">On macOS, download "Premium" voices in System Settings → Accessibility → Spoken Content for a much better tutor voice.</span>
-              </div>
-              <div className="field" style={{ marginBottom: 0 }}>
-                <label htmlFor="rate">Speaking rate: {settings.ttsRate.toFixed(2)}×</label>
-                <input id="rate" type="range" min={0.6} max={1.6} step={0.05} value={settings.ttsRate} onChange={(e) => void update({ ttsRate: Number(e.target.value) })} />
-              </div>
-            </div>
-            <label className="row">
-              <input type="checkbox" checked={settings.speakReplies} onChange={(e) => void update({ speakReplies: e.target.checked })} /> Speak tutor replies aloud by default
-            </label>
-            <div className="row">
-              <button
-                className="btn sm"
-                onClick={() => {
-                  const s = speak('Hi. I will point you to the passage first. Then, if you need it, I will explain a little more. Does that sound good?', {
-                    engine: settings.ttsEngine,
-                    voice: settings.ttsVoice,
-                    rate: settings.ttsRate,
-                    onEnd: () => undefined
-                  })
-                  s.done.catch((err) => toast(String(err), 'error'))
-                }}
-              >
-                <Icon name="volume" size={14} /> Try the voice
-              </button>
-            </div>
-            <div className="field" style={{ marginBottom: 0 }}>
-              <label htmlFor="ok">OpenAI API key (only for cloud voice)</label>
-              <div className="row">
-                <input id="ok" className="input" type="password" placeholder={settings.hasOpenAIKey ? '•••••••• saved' : 'sk-…'} value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)} />
-                <button className="btn" disabled={!openaiKey.trim()} onClick={() => saveKey('openai', openaiKey)}>
-                  Save
-                </button>
-                {settings.hasOpenAIKey && (
-                  <button className="btn ghost" onClick={() => saveKey('openai', null)}>
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
 
           <h2 className="section-title">Default trusted domains</h2>
           <div className="card stack">

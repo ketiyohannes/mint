@@ -40,11 +40,6 @@ export const DEFAULT_SETTINGS: Settings = {
   provider: 'claude',
   claudeModel: '',
   codexModel: '',
-  sttEngine: 'local-whisper',
-  ttsEngine: 'system',
-  ttsVoice: '',
-  ttsRate: 1,
-  speakReplies: false,
   trustedDomains: DEFAULT_TRUSTED_DOMAINS,
   theme: 'light'
 }
@@ -58,7 +53,6 @@ export interface SecretCipher {
 
 interface SecretsFile {
   anthropic?: string
-  openai?: string
 }
 
 export class SettingsStore {
@@ -87,7 +81,7 @@ export class SettingsStore {
 
   async view(): Promise<SettingsView> {
     const [settings, secrets] = await Promise.all([this.get(), readJson<SecretsFile>(this.secretsPath, {})])
-    return { ...settings, hasAnthropicKey: Boolean(secrets.anthropic), hasOpenAIKey: Boolean(secrets.openai), dataDir: this.dataDir }
+    return { ...settings, hasAnthropicKey: Boolean(secrets.anthropic), dataDir: this.dataDir }
   }
 
   async update(patch: Partial<Settings>): Promise<Settings> {
@@ -108,6 +102,13 @@ export class SettingsStore {
     await writeJson(this.secretsPath, secrets)
   }
 
+  /** Drop keys for features mint no longer has (the OpenAI key used by the old voice tutor). */
+  async forgetRetiredSecrets(): Promise<void> {
+    const secrets = await readJson<Record<string, string>>(this.secretsPath, {})
+    const keep = Object.fromEntries(Object.entries(secrets).filter(([name]) => SECRET_NAMES.includes(name as SecretName)))
+    if (Object.keys(keep).length !== Object.keys(secrets).length) await writeJson(this.secretsPath, keep)
+  }
+
   async getSecret(name: SecretName): Promise<string | null> {
     const secrets = await readJson<SecretsFile>(this.secretsPath, {})
     const stored = secrets[name]
@@ -120,6 +121,7 @@ export class SettingsStore {
   }
 }
 
+const SECRET_NAMES: SecretName[] = ['anthropic']
 const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]
 
 function sanitize(input: Settings): Settings {
@@ -130,14 +132,10 @@ function sanitize(input: Settings): Settings {
   return {
     ...s,
     provider,
-    sttEngine: s.sttEngine === 'openai' ? 'openai' : 'local-whisper',
-    ttsEngine: s.ttsEngine === 'openai' ? 'openai' : 'system',
-    ttsRate: Math.min(1.6, Math.max(0.6, Number(s.ttsRate) || 1)),
     trustedDomains: domains.length ? domains : DEFAULT_TRUSTED_DOMAINS,
     theme: (['light', 'dark', 'system'] as const).includes(s.theme) ? s.theme : 'light',
     claudeModel: (s.claudeModel ?? '').trim(),
-    codexModel: (s.codexModel ?? '').trim(),
-    ttsVoice: s.ttsVoice ?? ''
+    codexModel: (s.codexModel ?? '').trim()
   }
 }
 

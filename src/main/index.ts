@@ -148,15 +148,9 @@ function configureBrowser(): void {
 
 function configureSession(): void {
   const ses = session.defaultSession
-  // Only the microphone (push-to-talk) may be requested; everything else is denied.
-  const isAppUrl = (url: string | undefined) =>
-    Boolean(url && (url.startsWith('file://') || (process.env.ELECTRON_RENDERER_URL && url.startsWith(process.env.ELECTRON_RENDERER_URL))))
-  ses.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    const d = details as { mediaTypes?: string[]; requestingUrl?: string; isMainFrame?: boolean }
-    const media = permission === 'media' && d.isMainFrame !== false && isAppUrl(d.requestingUrl) && (d.mediaTypes ?? []).every((t) => t === 'audio')
-    callback(media)
-  })
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => permission === 'media' && isAppUrl(requestingOrigin))
+  // The app needs no device or browser permissions (camera, microphone, location…).
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+  ses.setPermissionCheckHandler(() => false)
   // YouTube's embedded player refuses to play without a referrer; app pages have none.
   ses.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*', 'https://www.youtube.com/*'] }, (details, callback) => {
     callback({ requestHeaders: { ...details.requestHeaders, Referer: 'https://mint.local/' } })

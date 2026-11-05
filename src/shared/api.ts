@@ -75,29 +75,21 @@ export interface MintApi {
   sessions: {
     start(classId: string, topicId: string, type: 'learn' | 'review'): Promise<Session>
     setPhase(classId: string, sessionId: string, phase: Session['phase']): Promise<Session>
-    submitCheck(classId: string, sessionId: string, kind: CheckKind, answer: string, via: 'text' | 'voice'): Promise<Session>
+    submitCheck(classId: string, sessionId: string, kind: CheckKind, answer: string): Promise<Session>
     finish(classId: string, sessionId: string, acceptRecords: number[], acceptTerms: number[]): Promise<Session>
     abandon(classId: string, sessionId: string): Promise<void>
   }
   /** The class chat: intake, tutor replies, and tools that post interactive widgets. */
   chat: {
     /** Omit threadId to start a new chat. */
-    send(input: { classId: string; threadId?: string; message: string; via: 'text' | 'voice'; streamId: string; voice?: boolean }): Promise<Thread>
+    send(input: { classId: string; threadId?: string; message: string; streamId: string }): Promise<Thread>
     answer(input: { classId: string; threadId: string; messageId: string; answer: WidgetAnswer }): Promise<Thread>
     command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string }): Promise<Thread>
   }
   threads: {
-    create(input: {
-      classId: string
-      anchor: Anchor
-      message: string
-      via: 'text' | 'voice'
-      sessionId?: string
-      streamId: string
-      voice?: boolean
-    }): Promise<Thread>
-    send(input: { classId: string; threadId: string; message: string; via: 'text' | 'voice'; streamId: string; voice?: boolean }): Promise<Thread>
-    moreHelp(input: { classId: string; threadId: string; streamId: string; voice?: boolean }): Promise<Thread>
+    create(input: { classId: string; anchor: Anchor; message: string; sessionId?: string; streamId: string }): Promise<Thread>
+    send(input: { classId: string; threadId: string; message: string; streamId: string }): Promise<Thread>
+    moreHelp(input: { classId: string; threadId: string; streamId: string }): Promise<Thread>
     setPinned(classId: string, threadId: string, pinned: boolean): Promise<Thread>
     remove(classId: string, threadId: string): Promise<void>
     cancel(streamId: string): Promise<void>
@@ -130,12 +122,6 @@ export interface MintApi {
     setKept(classId: string, explorableId: string, kept: boolean): Promise<void>
     remove(classId: string, explorableId: string): Promise<void>
   }
-  voice: {
-    /** Cloud transcription (OpenAI). Local Whisper runs in the renderer. */
-    transcribe(wav: ArrayBuffer): Promise<string>
-    /** Cloud speech (OpenAI). Returns mp3 bytes. */
-    speak(text: string, voice: string): Promise<ArrayBuffer>
-  }
   system: {
     /** Native picker for files and folders. Returns absolute paths (empty when cancelled). */
     pickMaterials(): Promise<string[]>
@@ -163,7 +149,6 @@ export const API_GROUPS = {
   glossary: ['propose', 'update', 'remove'],
   records: ['supersede'],
   diagrams: ['create', 'repair', 'setKept', 'remove'],
-  voice: ['transcribe', 'speak'],
   system: ['pickMaterials', 'openExternal', 'platform']
 } as const satisfies { [K in Exclude<keyof MintApi, 'on'>]: readonly (keyof MintApi[K])[] }
 

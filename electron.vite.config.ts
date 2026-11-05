@@ -15,22 +15,20 @@ function cspPlugin(): Plugin {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://i.ytimg.com",
     "font-src 'self' data:",
-    "media-src 'self' blob: data:",
     "frame-src mint-sandbox: https://www.youtube-nocookie.com",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'none'"
   ]
-  // Local Whisper downloads its model once from Hugging Face.
-  const hf = 'https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net'
   return {
     name: 'mint-csp',
     transformIndexHtml(html, ctx) {
       const dev = Boolean(ctx.server)
+      // 'wasm-unsafe-eval': pdf.js decodes some image formats with WebAssembly.
       const csp = [
         ...common,
         dev ? "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'" : "script-src 'self' 'wasm-unsafe-eval'",
-        dev ? `connect-src 'self' ws: http://localhost:* ${hf} blob: data:` : `connect-src 'self' ${hf} blob: data:`
+        dev ? "connect-src 'self' ws: http://localhost:* blob: data:" : "connect-src 'self' blob: data:"
       ].join('; ')
       return html.replace('%MINT_CSP%', csp)
     }

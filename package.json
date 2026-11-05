@@ -1,13 +1,13 @@
 {
   "name": "mint",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "mint: an agent harness for self-study. Bring your own materials; the tutor plans, teaches and checks you, then steps back.",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
   "author": "Keti Yohannes",
   "scripts": {
-    "prepare-runtimes": "node scripts/build-diagram-runtime.mjs && node scripts/prepare-ort.mjs && node scripts/prepare-pyodide.mjs",
+    "prepare-runtimes": "node scripts/build-diagram-runtime.mjs && node scripts/prepare-pyodide.mjs",
     "dev": "npm run prepare-runtimes && electron-vite dev",
     "build": "npm run prepare-runtimes && electron-vite build",
     "start": "electron-vite preview",
@@ -38,7 +38,6 @@
     "@codemirror/view": "6.43.15",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
-    "@huggingface/transformers": "4.3.2",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@phosphor-icons/react": "^2.1.10",
     "@playwright/test": "1.64.1",
@@ -79,7 +78,6 @@
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
-    "onnxruntime-node": false,
     "protobufjs": false
   },
   "homepage": "https://github.com/ketiyohannes/mint",

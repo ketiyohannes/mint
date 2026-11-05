@@ -138,7 +138,7 @@ export function AskPopover({
             </button>
           </div>
           {quote && <div className="quote-line">“{quote}”</div>}
-          <ThreadView anchor={a} thread={thread} onThread={onThread} voiceOwner="popover" autoFocus suggestions={a.kind !== 'general'} />
+          <ThreadView anchor={a} thread={thread} onThread={onThread} autoFocus suggestions={a.kind !== 'general'} />
         </>
       )}
     </Floating>

@@ -61,7 +61,7 @@ describe.skipIf(provider !== 'claude' && provider !== 'codex')(`live harness: ${
     expect(s.brief?.questions.length).toBeGreaterThan(0)
     const s2 = await core.handlers.sessions.setPhase(classId, s.id, 'apply')
     console.log('apply prompt:', s2.prompts.apply)
-    const s3 = await core.handlers.sessions.submitCheck(classId, s.id, 'apply', 'I do not know.', 'text')
+    const s3 = await core.handlers.sessions.submitCheck(classId, s.id, 'apply', 'I do not know.')
     console.log('verdict:', JSON.stringify(s3.attempts.at(-1)?.verdict))
     expect(s3.attempts.at(-1)?.verdict?.result).toBe('fail')
   }, 600_000)
@@ -73,7 +73,7 @@ describe.skipIf(provider !== 'claude' && provider !== 'codex')(`live harness: ${
     const section = doc.sections.find((s) => s.blocks.includes(block))!
     const start = block.text.indexOf('stay on the same line')
     const anchor: Anchor = { kind: 'source', sourceId: doc.id, sectionLabel: section.label, ranges: [{ blockId: block.id, start, end: start + 40 }], quote: block.text.slice(start, start + 40) }
-    const t = await core.handlers.threads.create({ classId, anchor, message: 'Why do these vectors not change direction?', via: 'text', streamId: 'live1' })
+    const t = await core.handlers.threads.create({ classId, anchor, message: 'Why do these vectors not change direction?', streamId: 'live1' })
     const reply = t.messages.at(-1)!
     console.log(`rung ${reply.rung}:`, reply.text)
     expect(reply.error).toBeFalsy()
@@ -87,7 +87,7 @@ describe.skipIf(provider !== 'claude' && provider !== 'codex')(`live harness: ${
     // A fresh class: the first message gets multiple-choice intake questions.
     const fresh = await core.handlers.classes.start({ paths: [join(root, 'tests/fixtures/e2e/eigen.md')] })
     for (let i = 0; i < 100 && !(await core.handlers.classes.get(fresh.id)).sources.length; i++) await new Promise((r) => setTimeout(r, 100))
-    const asked = await core.handlers.chat.send({ classId: fresh.id, message: 'Teach me this so I can use it for PCA', via: 'text', streamId: 'live-q' })
+    const asked = await core.handlers.chat.send({ classId: fresh.id, message: 'Teach me this so I can use it for PCA', streamId: 'live-q' })
     const qwidget = asked.messages.at(-1)!.widget
     console.log('questions:', JSON.stringify(asked.messages.at(-1)))
     expect(qwidget?.kind).toBe('questions')
@@ -96,7 +96,7 @@ describe.skipIf(provider !== 'claude' && provider !== 'codex')(`live harness: ${
       expect(qwidget.questions.every((q) => q.options.length >= 2 && q.header.length <= 12)).toBe(true)
     }
 
-    const intro = await core.handlers.chat.send({ classId, message: 'I want to get comfortable with eigenvectors for PCA', via: 'text', streamId: 'live-intake' })
+    const intro = await core.handlers.chat.send({ classId, message: 'I want to get comfortable with eigenvectors for PCA', streamId: 'live-intake' })
     const w = intro.messages.at(-1)!.widget
     console.log('intake:', JSON.stringify(intro.messages.at(-1)))
     // This class finished intake earlier, so the message goes to the tutor instead.

@@ -11,8 +11,7 @@ import { KIND_ICON } from '../components/Sidebar'
 import { Reader, type ReaderFocus } from './study/Reader'
 import { PdfView } from './study/PdfView'
 import { AskPopover, NotePopover, SelectionToolbar, TermPopover, placeNear, type AskState } from './study/Popovers'
-import { StudyCtx, type DiagramController, type StudyApi, type VoiceSink } from './study/context'
-import { useVoice } from './study/useVoice'
+import { StudyCtx, type DiagramController, type StudyApi } from './study/context'
 import { ChatView } from './chat/ChatView'
 import { LessonsPanel } from './LessonsPanel'
 import { BrowserPanel } from './BrowserPanel'
@@ -64,7 +63,7 @@ const MIN_CHAT = 420
  * The chat and the panel can swap sides.
  */
 export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: string | null | undefined }): JSX.Element {
-  const { settings, toast, run, studyFocus, go, classes } = useApp()
+  const { toast, run, studyFocus, go, classes } = useApp()
   const classId = bundle.meta.id
 
   // --- chats ---------------------------------------------------------------------
@@ -235,7 +234,6 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const [linkInput, setLinkInput] = useState<string | null>(null)
 
   // --- chat tools ------------------------------------------------------------------
-  const [voiceRequest, setVoiceRequest] = useState<{ text: string; nonce: number } | null>(null)
   const [commandRequest, setCommandRequest] = useState<{ command: ChatCommand; arg?: string; nonce: number } | null>(null)
   const command = useCallback(
     (cmd: ChatCommand, arg?: string) => {
@@ -247,9 +245,8 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   )
   /** A highlighted passage to discuss in the main chat ("Chat" on a selection). */
   const [quoteRequest, setQuoteRequest] = useState<{ text: string; source: string; nonce: number } | null>(null)
-  const onHandled = useCallback((kind: 'command' | 'voice' | 'quote') => {
+  const onHandled = useCallback((kind: 'command' | 'quote') => {
     if (kind === 'command') setCommandRequest(null)
-    else if (kind === 'voice') setVoiceRequest(null)
     else setQuoteRequest(null)
   }, [])
   const [browserRequest, setBrowserRequest] = useState<{ query: string; nonce: number } | null>(null)
@@ -294,29 +291,6 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     [bundle.sources, openSource, toast, command]
   )
 
-  // --- voice -----------------------------------------------------------------------
-  const sinks = useRef(new Map<string, VoiceSink>())
-  const setVoiceSink = useCallback((owner: string, sink: VoiceSink | null) => {
-    if (sink) sinks.current.set(owner, sink)
-    else sinks.current.delete(owner)
-  }, [])
-  const onTranscript = useCallback((text: string) => {
-    // Priority: the open side chat, then a lesson check answer, then the main chat.
-    for (const owner of ['popover', 'check']) {
-      const sink = sinks.current.get(owner)
-      if (sink && sink(text)) return
-    }
-    setVoiceRequest({ text, nonce: Date.now() })
-  }, [])
-  const voice = useVoice({ settings, onTranscript, onDirective: handleDirective, onError: (m) => toast(m, 'error') })
-  const say = voice.say
-  const speakReply = useCallback(
-    (text: string, messageId: string, force?: boolean) => {
-      if (force || settings?.speakReplies) say(text, messageId)
-    },
-    [settings?.speakReplies, say]
-  )
-
   // --- ask -------------------------------------------------------------------------
   const threadsById = useMemo(() => new Map(bundle.threads.map((t) => [t.id, t])), [bundle.threads])
   const threadsRef = useRef(threadsById)
@@ -358,11 +332,9 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       ask: askAt,
       openSource,
       command,
-      speakReply,
-      setVoiceSink,
       registerDiagram
     }),
-    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, speakReply, setVoiceSink, registerDiagram]
+    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, registerDiagram]
   )
   const onOpenThread = useCallback((t: Thread, rect: DOMRect) => askAt(t.anchor, rect, t.id), [askAt])
   const onOpenNote = useCallback((a: Annotation, rect: DOMRect) => setNote({ annotation: a, pos: placeNear(rect) }), [])
@@ -440,43 +412,10 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           go({ name: 'class', classId, chatId: id })
         }}
         onHandled={onHandled}
-        mic={{ status: voice.status, toggle: voice.toggle }}
         onAddMaterials={() => void addMaterials()}
         commandRequest={commandRequest}
-        voiceRequest={voiceRequest}
         quoteRequest={quoteRequest}
       />
-      {(voice.caption || voice.status === 'recording' || voice.status === 'transcribing') && (
-        <div className="voice-strip" data-testid="caption">
-          <Icon name="mic" size={12} />
-          <span className="ellipsis">
-            {voice.status === 'recording'
-              ? 'Listening… release Space (or click the mic) when you are done.'
-              : voice.status === 'transcribing'
-                ? voice.modelPct !== null
-                  ? `Downloading the local speech model (${Math.round(voice.modelPct)}%)…`
-                  : 'Transcribing…'
-                : voice.caption?.text}
-          </span>
-          {voice.caption && (
-            <button
-              className="link-btn"
-              onClick={() => {
-                const c = voice.caption!
-                const owner = bundle.threads.find((t) => t.messages.some((m) => m.id === c.messageId))
-                if (owner) askAt({ kind: 'message', threadId: owner.id, messageId: c.messageId, quote: c.text })
-              }}
-            >
-              Ask
-            </button>
-          )}
-          {voice.status === 'speaking' && (
-            <button className="icon-btn" aria-label="Stop speaking" onClick={voice.stopSpeaking}>
-              <Icon name="stop" size={11} />
-            </button>
-          )}
-        </div>
-      )}
     </section>
   )
 

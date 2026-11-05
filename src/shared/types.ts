@@ -24,8 +24,6 @@ export interface ModelOption {
   /** The harness's own default. */
   isDefault?: boolean
 }
-export type SttEngine = 'local-whisper' | 'openai'
-export type TtsEngine = 'system' | 'openai'
 export type ThemePref = 'light' | 'dark' | 'system'
 
 export interface Settings {
@@ -33,13 +31,6 @@ export interface Settings {
   /** Empty string means "use the harness default model". */
   claudeModel: string
   codexModel: string
-  sttEngine: SttEngine
-  ttsEngine: TtsEngine
-  /** System voice name (speechSynthesis) or OpenAI voice id, depending on ttsEngine. */
-  ttsVoice: string
-  ttsRate: number
-  /** Speak tutor replies aloud by default. */
-  speakReplies: boolean
   /** Default allowlist used when a class builds a curriculum from trusted sources. */
   trustedDomains: string[]
   theme: ThemePref
@@ -47,11 +38,10 @@ export interface Settings {
 
 export interface SettingsView extends Settings {
   hasAnthropicKey: boolean
-  hasOpenAIKey: boolean
   dataDir: string
 }
 
-export type SecretName = 'anthropic' | 'openai'
+export type SecretName = 'anthropic'
 
 // ---------------------------------------------------------------------------
 // Class (one learning project; mirrors a /teach workspace)
@@ -290,7 +280,6 @@ export interface CheckAttempt {
   kind: CheckKind
   prompt: string
   answer: string
-  via: 'text' | 'voice'
   at: string
   verdict?: Verdict
 }
@@ -346,7 +335,6 @@ export interface ThreadMessage {
   text: string
   at: string
   rung?: Rung
-  via?: 'text' | 'voice'
   error?: boolean
   /** Interactive content shown under the text (questions, a quiz, a code exercise, a lesson…). */
   widget?: Widget

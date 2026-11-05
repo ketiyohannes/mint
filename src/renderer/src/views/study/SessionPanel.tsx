@@ -147,28 +147,16 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
   const study = useStudy()
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
-  const [via, setVia] = useState<'text' | 'voice'>('text')
   const prompt = session.prompts[kind]
   const attempts = session.attempts.filter((a) => a.kind === kind)
   const last = attempts[attempts.length - 1]
   const passed = attempts.some((a) => a.verdict?.result === 'pass')
 
-  // Dictation fills the answer box (speaking an explanation is great retrieval practice).
-  useEffect(() => {
-    study.setVoiceSink('check', (text) => {
-      setAnswer((a) => (a ? `${a} ${text}` : text))
-      setVia('voice')
-      return true
-    })
-    return () => study.setVoiceSink('check', null)
-  }, [study])
-
   async function submit() {
     setBusy(true)
     try {
-      await api.sessions.submitCheck(study.classId, session.id, kind, answer, via)
+      await api.sessions.submitCheck(study.classId, session.id, kind, answer)
       setAnswer('')
-      setVia('text')
     } catch (err) {
       toast(err instanceof Error ? err.message.replace(/^.*mint:/, '') : String(err), 'error')
     } finally {
@@ -195,7 +183,6 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
             <div className={`verdict ${a.verdict.result}`} data-testid="verdict">
               <div className="row" style={{ marginBottom: 4 }}>
                 <b style={{ textTransform: 'capitalize' }}>{a.verdict.result === 'pass' ? 'Pass' : a.verdict.result === 'partial' ? 'Almost' : 'Not yet'}</b>
-                {a.via === 'voice' && <span className="badge">spoken</span>}
               </div>
               <RichText text={a.verdict.feedback} />
               {a.verdict.misconceptions.length > 0 && (
@@ -211,12 +198,9 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
         <div className="stack" style={{ gap: 8 }}>
           <textarea
             className="textarea"
-            placeholder={last ? 'Try again, after re-reading the passage it pointed you to…' : 'Your answer (or hold Space and say it)…'}
+            placeholder={last ? 'Try again, after re-reading the passage it pointed you to…' : 'Your answer…'}
             value={answer}
-            onChange={(e) => {
-              setAnswer(e.target.value)
-              if (!e.target.value) setVia('text')
-            }}
+            onChange={(e) => setAnswer(e.target.value)}
             style={{ minHeight: 110 }}
             data-testid="check-answer"
           />

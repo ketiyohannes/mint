@@ -10,7 +10,6 @@ import { userError, userMessage } from './kernel'
 interface AskInput {
   classId: string
   streamId: string
-  voice?: boolean
 }
 
 export class ThreadService {
@@ -22,10 +21,10 @@ export class ThreadService {
     this.inflight.get(streamId)?.abort()
   }
 
-  async create(input: AskInput & { anchor: Anchor; message: string; via: 'text' | 'voice'; sessionId?: string }): Promise<Thread> {
+  async create(input: AskInput & { anchor: Anchor; message: string; sessionId?: string }): Promise<Thread> {
     const { classId } = input
     const message = input.message.trim().slice(0, 4000)
-    if (!message) throw userError('Type (or say) your question first.')
+    if (!message) throw userError('Type your question first.')
     const anchor = await this.validateAnchor(classId, input.anchor)
 
     // Nesting cap: a follow-up on a reply that is itself a follow-up stays in that thread.
@@ -33,7 +32,7 @@ export class ThreadService {
       const threads = await this.k.repo.read(classId, 'threads')
       const parent = threads.find((t) => t.id === anchor.threadId)
       if (parent && parent.anchor.kind === 'message') {
-        return this.send({ classId, threadId: parent.id, message: `> ${anchor.quote}\n\n${message}`, via: input.via, streamId: input.streamId, voice: input.voice })
+        return this.send({ classId, threadId: parent.id, message: `> ${anchor.quote}\n\n${message}`, streamId: input.streamId })
       }
     }
 
@@ -44,7 +43,7 @@ export class ThreadService {
       classId,
       anchor,
       title: titleFor(anchor, message),
-      messages: [{ id: newId('msg'), role: 'user', text: message, at: now, via: input.via }],
+      messages: [{ id: newId('msg'), role: 'user', text: message, at: now }],
       rung: independence.defaultRung,
       pinned: false,
       sessionId: input.sessionId,
@@ -59,10 +58,10 @@ export class ThreadService {
     return this.reply(classId, thread.id, thread.rung, input)
   }
 
-  async send(input: AskInput & { threadId: string; message: string; via: 'text' | 'voice' }): Promise<Thread> {
+  async send(input: AskInput & { threadId: string; message: string }): Promise<Thread> {
     const { classId, threadId } = input
     const message = input.message.trim().slice(0, 4000)
-    if (!message) throw userError('Type (or say) your question first.')
+    if (!message) throw userError('Type your question first.')
     const independence = await this.k.independence(classId)
     // Every new question starts again at the default rung; escalation is per question.
     const rung = independence.defaultRung
@@ -70,7 +69,7 @@ export class ThreadService {
       await this.mutate(classId, threadId, (t) => ({
         ...t,
         rung,
-        messages: [...t.messages, { id: newId('msg'), role: 'user', text: message, at: nowIso(), via: input.via }],
+        messages: [...t.messages, { id: newId('msg'), role: 'user', text: message, at: nowIso() }],
         updatedAt: nowIso()
       }))
       await this.logHelp(classId, threadId, rung, independence.defaultRung, false)
@@ -114,7 +113,7 @@ export class ThreadService {
       const thread = threads.find((t) => t.id === threadId)
       if (!thread) throw userError('That thread no longer exists.')
       const ctx = await this.k.context(classId)
-      const tctx = await this.threadContext(classId, thread, rung, Boolean(input.voice))
+      const tctx = await this.threadContext(classId, thread, rung)
       return tutorReply({ runtime: await this.k.runtime(), ctx, signal }, tctx, onDelta)
     })
   }
@@ -193,7 +192,7 @@ export class ThreadService {
     return updated
   }
 
-  private async threadContext(classId: string, thread: Thread, rung: Rung, voice: boolean): Promise<ThreadContext> {
+  private async threadContext(classId: string, thread: Thread, rung: Rung): Promise<ThreadContext> {
     const a = thread.anchor
     let anchorContext = ''
     let explorable
@@ -227,7 +226,7 @@ export class ThreadService {
       const session = (await this.k.repo.read(classId, 'sessions')).find((s) => s.id === thread.sessionId)
       if (session) sessionTopic = findTopic(await this.k.repo.read(classId, 'curriculum'), session.topicId)
     }
-    return { thread, rung, voice, anchorContext, explorable, sessionTopic }
+    return { thread, rung, anchorContext, explorable, sessionTopic }
   }
 
   private async validateAnchor(classId: string, anchor: Anchor): Promise<Anchor> {

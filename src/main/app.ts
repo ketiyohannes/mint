@@ -10,7 +10,6 @@ import { SessionService } from './services/sessions'
 import { ThreadService } from './services/threads'
 import { NotebookService } from './services/notebook'
 import { DiagramService } from './services/diagrams'
-import { VoiceService } from './services/voice'
 import { SetupService } from './services/setup'
 import { ChatService } from './services/chat'
 import { join } from 'node:path'
@@ -35,6 +34,7 @@ export interface MintCore {
 export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge } & KernelOptions): MintCore {
   const repo = new ClassRepo(join(opts.dataDir, 'classes'))
   const settings = new SettingsStore(opts.dataDir, opts.cipher)
+  void settings.forgetRetiredSecrets().catch(() => undefined)
   const kernel = new Kernel(repo, settings, opts.emitter, { fetchImpl: opts.fetchImpl, youtube: opts.youtube, log: opts.log })
 
   const classes = new ClassService(kernel)
@@ -44,7 +44,6 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
   const threads = new ThreadService(kernel)
   const notebook = new NotebookService(kernel)
   const diagrams = new DiagramService(kernel)
-  const voice = new VoiceService(kernel)
   const setup = new SetupService(kernel, classes, sources, intake)
   const chat = new ChatService(kernel, threads, classes, sessions, setup, sources, diagrams)
 
@@ -58,7 +57,7 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
         return settings.view()
       },
       setSecret: async (name, value) => {
-        if (name !== 'anthropic' && name !== 'openai') throw userError('Unknown key.')
+        if (name !== 'anthropic') throw userError('Unknown key.')
         await settings.setSecret(name, value)
         return settings.view()
       },
@@ -137,7 +136,7 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
     sessions: {
       start: (classId, topicId, type) => sessions.start(classId, topicId, type === 'review' ? 'review' : 'learn'),
       setPhase: (classId, sessionId, phase) => sessions.setPhase(classId, sessionId, phase),
-      submitCheck: (classId, sessionId, kind, answer, via) => sessions.submitCheck(classId, sessionId, kind, String(answer ?? ''), via === 'voice' ? 'voice' : 'text'),
+      submitCheck: (classId, sessionId, kind, answer) => sessions.submitCheck(classId, sessionId, kind, String(answer ?? '')),
       finish: (classId, sessionId, r, t) => sessions.finish(classId, sessionId, r ?? [], t ?? []),
       abandon: (classId, sessionId) => sessions.abandon(classId, sessionId)
     },
@@ -179,10 +178,6 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       repair: (classId, id, error) => diagrams.repair(classId, id, String(error ?? '')),
       setKept: (classId, id, kept) => diagrams.setKept(classId, id, Boolean(kept)),
       remove: (classId, id) => diagrams.remove(classId, id)
-    },
-    voice: {
-      transcribe: (wav) => voice.transcribe(wav),
-      speak: (text, v) => voice.speak(String(text ?? ''), String(v ?? ''))
     },
     system: {
       pickMaterials: () => opts.host.pickFiles({ folders: true }),

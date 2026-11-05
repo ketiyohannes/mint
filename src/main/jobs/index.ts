@@ -283,7 +283,6 @@ You have tools you can OFFER as buttons (the learner clicks to run them); offer 
 export interface ThreadContext {
   thread: Thread
   rung: Rung
-  voice: boolean
   /** Text around the anchor (for source anchors) or the quoted message. */
   anchorContext: string
   explorable?: Explorable
@@ -291,7 +290,7 @@ export interface ThreadContext {
 }
 
 export function tutorReply(env: JobEnv, t: ThreadContext, onDelta: (d: string) => void): Promise<string> {
-  const { thread, rung, voice } = t
+  const { thread, rung } = t
   const anchor = describeAnchor(thread.anchor, t)
   const history = thread.messages
     .slice(-12)
@@ -300,9 +299,6 @@ export function tutorReply(env: JobEnv, t: ThreadContext, onDelta: (d: string) =
   const diagramRules = t.explorable
     ? `\nThe learner is looking at the interactive diagram "${t.explorable.spec.title}". Its parts: ${t.explorable.spec.elements.map((e) => `${e.id} (${e.label})`).join(', ')}. Its sliders: ${t.explorable.spec.params.map((p) => `${p.id} (${p.label}, ${p.min} to ${p.max}, now ${p.value})`).join(', ') || 'none'}.
 Point at parts while you talk: put [[highlight:<elementId>]] right where you mention a part, and [[set:<paramId>=<value>]] where moving a slider helps. Use only the ids above.`
-    : ''
-  const voiceRules = voice
-    ? `\nYour reply will be SPOKEN aloud by a voice tutor. Write for the ear: short sentences, no tables, no code blocks, no bullet lists, no headings; say math in words where you can. Explain in small chunks and include one quick check-in question. Keep citations as directives (they are shown on screen, not read).`
     : ''
   return runText(env.runtime, {
     ...base(env),
@@ -313,7 +309,7 @@ Point at parts while you talk: put [[highlight:<elementId>]] right where you men
     system: `${tutor('help', 'wisdom')}
 
 ${thread.anchor.kind === 'general' ? MAIN_CHAT_RULES : 'You are answering in a small Ask popover next to what the learner is reading.'} ${RUNG_RULES[rung]}
-If the materials do not cover the question, say so plainly in one sentence, then help using general knowledge clearly labeled "outside your materials".${diagramRules}${voiceRules}`,
+If the materials do not cover the question, say so plainly in one sentence, then help using general knowledge clearly labeled "outside your materials".${diagramRules}`,
     prompt: `${describeClass(env.ctx)}
 ${t.sessionTopic ? `\nCurrent study topic: ${t.sessionTopic.title} (${t.sessionTopic.objective})` : ''}
 

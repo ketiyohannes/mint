@@ -68,7 +68,6 @@ describe('teach skill (mint edition)', () => {
       {
         thread: { id: 't', classId: 'c1', title: '', anchor: { kind: 'general' }, messages: [{ id: 'm', role: 'user', text: 'what is a basis?', at: '' }], createdAt: '', updatedAt: '' } as never,
         rung: 1,
-        voice: false,
         anchorContext: ''
       },
       () => {}

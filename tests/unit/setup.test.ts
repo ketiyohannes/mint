@@ -69,7 +69,7 @@ describe('folder expansion', () => {
 })
 
 describe('classes.start + the chat intake', () => {
-  const send = (classId: string, message: string, threadId?: string) => core.handlers.chat.send({ classId, threadId, message, via: 'text', streamId: `s${Math.random()}` })
+  const send = (classId: string, message: string, threadId?: string) => core.handlers.chat.send({ classId, threadId, message, streamId: `s${Math.random()}` })
   const bundle = (id: string) => core.handlers.classes.get(id)
   let eigenId = ''
 

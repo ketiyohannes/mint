@@ -41,8 +41,6 @@ mac:
       arch: [arm64]
     - target: zip
       arch: [arm64]
-  extendInfo:
-    NSMicrophoneUsageDescription: mint uses the microphone for the voice tutor. Speech is transcribed on your Mac.
 
 dmg:
   title: mint ${version}

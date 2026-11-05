@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { extractDirectives, splitDirectives, stripForSpeech, toSpeechChunks } from '@shared/directives'
+import { extractDirectives, splitDirectives } from '@shared/directives'
 import { matchSection, validateCurriculum, type RawCurriculum } from '../../src/main/learning/curriculum'
 import { applyCheck, applyReviewOutcome, computeIndependence, emptyProgress, nextTopicId, recomputeProgress, reviewsDue } from '../../src/main/learning/engine'
 import { findQuote, segmentText } from '../../src/renderer/src/lib/anchors'
@@ -19,17 +19,6 @@ describe('directives', () => {
     ])
     const segs = splitDirectives(text)
     expect(segs.filter((s) => s.kind === 'text').map((s) => (s.kind === 'text' ? s.text : '')).join('')).toContain('[[set:angle=x]]')
-  })
-
-  it('makes speech text without directives or markdown', () => {
-    expect(stripForSpeech('**Look** at [[cite:a|p. 3|x]] and [[highlight:rod]] `code`')).toBe('Look at (see p. 3) and code')
-  })
-
-  it('attaches diagram directives to the sentence they appear in', () => {
-    const chunks = toSpeechChunks('First the pivot [[highlight:pivot]]. Now raise it [[set:angle=60]]! Done?')
-    expect(chunks.map((c) => c.speak)).toEqual(['First the pivot .', 'Now raise it !', 'Done?'])
-    expect(chunks[0].directives).toEqual([{ type: 'highlight', elementId: 'pivot' }])
-    expect(chunks[1].directives).toEqual([{ type: 'set', paramId: 'angle', value: 60 }])
   })
 })
 
@@ -160,7 +149,7 @@ describe('learning engine', () => {
       phase: 'wrap',
       startedAt: '',
       prompts: {},
-      attempts: Array.from({ length: 6 }, (_, i) => ({ id: `a${i}`, kind: 'explain' as const, prompt: '', answer: '', via: 'text' as const, at: '', verdict: { result: 'pass' as const, feedback: '', misconceptions: [] } }))
+      attempts: Array.from({ length: 6 }, (_, i) => ({ id: `a${i}`, kind: 'explain' as const, prompt: '', answer: '' as const, at: '', verdict: { result: 'pass' as const, feedback: '', misconceptions: [] } }))
     }
     expect(computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 3)), [passed], []).level).toBe(3)
     // Escalating two rungs to a full explanation every time keeps support high.
@@ -250,23 +239,37 @@ describe('diagram sanitizing', () => {
 })
 
 describe('settings store', () => {
-  it('persists only known settings keys', async () => {
+  it('persists only known settings keys, dropping retired ones', async () => {
     const { mkdtempSync, readFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const { SettingsStore } = await import('../../src/main/store/settingsStore')
     const dir = mkdtempSync(join(tmpdir(), 'mint-settings-'))
     const store = new SettingsStore(dir, { available: () => true, encrypt: (p) => p, decrypt: (c) => c })
-    await store.update({ ttsRate: 9, trustedDomains: ['https://www.Example.org/path', 'not a domain'], dataDir: '/evil' } as never)
+    await store.update({ ttsRate: 9, speakReplies: true, trustedDomains: ['https://www.Example.org/path', 'not a domain'], dataDir: '/evil' } as never)
     const saved = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'))
     expect(saved.dataDir).toBeUndefined()
-    expect(saved.ttsRate).toBe(1.6)
+    expect(saved.ttsRate).toBeUndefined()
+    expect(saved.speakReplies).toBeUndefined()
     expect(saved.trustedDomains).toEqual(['example.org'])
+  })
+
+  it('forgets the OpenAI key the old voice tutor used, keeping the Anthropic key', async () => {
+    const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { SettingsStore } = await import('../../src/main/store/settingsStore')
+    const dir = mkdtempSync(join(tmpdir(), 'mint-secrets-'))
+    writeFileSync(join(dir, 'secrets.json'), JSON.stringify({ anthropic: 'enc-a', openai: 'enc-o' }))
+    const store = new SettingsStore(dir, { available: () => true, encrypt: (p) => p, decrypt: (c) => c })
+    await store.forgetRetiredSecrets()
+    expect(JSON.parse(readFileSync(join(dir, 'secrets.json'), 'utf8'))).toEqual({ anthropic: 'enc-a' })
+    expect(await store.getSecret('anthropic')).toBe('enc-a')
   })
 })
 
 describe('tutor offers', () => {
-  it('parses quiz, code and diagram offers, rejects unknown tools, and keeps them out of speech', () => {
+  it('parses quiz, code and diagram offers and rejects unknown tools', () => {
     const text = 'Try it. [[offer:quiz|eigenvalues]] Or [[offer:code|scaling | in python]] and [[offer:diagram|a stretch]] [[offer:shell|rm -rf]]'
     const ds = extractDirectives(text)
     expect(ds).toEqual([
@@ -274,7 +277,5 @@ describe('tutor offers', () => {
       { type: 'offer', tool: 'code', arg: 'scaling | in python' },
       { type: 'offer', tool: 'diagram', arg: 'a stretch' }
     ])
-    expect(stripForSpeech(text)).not.toMatch(/offer|eigenvalues/)
-    expect(toSpeechChunks(text).flatMap((c) => c.directives)).toEqual([])
   })
 })

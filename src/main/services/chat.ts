@@ -16,9 +16,7 @@ export interface ChatSendInput {
   /** Omit to start a new chat. */
   threadId?: string
   message: string
-  via: 'text' | 'voice'
   streamId: string
-  voice?: boolean
 }
 
 const COMMANDS: ChatCommand[] = ['quiz', 'code', 'diagram', 'lesson', 'plan']
@@ -62,8 +60,8 @@ export class ChatService {
       if (!all.some((t) => t.messages.some((m) => m.widget?.kind === 'questions'))) return this.startIntake(input, message)
     }
 
-    if (input.threadId) return this.threads.send({ classId, threadId: input.threadId, message, via: input.via, streamId: input.streamId, voice: input.voice })
-    return this.threads.create({ classId, anchor: { kind: 'general' }, message, via: input.via, streamId: input.streamId, voice: input.voice })
+    if (input.threadId) return this.threads.send({ classId, threadId: input.threadId, message, streamId: input.streamId })
+    return this.threads.create({ classId, anchor: { kind: 'general' }, message, streamId: input.streamId })
   }
 
   async answer(input: { classId: string; threadId: string; messageId: string; answer: WidgetAnswer }): Promise<Thread> {
@@ -92,7 +90,7 @@ export class ChatService {
         const result = sanitizeRun(answer.result)
         const passed = result.tests.filter((t) => t.pass).length
         await this.threads.patchWidget(classId, threadId, messageId, (x) => (x.kind === 'code' ? { ...x, submission: { code, passed, total: result.tests.length } } : x))
-        await this.threads.append(classId, threadId, [{ role: 'user', text: `Submitted my solution (${passed}/${result.tests.length} tests passing).`, via: 'text' }])
+        await this.threads.append(classId, threadId, [{ role: 'user', text: `Submitted my solution (${passed}/${result.tests.length} tests passing).` }])
         const ctx = await this.k.context(classId)
         return this.threads.streamReply(classId, threadId, String(answer.streamId), undefined, async (signal, onDelta) =>
           reviewCode({ runtime: await this.k.runtime(), ctx, signal }, w.exercise, code, result, onDelta)
@@ -118,8 +116,8 @@ export class ChatService {
     const label = { quiz: 'Quiz', code: 'Code exercise', diagram: 'Diagram', plan: 'Plan' }[command]
     const call = `/${command}${arg ? ` ${arg}` : ''}`
     const thread = input.threadId
-      ? await this.threads.append(classId, input.threadId, [{ role: 'user', text: call, via: 'text' }])
-      : await this.threads.createChat(classId, `${label}: ${focus}`, [{ role: 'user', text: call, via: 'text' }])
+      ? await this.threads.append(classId, input.threadId, [{ role: 'user', text: call }])
+      : await this.threads.createChat(classId, `${label}: ${focus}`, [{ role: 'user', text: call }])
 
     try {
       const runtime = await this.k.runtime()
@@ -169,8 +167,8 @@ export class ChatService {
   private async startIntake(input: ChatSendInput, message: string): Promise<Thread> {
     const { classId } = input
     const thread = input.threadId
-      ? await this.threads.append(classId, input.threadId, [{ role: 'user', text: message, via: input.via }])
-      : await this.threads.createChat(classId, message, [{ role: 'user', text: message, via: input.via }])
+      ? await this.threads.append(classId, input.threadId, [{ role: 'user', text: message }])
+      : await this.threads.createChat(classId, message, [{ role: 'user', text: message }])
     try {
       const ctx = await this.k.context(classId)
       const out = await this.k.job(classId, 'Reading your materials', async () => intakeQuestions({ runtime: await this.k.runtime(), ctx }, message))
@@ -207,7 +205,7 @@ export class ChatService {
 
     if (msg && widget) await this.threads.patchWidget(classId, threadId, msg.id, (w) => (w.kind === 'questions' ? { ...w, answers, skipped: skip || undefined } : w))
     // The answered question card already shows picked options; only typed words become a message.
-    if (note) await this.threads.append(classId, threadId, [{ role: 'user', text: note, via: 'text' }])
+    if (note) await this.threads.append(classId, threadId, [{ role: 'user', text: note }])
 
     await this.recordIntake(classId, thread, questions, answers, note)
     const hasSources = (await this.k.repo.read(classId, 'sources')).length > 0

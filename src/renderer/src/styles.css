@@ -777,7 +777,7 @@ a {
   margin: 0;
 }
 
-/* Copy, read aloud and more help under a reply: quiet until hovered. */
+/* Copy and more help under a reply: quiet until hovered. */
 .msg-actions {
   display: flex;
   align-items: center;
@@ -877,24 +877,6 @@ a {
   position: fixed;
   transform: translateX(-50%);
   z-index: 90;
-}
-
-.voice-strip {
-  position: absolute;
-  left: 50%;
-  bottom: 110px;
-  transform: translateX(-50%);
-  max-width: min(640px, 90%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 99px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong);
-  box-shadow: var(--shadow);
-  font-size: 12px;
-  z-index: 20;
 }
 
 /* New chat: the prompt in the middle */
@@ -1084,27 +1066,6 @@ a {
   background: var(--surface-3);
   color: var(--muted);
   cursor: default;
-}
-
-.icon-btn.mic.rec {
-  background: var(--danger);
-  color: #fff;
-}
-
-/* In the composer the mic is a plain icon button, not the round voice-bar key. */
-.composer-bar .mic {
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--muted);
-}
-
-.composer-bar .mic:hover {
-  background: var(--surface-3);
-  color: var(--fg);
-}
-
-.icon-btn.mic.busy {
-  color: var(--fg);
 }
 
 .menu.up {
@@ -3015,56 +2976,6 @@ mark.hl.flash-quote {
   overflow: hidden;
   background: #fbfbf8;
   position: relative;
-}
-
-/* Voice */
-.voice-bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 8px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-sidebar);
-}
-
-.mic {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 0;
-  cursor: pointer;
-  background: var(--surface-3);
-  color: var(--fg);
-  display: grid;
-  place-items: center;
-  flex: none;
-}
-
-.mic.rec {
-  background: var(--danger);
-  color: #fff;
-}
-
-.mic.busy {
-  background: var(--surface-3);
-  color: var(--fg);
-}
-
-.caption {
-  flex: 1;
-  font-size: 12px;
-  color: var(--fg-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-  user-select: text;
-}
-
-.caption.speaking {
-  color: var(--fg);
 }
 
 .sparkline {

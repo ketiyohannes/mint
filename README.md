@@ -65,7 +65,6 @@ Every class is also a plain folder you own, in the `/teach` workspace format: `M
 
 - **Rich rendering everywhere.** Markdown, LaTeX, code, and arrays or matrices as cells look the same in the chat, side chats, lesson briefs, checks and quizzes.
 - **Notes.** A notepad with headings, lists and checklists, highlights, code, links and LaTeX formulas (type `$x^2$`). It saves as you type.
-- **Voice tutor.** Hold Space to talk. Speech is transcribed on your Mac with Whisper; replies are spoken, and diagram pointers move in sync.
 - **Layout.** Swap the chat and the panel, resize them, or split the panel into two tabs, side by side or stacked.
 
 ## Install
@@ -124,11 +123,11 @@ src/main             Electron main process: owns all state
   jobs/              every prompt, zod schema and demo answer; format.ts is the shared formatting contract
   pedagogy/          the teach skill (mint edition) and its section loader
   learning/          deterministic rules: curriculum validation, mastery, reviews, independence
-  services/          chat (intake, tools, widgets), classes, sources, sessions, threads, notebook, diagrams, voice
+  services/          chat (intake, tools, widgets), classes, sources, sessions, threads, notebook, diagrams
   sources/           importers: PDF, HTML (Readability), Markdown, text, Word, YouTube
   store/             atomic JSON state, settings, keychain-encrypted secrets, /teach exports
 src/preload          the only bridge: typed invoke channels and three event streams
-src/renderer         React UI: chat and widgets, reader, panel, notes, popovers, voice
+src/renderer         React UI: chat and widgets, reader, panel, notes, popovers
                      (components/RichText.tsx is the one renderer for tutor text)
 resources/diagram-sandbox   sandboxed runtimes for model-written diagrams and learner code
 ```
@@ -147,7 +146,6 @@ Guardrails:
 - On Linux, the AppImage may need `--no-sandbox` on systems that restrict unprivileged user namespaces; the `.deb` sets up Chromium's sandbox itself.
 - Scanned PDFs show their pages but need OCR before you can select or ask about text.
 - Codex runs with your `~/.codex` configuration, so your Codex hooks and MCP servers also run on mint's turns.
-- Local Whisper downloads its model (about 80 MB) the first time you talk.
 
 ## Credits
 

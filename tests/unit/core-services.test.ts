@@ -42,8 +42,8 @@ describe('mint core with the demo runtime', () => {
   let topicId = ''
 
   it('stores settings and encrypted secrets', async () => {
-    const view = await core.handlers.settings.setSecret('openai', 'sk-test')
-    expect(view.hasOpenAIKey).toBe(true)
+    const view = await core.handlers.settings.setSecret('anthropic', 'sk-test')
+    expect(view.hasAnthropicKey).toBe(true)
     expect(readFileSync(join(dir, 'secrets.json'), 'utf8')).toContain('enc:sk-test')
     expect((await core.handlers.settings.testProvider('demo')).ok).toBe(true)
     await expect(core.handlers.settings.update({ provider: 'bogus' as never })).resolves.toMatchObject({ provider: 'claude' })
@@ -105,7 +105,7 @@ describe('mint core with the demo runtime', () => {
     const doc = await core.handlers.sources.get(classId, bundle.sources[0].id)
     const block = doc.sections[0].blocks[1] ?? doc.sections[0].blocks[0]
     const anchor: Anchor = { kind: 'source', sourceId: doc.id, sectionLabel: doc.sections[0].label, ranges: [{ blockId: block.id, start: 0, end: 20 }], quote: block.text.slice(0, 20) }
-    const t = await core.handlers.threads.create({ classId, anchor, message: 'Why?', via: 'text', streamId: 's1' })
+    const t = await core.handlers.threads.create({ classId, anchor, message: 'Why?', streamId: 's1' })
     expect(t.rung).toBe(3) // new learners start at a hint
     expect(t.messages.at(-1)?.role).toBe('tutor')
     expect(t.messages.at(-1)?.text).toContain(`[[cite:${doc.id}|`)
@@ -118,11 +118,11 @@ describe('mint core with the demo runtime', () => {
 
     // Follow-up on a reply, then a follow-up on that follow-up stays in the same thread (nesting cap).
     const reply = t2.messages.at(-1)!
-    const f1 = await core.handlers.threads.create({ classId, anchor: { kind: 'message', threadId: t.id, messageId: reply.id, quote: 'full explanation' }, message: 'More?', via: 'text', streamId: 's4' })
-    const f2 = await core.handlers.threads.create({ classId, anchor: { kind: 'message', threadId: f1.id, messageId: f1.messages.at(-1)!.id, quote: 'x' }, message: 'And?', via: 'text', streamId: 's5' })
+    const f1 = await core.handlers.threads.create({ classId, anchor: { kind: 'message', threadId: t.id, messageId: reply.id, quote: 'full explanation' }, message: 'More?', streamId: 's4' })
+    const f2 = await core.handlers.threads.create({ classId, anchor: { kind: 'message', threadId: f1.id, messageId: f1.messages.at(-1)!.id, quote: 'x' }, message: 'And?', streamId: 's5' })
     expect(f2.id).toBe(f1.id)
 
-    await expect(core.handlers.threads.create({ classId, anchor: { ...anchor, ranges: [{ blockId: 'nope', start: 0, end: 3 }] } as Anchor, message: 'x', via: 'text', streamId: 's6' })).rejects.toThrow(/located/)
+    await expect(core.handlers.threads.create({ classId, anchor: { ...anchor, ranges: [{ blockId: 'nope', start: 0, end: 3 }] } as Anchor, message: 'x', streamId: 's6' })).rejects.toThrow(/located/)
     const after = await core.handlers.classes.get(classId)
     expect(after.helpEvents.filter((e) => e.escalated)).toHaveLength(1)
     expect(after.independence.asks).toBeGreaterThan(0)
@@ -140,12 +140,12 @@ describe('mint core with the demo runtime', () => {
     for (const phase of ['explain', 'apply', 'distinguish'] as const) {
       s = await core.handlers.sessions.setPhase(classId, s.id, phase)
       expect(s.prompts[phase]).toBeTruthy()
-      s = await core.handlers.sessions.submitCheck(classId, s.id, phase, 'idk', 'text')
+      s = await core.handlers.sessions.submitCheck(classId, s.id, phase, 'idk')
       expect(s.attempts.at(-1)?.verdict?.result).toBe('fail')
-      s = await core.handlers.sessions.submitCheck(classId, s.id, phase, answer, 'voice')
+      s = await core.handlers.sessions.submitCheck(classId, s.id, phase, answer)
       expect(s.attempts.at(-1)?.verdict?.result).toBe('pass')
     }
-    await expect(core.handlers.sessions.submitCheck(classId, s.id, 'explain', '   ', 'text')).rejects.toThrow(/answer first/)
+    await expect(core.handlers.sessions.submitCheck(classId, s.id, 'explain', '   ')).rejects.toThrow(/answer first/)
     s = await core.handlers.sessions.setPhase(classId, s.id, 'wrap')
     expect(s.wrap?.records.length).toBeGreaterThan(0)
     s = await core.handlers.sessions.finish(classId, s.id, [0], [0])
@@ -181,7 +181,7 @@ describe('mint core with the demo runtime', () => {
     expect(r1.id).toBe(e.id)
     await expect(core.handlers.diagrams.repair(classId, e.id, 'again')).rejects.toThrow(/two repairs/)
     await core.handlers.diagrams.setKept(classId, e.id, true)
-    const thread = await core.handlers.threads.create({ classId, anchor: { kind: 'diagram', explorableId: e.id, elementId: 'vector', label: 'Vector' }, message: 'What is this?', via: 'voice', streamId: 'd1', voice: true })
+    const thread = await core.handlers.threads.create({ classId, anchor: { kind: 'diagram', explorableId: e.id, elementId: 'vector', label: 'Vector' }, message: 'What is this?', streamId: 'd1' })
     expect(thread.messages.at(-1)?.text).toContain('[[highlight:vector]]')
   })
 

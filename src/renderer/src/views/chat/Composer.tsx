@@ -26,7 +26,6 @@ interface Props {
   placeholder: string
   centered?: boolean
   autoFocus?: boolean
-  mic: { status: string; toggle: () => void }
   onAddMaterials: () => void
   /** Prefill (e.g. from a suggestion chip) without sending. */
   prefill?: { text: string; nonce: number } | null
@@ -35,9 +34,9 @@ interface Props {
   onClearQuote?: () => void
 }
 
-/** The prompt box: auto-growing input, slash commands, actions menu, provider, mic, send/stop. */
+/** The prompt box: auto-growing input, slash commands, actions menu, model picker, send/stop. */
 export function Composer(props: Props): JSX.Element {
-  const { onSubmit, busy, onStop, placeholder, centered, autoFocus, mic, onAddMaterials, prefill, quote, onClearQuote } = props
+  const { onSubmit, busy, onStop, placeholder, centered, autoFocus, onAddMaterials, prefill, quote, onClearQuote } = props
   const [draft, setDraft] = useState('')
   const [menu, setMenu] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
@@ -202,15 +201,6 @@ export function Composer(props: Props): JSX.Element {
         <ModelPicker />
         <span className="spacer" />
         <span className="composer-hint">/ for tools</span>
-        <button
-          className={`icon-btn mic ${mic.status === 'recording' ? 'rec' : mic.status === 'transcribing' ? 'busy' : ''}`}
-          onClick={mic.toggle}
-          aria-label={mic.status === 'recording' ? 'Stop recording' : 'Talk (or hold Space)'}
-          title="Click, or hold Space, to talk"
-          data-testid="mic"
-        >
-          {mic.status === 'transcribing' ? <span className="spinner tiny" /> : <Icon name="mic" size={14} />}
-        </button>
         {busy && onStop ? (
           <button className="send-btn" aria-label="Stop" onClick={onStop} data-testid="ask-stop">
             <Icon name="stop" size={11} />
