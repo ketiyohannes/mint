@@ -264,41 +264,68 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
     }
   }, [flash, ready])
 
+  /** The current text selection inside the pages, as an anchor (null when there is none). */
+  const readSelection = useCallback((): SelectionAnchor | null => {
+    const root = scrollRef.current
+    const sel = window.getSelection()
+    if (!root || !sel || sel.isCollapsed || !sel.rangeCount) return null
+    const range = sel.getRangeAt(0)
+    if (!root.contains(range.commonAncestorContainer)) return null
+    const pageEl = (range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement)?.closest<HTMLElement>('[data-page]')
+    const endEl = (range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement)?.closest<HTMLElement>('[data-page]')
+    const quote = sel.toString().replace(/\s+/g, ' ').trim()
+    if (!pageEl || !quote) return null
+    const from = Number(pageEl.dataset.page)
+    const to = Math.max(from, Number(endEl?.dataset.page ?? from))
+    const sections = [...Array(to - from + 1)].map((_, i) => sectionByPage.get(from + i)).filter((s): s is SourceSection => Boolean(s))
+    const section = sections[0]
+    if (!section) return null
+    let ranges = quoteToRanges(
+      sections.flatMap((s) => s.blocks),
+      quote
+    )
+    // Text extraction can differ from the rendered glyphs (ligatures, hyphenation):
+    // fall back to the first block of the page so the question still has its context.
+    if (!ranges.length && section.blocks[0]) ranges = [{ blockId: section.blocks[0].id, start: 0, end: section.blocks[0].text.length }]
+    if (!ranges.length) return null
+    return { ranges, quote: quote.slice(0, 2000), rect: range.getBoundingClientRect(), sectionLabel: section.label }
+  }, [sectionByPage])
+
+  /** Whether the selection toolbar is up, so scrolling moves it along with the text. */
+  const selectionShown = useRef(false)
+  const report = useCallback(
+    (a: SelectionAnchor | null) => {
+      selectionShown.current = Boolean(a)
+      onSelection(a)
+    },
+    [onSelection]
+  )
+
   function handleMouseUp() {
-    setTimeout(() => {
-      const root = scrollRef.current
-      const sel = window.getSelection()
-      if (!root || !sel || sel.isCollapsed || !sel.rangeCount) return onSelection(null)
-      const range = sel.getRangeAt(0)
-      if (!root.contains(range.commonAncestorContainer)) return onSelection(null)
-      const pageEl = (range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement)?.closest<HTMLElement>('[data-page]')
-      const endEl = (range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement)?.closest<HTMLElement>('[data-page]')
-      const quote = sel.toString().replace(/\s+/g, ' ').trim()
-      if (!pageEl || !quote) return onSelection(null)
-      const from = Number(pageEl.dataset.page)
-      const to = Math.max(from, Number(endEl?.dataset.page ?? from))
-      const sections = [...Array(to - from + 1)].map((_, i) => sectionByPage.get(from + i)).filter((s): s is SourceSection => Boolean(s))
-      const section = sections[0]
-      if (!section) return onSelection(null)
-      let ranges = quoteToRanges(
-        sections.flatMap((s) => s.blocks),
-        quote
-      )
-      // Text extraction can differ from the rendered glyphs (ligatures, hyphenation):
-      // fall back to the first block of the page so the question still has its context.
-      if (!ranges.length && section.blocks[0]) ranges = [{ blockId: section.blocks[0].id, start: 0, end: section.blocks[0].text.length }]
-      if (!ranges.length) return onSelection(null)
-      onSelection({ ranges, quote: quote.slice(0, 2000), rect: range.getBoundingClientRect(), sectionLabel: section.label })
-    }, 0)
+    setTimeout(() => report(readSelection()), 0)
   }
 
+  // Scrolling keeps the toolbar with the selected text; it goes away once the text leaves the view.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const onScroll = () => onSelection(null)
+    let frame = 0
+    const onScroll = () => {
+      if (!selectionShown.current || frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const a = readSelection()
+        const view = el.getBoundingClientRect()
+        const inView = a && a.rect.bottom > view.top && a.rect.top < view.bottom
+        report(inView ? a : null)
+      })
+    }
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [onSelection])
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [readSelection, report])
 
   const openPin = (pin: Pin, rect: DOMRect) => {
     if (pin.kind === 'q') {
