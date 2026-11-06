@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { Anchor, Annotation, Thread } from '@shared/types'
 import { api } from '../../lib/api'
 import { useApp } from '../../state/app'
@@ -286,11 +286,29 @@ export function SelectionToolbar({
   onTerm: () => void
   onSearch: () => void
 }): JSX.Element {
-  const top = Math.max(56, rect.top - 8)
-  const left = Math.min(window.innerWidth - 240, Math.max(240, rect.left + rect.width / 2))
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  // Centered above the selection (below it when there is no room), always fully on screen.
+  // Measured before paint: the toolbar's width depends on the system font.
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const { width, height } = el.getBoundingClientRect()
+    const margin = 8
+    const left = Math.min(window.innerWidth - width - margin, Math.max(margin, rect.left + rect.width / 2 - width / 2))
+    const above = rect.top - height - margin
+    const top = above >= 56 ? above : Math.min(window.innerHeight - height - margin, rect.bottom + margin)
+    setPos({ top, left })
+  }, [rect])
   // onMouseDown preventDefault keeps the text selection alive while clicking.
   return (
-    <div className="sel-toolbar" style={{ top, left }} onMouseDown={(e) => e.preventDefault()} data-testid="selection-toolbar">
+    <div
+      ref={ref}
+      className="sel-toolbar"
+      style={pos ?? { top: 0, left: 0, visibility: 'hidden' }}
+      onMouseDown={(e) => e.preventDefault()}
+      data-testid="selection-toolbar"
+    >
       <button onClick={onChat} data-testid="sel-chat" title="Discuss this passage in the main chat">
         <Icon name="chat" size={14} /> Chat
       </button>

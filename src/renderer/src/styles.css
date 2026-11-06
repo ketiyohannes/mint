@@ -2719,7 +2719,6 @@ mark.hl.flash-quote {
   color: var(--bg);
   border-radius: 10px;
   box-shadow: var(--shadow-lg);
-  transform: translate(-50%, -100%);
   animation: pop 0.12s ease-out;
 }
 
