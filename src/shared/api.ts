@@ -83,14 +83,15 @@ export interface MintApi {
   /** The class chat: intake, tutor replies, and tools that post interactive widgets. */
   chat: {
     /** Omit threadId to start a new chat. */
-    send(input: { classId: string; threadId?: string; message: string; streamId: string }): Promise<Thread>
+    /** studyDraft: an unsent answer in the open lesson's study box, so the tutor sees it too. */
+    send(input: { classId: string; threadId?: string; message: string; streamId: string; studyDraft?: { kind: CheckKind; text: string } }): Promise<Thread>
     answer(input: { classId: string; threadId: string; messageId: string; answer: WidgetAnswer }): Promise<Thread>
     command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string }): Promise<Thread>
   }
   threads: {
     create(input: { classId: string; anchor: Anchor; message: string; sessionId?: string; streamId: string }): Promise<Thread>
     send(input: { classId: string; threadId: string; message: string; streamId: string }): Promise<Thread>
-    moreHelp(input: { classId: string; threadId: string; streamId: string }): Promise<Thread>
+    moreHelp(input: { classId: string; threadId: string; streamId: string; studyDraft?: { kind: CheckKind; text: string } }): Promise<Thread>
     setPinned(classId: string, threadId: string, pinned: boolean): Promise<Thread>
     remove(classId: string, threadId: string): Promise<void>
     cancel(streamId: string): Promise<void>

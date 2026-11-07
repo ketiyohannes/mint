@@ -226,6 +226,50 @@ a {
   -webkit-app-region: no-drag;
 }
 
+.sidebar-head .sidebar-toggle {
+  margin: 0 6px 0 -4px;
+}
+
+/* Sidebar hidden: one column, and the show button sits where the hide button was. */
+.app.sidebar-hidden {
+  grid-template-columns: minmax(0, 1fr);
+  --lead-inset: 50px;
+}
+
+:root[data-platform='mac'] .app.sidebar-hidden {
+  --lead-inset: 116px;
+}
+
+.sidebar-reopen {
+  position: fixed;
+  top: 13px;
+  left: 12px;
+  z-index: 20;
+  -webkit-app-region: no-drag;
+}
+
+:root[data-platform='mac'] .sidebar-reopen {
+  left: 82px;
+}
+
+/* An update is waiting in the hidden sidebar. */
+.sidebar-reopen.has-dot::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+/* The first header makes room for the show button (and the macOS traffic lights). */
+.app.sidebar-hidden .main > .topbar,
+.app.sidebar-hidden .main > .workspace > :first-child > .pane-head {
+  padding-left: var(--lead-inset);
+}
+
 .brand {
   display: inline-flex;
   align-items: center;

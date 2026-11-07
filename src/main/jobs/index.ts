@@ -287,7 +287,67 @@ export interface ThreadContext {
   anchorContext: string
   explorable?: Explorable
   sessionTopic?: Topic
+  /** The lesson this thread belongs to: what the learner sees in its study box. */
+  session?: Session
+  /** An answer the learner is writing in the study box but has not submitted. */
+  studyDraft?: StudyDraft
 }
+
+export interface StudyDraft {
+  kind: CheckKind
+  text: string
+}
+
+const STEP_LABEL: Record<Session['phase'], string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
+const VERDICT_LABEL: Record<Verdict['result'], string> = { pass: 'Pass', partial: 'Almost', fail: 'Not yet' }
+const quoted = (s: string, n: number) => {
+  const t = s.trim()
+  return `"${t.length > n ? `${t.slice(0, n)}…` : t}"`
+}
+
+/**
+ * The lesson's study box as the learner sees it (brief, steps, checks, their
+ * answers and the feedback), so they can talk about any of it in the chat.
+ */
+export function describeStudyBox(ctx: ClassContext, session: Session, topic: Topic | undefined, draft?: StudyDraft): string {
+  const sourceTitle = (id: string) => ctx.sources.find((s) => s.meta.id === id)?.meta.title ?? id
+  const steps = PHASES_IN_ORDER.map((p) => (p === session.phase ? `${STEP_LABEL[p]} (current)` : STEP_LABEL[p])).join(' → ')
+  const lines = [
+    `## The study box (beside the chat; the learner sees exactly this)`,
+    `${session.type === 'review' ? 'Review' : 'Lesson'}: ${topic?.title ?? session.topicId}${topic ? `. Objective: ${topic.objective}` : ''}`,
+    session.endedAt ? 'The lesson is finished.' : `Steps: ${steps}`
+  ]
+  const b = session.brief
+  if (b) {
+    lines.push('', '### Brief', `The win: ${b.win}`, `Why it matters: ${b.whyItMatters}`)
+    if (b.readings.length) lines.push(`Readings: ${b.readings.map((r) => `${sourceTitle(r.sourceId)} [${r.section}]${r.note ? ` (${r.note})` : ''}`).join('; ')}`)
+    if (b.questions.length) lines.push('Read with these questions in mind:', ...b.questions.map((q, i) => `${i + 1}. ${q}`))
+  }
+  for (const kind of CHECK_ORDER) {
+    const prompt = session.prompts[kind]
+    const attempts = session.attempts.filter((a) => a.kind === kind)
+    const unsent = draft?.kind === kind && draft.text.trim() ? draft.text : ''
+    if (!prompt && !attempts.length && !unsent) continue
+    const passed = attempts.some((a) => a.verdict?.result === 'pass')
+    lines.push('', `### ${STEP_LABEL[kind]} check (${passed ? 'passed' : 'not passed yet'})`)
+    if (prompt) lines.push(`Question: ${prompt}`)
+    attempts.forEach((a, i) => {
+      lines.push(`Attempt ${i + 1}: ${quoted(a.answer, 1500)}`)
+      if (a.verdict) {
+        lines.push(`Feedback (${VERDICT_LABEL[a.verdict.result]}): ${a.verdict.feedback.trim().slice(0, 1200)}`)
+        if (a.verdict.misconceptions.length) lines.push(`Watch out: ${a.verdict.misconceptions.join('; ')}`)
+      }
+    })
+    if (unsent) lines.push(`Being written now, not submitted yet: ${quoted(unsent, 2000)}`)
+  }
+  if (session.wrap?.summary) lines.push('', '### Wrap-up', session.wrap.summary)
+  return lines.join('\n')
+}
+
+const PHASES_IN_ORDER: Session['phase'][] = ['brief', 'read', 'explain', 'apply', 'distinguish', 'wrap']
+const CHECK_ORDER: CheckKind[] = ['explain', 'apply', 'distinguish']
+
+const STUDY_BOX_RULES = `The learner may point at anything in the study box ("this question", "my answer", "the feedback"); you can see it, so answer about it directly. For a check they have not passed yet, coach them toward their own answer instead of writing it for them (the help rung still decides how much you say), and judge a draft honestly against the question and their readings.`
 
 export function tutorReply(env: JobEnv, t: ThreadContext, onDelta: (d: string) => void): Promise<string> {
   const { thread, rung } = t
@@ -300,6 +360,7 @@ export function tutorReply(env: JobEnv, t: ThreadContext, onDelta: (d: string) =
     ? `\nThe learner is looking at the interactive diagram "${t.explorable.spec.title}". Its parts: ${t.explorable.spec.elements.map((e) => `${e.id} (${e.label})`).join(', ')}. Its sliders: ${t.explorable.spec.params.map((p) => `${p.id} (${p.label}, ${p.min} to ${p.max}, now ${p.value})`).join(', ') || 'none'}.
 Point at parts while you talk: put [[highlight:<elementId>]] right where you mention a part, and [[set:<paramId>=<value>]] where moving a slider helps. Use only the ids above.`
     : ''
+  const studyBox = t.session ? `\n\n${describeStudyBox(env.ctx, t.session, t.sessionTopic, t.studyDraft)}` : ''
   return runText(env.runtime, {
     ...base(env),
     purpose: `tutor-rung-${rung}`,
@@ -309,9 +370,9 @@ Point at parts while you talk: put [[highlight:<elementId>]] right where you men
     system: `${tutor('help', 'wisdom')}
 
 ${thread.anchor.kind === 'general' ? MAIN_CHAT_RULES : 'You are answering in a small Ask popover next to what the learner is reading.'} ${RUNG_RULES[rung]}
-If the materials do not cover the question, say so plainly in one sentence, then help using general knowledge clearly labeled "outside your materials".${diagramRules}`,
+If the materials do not cover the question, say so plainly in one sentence, then help using general knowledge clearly labeled "outside your materials".${diagramRules}${t.session ? `\n${STUDY_BOX_RULES}` : ''}`,
     prompt: `${describeClass(env.ctx)}
-${t.sessionTopic ? `\nCurrent study topic: ${t.sessionTopic.title} (${t.sessionTopic.objective})` : ''}
+${t.sessionTopic && !t.session ? `\nCurrent study topic: ${t.sessionTopic.title} (${t.sessionTopic.objective})` : ''}${studyBox}
 
 ${anchor}
 

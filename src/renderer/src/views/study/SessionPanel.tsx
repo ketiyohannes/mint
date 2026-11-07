@@ -6,6 +6,7 @@ import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
 import { RichText } from '../../components/RichText'
 import { useStudy } from './context'
+import { clearCheckDraft, setCheckDraft } from './drafts'
 
 const PHASE_LABEL: Record<Phase, string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
 const ORDER: Phase[] = ['brief', 'read', 'explain', 'apply', 'distinguish', 'wrap']
@@ -147,6 +148,9 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
   const study = useStudy()
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
+  // The tutor in the lesson chat sees what is being written here.
+  useEffect(() => setCheckDraft(session.id, kind, answer), [session.id, kind, answer])
+  useEffect(() => () => clearCheckDraft(session.id, kind), [session.id, kind])
   const prompt = session.prompts[kind]
   const attempts = session.attempts.filter((a) => a.kind === kind)
   const last = attempts[attempts.length - 1]

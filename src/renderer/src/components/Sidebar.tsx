@@ -5,6 +5,10 @@ import { api, timeAgo } from '../lib/api'
 import { useUpdates } from '../lib/useUpdates'
 import { Icon, type IconName } from './Icon'
 
+export const IS_MAC = /Mac/.test(navigator.userAgent)
+/** The key that shows and hides the sidebar, as the platform writes it. */
+export const SIDEBAR_SHORTCUT = IS_MAC ? '⌘B' : 'Ctrl+B'
+
 export const KIND_ICON: Record<SourceMeta['kind'], IconName> = {
   pdf: 'pdf',
   web: 'globe',
@@ -19,7 +23,7 @@ export const KIND_ICON: Record<SourceMeta['kind'], IconName> = {
  * Classes like projects in a coding agent: open a folder to start one, and
  * the open class lists its chats (lessons are chats too).
  */
-export function Sidebar({ bundle }: { bundle: ClassBundle | null }): JSX.Element {
+export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; onCollapse: () => void }): JSX.Element {
   const { route, go, classes, jobs, run, refreshClasses } = useApp()
   const activeClass = route.name === 'class' ? route.classId : null
   const activeChat = route.name === 'class' ? route.chatId : undefined
@@ -42,8 +46,11 @@ export function Sidebar({ bundle }: { bundle: ClassBundle | null }): JSX.Element
   const chats = bundle ? bundle.threads.filter((t) => t.anchor.kind === 'general').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : []
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" data-testid="sidebar">
       <div className="sidebar-head">
+        <button className="icon-btn sidebar-toggle" onClick={onCollapse} title={`Hide the sidebar (${SIDEBAR_SHORTCUT})`} aria-label="Hide the sidebar" data-testid="sidebar-collapse">
+          <Icon name="sidebarLeft" size={15} />
+        </button>
         <span className="brand">
           <span className="brand-mark" aria-hidden="true" />
           mint

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRuntime, AgentTurnRequest } from '../../src/main/agents/types'
 import type { ClassContext } from '../../src/main/jobs/context'
+import type { Session, Topic } from '../../src/shared/types'
 import { intakeQuestions, makeQuiz, tutorReply } from '../../src/main/jobs'
 import { parseSections, teach, TEACH_SECTIONS } from '../../src/main/pedagogy/teach'
 
@@ -85,5 +86,47 @@ describe('teach skill (mint edition)', () => {
     expect(reply).toContain('## Help ladder')
     expect(reply).toContain('## Wisdom')
     expect(reply).toContain('HELP RUNG 1 (POINTER)')
+  })
+
+  it('lets the tutor in a lesson chat see the study box, including an unsent answer', async () => {
+    const runtime = capturingRuntime()
+    const thread = { id: 't', classId: 'c1', title: '', anchor: { kind: 'general' }, sessionId: 's1', messages: [{ id: 'm', role: 'user', text: 'is my answer on track?', at: '' }], createdAt: '', updatedAt: '' } as never
+    const session: Session = {
+      id: 's1',
+      classId: 'c1',
+      topicId: 'eigen',
+      type: 'learn',
+      phase: 'apply',
+      startedAt: '',
+      brief: { win: 'Find eigenvalues by hand.', whyItMatters: 'PCA is built on them.', readings: [], questions: ['What does A do to an eigenvector?'] },
+      prompts: { explain: 'Explain what an eigenvector is.', apply: 'Find the eigenvalues of [[2,0],[0,3]].' },
+      attempts: [
+        { id: 'a1', kind: 'explain', prompt: '', answer: 'A vector that only gets scaled.', at: '', verdict: { result: 'pass', feedback: 'Right, and the scale is the eigenvalue.', misconceptions: [] } }
+      ]
+    }
+    const topic = { id: 'eigen', title: 'Eigenvalues', objective: 'Compute eigenvalues of 2x2 matrices', prerequisites: [], sources: [] } as unknown as Topic
+    const text = await tutorReply({ runtime, ctx }, { thread, rung: 1, anchorContext: '', session, sessionTopic: topic, studyDraft: { kind: 'apply', text: 'The diagonal entries, so 2 and 3' } }, () => {})
+    const { system, prompt } = runtime.requests[0]
+
+    expect(system).toContain('you can see it')
+    for (const shown of [
+      'Lesson: Eigenvalues. Objective: Compute eigenvalues of 2x2 matrices',
+      'Apply (current)',
+      'The win: Find eigenvalues by hand.',
+      '1. What does A do to an eigenvector?',
+      '### Explain check (passed)',
+      'Attempt 1: "A vector that only gets scaled."',
+      'Feedback (Pass): Right, and the scale is the eigenvalue.',
+      '### Apply check (not passed yet)',
+      'Question: Find the eigenvalues of [[2,0],[0,3]].',
+      'Being written now, not submitted yet: "The diagonal entries, so 2 and 3"'
+    ])
+      expect(prompt).toContain(shown)
+    expect(text).toContain('**Apply** step')
+
+    // Outside a lesson there is no study box.
+    await tutorReply({ runtime, ctx }, { thread: { ...(thread as object), sessionId: undefined } as never, rung: 1, anchorContext: '' }, () => {})
+    expect(runtime.requests[1].prompt).not.toContain('study box')
+    expect(runtime.requests[1].system).not.toContain('you can see it')
   })
 })

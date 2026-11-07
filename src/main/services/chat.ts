@@ -1,6 +1,6 @@
 import type { ChatCommand, ChoiceQuestion, CodeLanguage, CodeRunResult, QuizQuestion, Thread, ThreadMessage, WidgetAnswer } from '@shared/types'
 import { allTopics, findTopic } from '@shared/curriculum'
-import { intakeQuestions, makeExercise, makeQuiz, reviewCode } from '../jobs'
+import { intakeQuestions, makeExercise, makeQuiz, reviewCode, type StudyDraft } from '../jobs'
 import type { ClassService } from './classes'
 import type { DiagramService } from './diagrams'
 import type { SessionService } from './sessions'
@@ -17,6 +17,8 @@ export interface ChatSendInput {
   threadId?: string
   message: string
   streamId: string
+  /** An unsent answer in the lesson's study box, for the tutor to see. */
+  studyDraft?: StudyDraft
 }
 
 const COMMANDS: ChatCommand[] = ['quiz', 'code', 'diagram', 'lesson', 'plan']
@@ -60,7 +62,7 @@ export class ChatService {
       if (!all.some((t) => t.messages.some((m) => m.widget?.kind === 'questions'))) return this.startIntake(input, message)
     }
 
-    if (input.threadId) return this.threads.send({ classId, threadId: input.threadId, message, streamId: input.streamId })
+    if (input.threadId) return this.threads.send({ classId, threadId: input.threadId, message, streamId: input.streamId, studyDraft: input.studyDraft })
     return this.threads.create({ classId, anchor: { kind: 'general' }, message, streamId: input.streamId })
   }
 

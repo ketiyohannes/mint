@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { LAST_CLASS_KEY, useApp } from './state/app'
 import { useClassBundle } from './state/useClass'
-import { Sidebar } from './components/Sidebar'
+import { IS_MAC, Sidebar, SIDEBAR_SHORTCUT } from './components/Sidebar'
 import { Toasts } from './components/Toasts'
 import { SettingsView } from './views/SettingsView'
 import { Workspace } from './views/Workspace'
 import { Icon } from './components/Icon'
 import { api } from './lib/api'
+import { useUpdates } from './lib/useUpdates'
 import { ErrorBoundary } from './components/ErrorBoundary'
+
+const SIDEBAR_KEY = 'mint.sidebar'
 
 export function App(): JSX.Element {
   const { route, go, classes, run, refreshClasses } = useApp()
@@ -17,6 +20,24 @@ export function App(): JSX.Element {
   const bundle = loaded.bundle && loaded.bundle.meta.id === classId ? loaded.bundle : null
   const error = loaded.error
   const [creating, setCreating] = useState(false)
+
+  // The sidebar folds away for more room, like a code editor's (⌘B / Ctrl+B).
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem(SIDEBAR_KEY) !== 'hidden')
+  useEffect(() => localStorage.setItem(SIDEBAR_KEY, sidebarOpen ? 'shown' : 'hidden'), [sidebarOpen])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'b' || !(IS_MAC ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey) return
+      // Rich-text editors (notes) keep the key for bold.
+      if (e.target instanceof HTMLElement && e.target.isContentEditable) return
+      e.preventDefault()
+      setSidebarOpen((o) => !o)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  // An update waiting in the hidden sidebar still gets noticed.
+  const updateState = useUpdates().status?.state.status
+  const updateWaiting = updateState === 'available' || updateState === 'ready'
 
   // Like reopening the last project: start in the most recent class.
   const restored = useRef(false)
@@ -43,8 +64,20 @@ export function App(): JSX.Element {
   }
 
   return (
-    <div className="app">
-      <Sidebar bundle={bundle} />
+    <div className={`app ${sidebarOpen ? '' : 'sidebar-hidden'}`}>
+      {sidebarOpen ? (
+        <Sidebar bundle={bundle} onCollapse={() => setSidebarOpen(false)} />
+      ) : (
+        <button
+          className={`icon-btn sidebar-toggle sidebar-reopen ${updateWaiting ? 'has-dot' : ''}`}
+          onClick={() => setSidebarOpen(true)}
+          title={`Show the sidebar (${SIDEBAR_SHORTCUT})${updateWaiting ? ': an update is ready' : ''}`}
+          aria-label="Show the sidebar"
+          data-testid="sidebar-expand"
+        >
+          <Icon name="sidebarLeft" size={15} />
+        </button>
+      )}
       <main className="main">
         {route.name === 'settings' ? (
           <SettingsView />

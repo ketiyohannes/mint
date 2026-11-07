@@ -1,7 +1,7 @@
-import type { Anchor, HelpEvent, Rung, Thread, ThreadMessage, Widget } from '@shared/types'
+import { CHECK_KINDS, type Anchor, type HelpEvent, type Rung, type Thread, type ThreadMessage, type Widget } from '@shared/types'
 import { titleText } from '@shared/quote'
 import { findTopic } from '@shared/curriculum'
-import { tutorReply, type ThreadContext } from '../jobs'
+import { tutorReply, type StudyDraft, type ThreadContext } from '../jobs'
 import { AgentError } from '../agents/types'
 import { newId, nowIso } from '../store/fsutil'
 import type { Kernel } from './kernel'
@@ -10,6 +10,8 @@ import { userError, userMessage } from './kernel'
 interface AskInput {
   classId: string
   streamId: string
+  /** An unsent answer in the lesson's study box, for the tutor to see. */
+  studyDraft?: StudyDraft
 }
 
 export class ThreadService {
@@ -113,7 +115,7 @@ export class ThreadService {
       const thread = threads.find((t) => t.id === threadId)
       if (!thread) throw userError('That thread no longer exists.')
       const ctx = await this.k.context(classId)
-      const tctx = await this.threadContext(classId, thread, rung)
+      const tctx = await this.threadContext(classId, thread, rung, cleanDraft(input.studyDraft))
       return tutorReply({ runtime: await this.k.runtime(), ctx, signal }, tctx, onDelta)
     })
   }
@@ -192,7 +194,7 @@ export class ThreadService {
     return updated
   }
 
-  private async threadContext(classId: string, thread: Thread, rung: Rung): Promise<ThreadContext> {
+  private async threadContext(classId: string, thread: Thread, rung: Rung, studyDraft?: StudyDraft): Promise<ThreadContext> {
     const a = thread.anchor
     let anchorContext = ''
     let explorable
@@ -222,11 +224,12 @@ export class ThreadService {
       explorable = (await this.k.repo.read(classId, 'explorables')).find((e) => e.id === a.explorableId)
     }
     let sessionTopic
+    let session
     if (thread.sessionId) {
-      const session = (await this.k.repo.read(classId, 'sessions')).find((s) => s.id === thread.sessionId)
+      session = (await this.k.repo.read(classId, 'sessions')).find((s) => s.id === thread.sessionId)
       if (session) sessionTopic = findTopic(await this.k.repo.read(classId, 'curriculum'), session.topicId)
     }
-    return { thread, rung, anchorContext, explorable, sessionTopic }
+    return { thread, rung, anchorContext, explorable, sessionTopic, session, studyDraft: session && !session.endedAt ? studyDraft : undefined }
   }
 
   private async validateAnchor(classId: string, anchor: Anchor): Promise<Anchor> {
@@ -279,4 +282,10 @@ function titleFor(anchor: Anchor, message: string): string {
   const base = anchor.kind === 'source' || anchor.kind === 'message' ? anchor.quote : anchor.kind === 'diagram' ? anchor.label : titleText(message)
   const t = (base || titleText(message)).replace(/\s+/g, ' ').trim()
   return t.length > 70 ? `${t.slice(0, 67)}…` : t
+}
+
+/** Input from the renderer: only a real check kind and bounded text get through. */
+function cleanDraft(d: StudyDraft | undefined): StudyDraft | undefined {
+  if (!d || !CHECK_KINDS.includes(d.kind) || typeof d.text !== 'string' || !d.text.trim()) return undefined
+  return { kind: d.kind, text: d.text.slice(0, 4000) }
 }

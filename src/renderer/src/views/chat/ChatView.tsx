@@ -5,6 +5,7 @@ import { useApp } from '../../state/app'
 import { RichText } from '../../components/RichText'
 import { Icon, type IconName } from '../../components/Icon'
 import { useStudy } from '../study/context'
+import { checkDraft } from '../study/drafts'
 import { ChatCtx, type ChatApi } from './chatContext'
 import { Composer, parseSlash, SLASH_COMMANDS } from './Composer'
 import { quoteMessage, splitQuoted } from '@shared/quote'
@@ -120,9 +121,11 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
         return
       }
       const text = attached ? quoteMessage(attached.text, attached.source, input || 'Can you help me understand this passage?') : input
-      void run('Thinking', text, (streamId) => api.chat.send({ classId, threadId: shown?.id, message: text, streamId }))
+      // In a lesson chat, the tutor also sees the answer being written in the study box.
+      const studyDraft = checkDraft(shown?.sessionId)
+      void run('Thinking', text, (streamId) => api.chat.send({ classId, threadId: shown?.id, message: text, streamId, studyDraft }))
     },
-    [run, classId, shown?.id, quote]
+    [run, classId, shown?.id, shown?.sessionId, quote]
   )
 
   const command = useCallback(
@@ -149,7 +152,7 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
 
   const moreHelp = () => {
     if (!shown) return
-    void run('More help', undefined, (streamId) => api.threads.moreHelp({ classId, threadId: shown.id, streamId }))
+    void run('More help', undefined, (streamId) => api.threads.moreHelp({ classId, threadId: shown.id, streamId, studyDraft: checkDraft(shown.sessionId) }))
   }
 
   const chatApi = useMemo<ChatApi>(

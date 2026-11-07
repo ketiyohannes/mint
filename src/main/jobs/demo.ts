@@ -164,6 +164,20 @@ export function wrap(topic: Topic, session: Session) {
 }
 
 export function tutorReply(t: ThreadContext): string {
+  return studyBoxNote(t) + ladderReply(t)
+}
+
+/** In a lesson chat, show that the tutor sees the study box (the step, and an unsent answer). */
+function studyBoxNote(t: ThreadContext): string {
+  const s = t.session
+  if (!s || s.endedAt) return ''
+  const step = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }[s.phase]
+  const draft = t.studyDraft?.text.trim()
+  const opening = draft ? draft.split(/\s+/).slice(0, 8).join(' ') : ''
+  return `In your study box you are on the **${step}** step.${draft ? ` Your answer so far starts "${opening}"; keep going and tie it back to the reading.` : ''}\n\n`
+}
+
+function ladderReply(t: ThreadContext): string {
   const anchor = t.thread.anchor
   const cite =
     anchor.kind === 'source'

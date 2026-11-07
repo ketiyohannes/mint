@@ -44,8 +44,9 @@ test.afterEach(async () => {
 
 /** Size of a named CSS highlight (the PDF page view paints marks with the CSS Highlight API). */
 /** The app shell must never scroll: only the panes do. */
-async function expectShellInPlace(page: Page): Promise<void> {
-  const tops = await page.evaluate(() => ['.app', '.chat-pane .pane-head', '.side-panel .pane-head', '.sidebar'].map((sel) => Math.round(document.querySelector(sel)?.getBoundingClientRect().top ?? -1)))
+async function expectShellInPlace(page: Page, opts: { sidebar?: boolean } = {}): Promise<void> {
+  const shell = ['.app', '.chat-pane .pane-head', '.side-panel .pane-head', ...(opts.sidebar === false ? [] : ['.sidebar'])]
+  const tops = await page.evaluate((sels) => sels.map((sel) => Math.round(document.querySelector(sel)?.getBoundingClientRect().top ?? -1)), shell)
   if (tops.some((t) => t !== 0)) {
     const scrolled = await page.evaluate(() =>
       [document.documentElement, document.body, ...Array.from(document.querySelectorAll('*'))]
@@ -55,7 +56,7 @@ async function expectShellInPlace(page: Page): Promise<void> {
     )
     console.log('SHELL MOVED', tops, scrolled)
   }
-  expect(tops).toEqual([0, 0, 0, 0])
+  expect(tops).toEqual(shell.map(() => 0))
 }
 
 async function highlightCount(page: Page, name: string): Promise<number> {
@@ -295,6 +296,11 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(lesson.getByTestId('phase-read')).toHaveClass(/active/)
   await lesson.getByTestId('phase-next').click()
   await expect(lesson.getByTestId('check-prompt').locator('.katex').first()).toBeVisible() // and in the explain check
+  // The tutor in the lesson chat sees the study box, even an answer not submitted yet.
+  await lesson.getByTestId('check-answer').fill('A direction the matrix only stretches')
+  await say(page, 'Is my answer on track?')
+  await expect(page.getByTestId('tutor-message').last()).toContainText('you are on the Explain step')
+  await expect(page.getByTestId('tutor-message').last()).toContainText('starts "A direction the matrix only stretches"')
   const long =
     'An eigenvector is a direction the matrix does not rotate: multiplying it by the matrix only scales it, and the scale factor is the eigenvalue, so A x equals lambda x for that vector.'
   for (const next of ['apply', 'distinguish', 'wrap']) {
@@ -420,6 +426,20 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await openLessonChat()
   await expect(page.getByTestId('tab-study')).toBeVisible()
   await expect(page.getByTestId('chat-pane').getByTestId('session-panel')).toHaveCount(0)
+
+  // The sidebar folds away and comes back (button, or ⌘B / Ctrl+B), and stays put across a reload.
+  await page.getByTestId('sidebar-collapse').click()
+  await expect(page.getByTestId('sidebar')).toHaveCount(0)
+  await expect(page.getByTestId('sidebar-expand')).toBeVisible()
+  await expectShellInPlace(page, { sidebar: false })
+  await page.reload()
+  await expect(page.getByTestId('sidebar-expand')).toBeVisible()
+  await page.getByTestId('sidebar-expand').click()
+  await expect(page.getByTestId('sidebar')).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+B')
+  await expect(page.getByTestId('sidebar')).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+B')
+  await expect(page.getByTestId('sidebar')).toBeVisible()
 
   expect(m.errors.filter((e) => !/Download the React DevTools|Electron Security Warning/.test(e))).toEqual([])
 })
