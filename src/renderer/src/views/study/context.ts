@@ -21,8 +21,12 @@ export interface StudyApi {
   openSource: (sourceId: string, section?: string, quote?: string) => void
   /** Run a chat tool (quiz, code exercise, diagram, lesson, plan) in the current chat. */
   command: (command: ChatCommand, arg?: string) => void
+  /** Lessons show inside their chat (Settings) rather than in the Study tab. */
+  lessonsInChat: boolean
   /** Show the Study tab (the open lesson's brief, reading and checks). */
   openStudy: () => void
+  /** Show the Lessons tab (the plan). */
+  openLessons: () => void
   /** Diagrams register so tutor directives can point at their parts. */
   registerDiagram: (explorableId: string, controller: DiagramController | null) => void
 }

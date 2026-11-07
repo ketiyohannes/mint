@@ -69,7 +69,10 @@ const MIN_CHAT = 420
  * The middle is only ever the conversation.
  */
 export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: string | null | undefined }): JSX.Element {
-  const { toast, run, studyFocus, go, classes } = useApp()
+  const { toast, run, studyFocus, go, classes, settings } = useApp()
+  /** Lessons show in the Study tab unless Settings puts them inside their chat (then there is no Study tab). */
+  const lessonsInChat = settings?.lessonsIn === 'chat'
+  const panelTabs = useMemo(() => (lessonsInChat ? PANEL_TABS.filter((t) => t.id !== 'study') : PANEL_TABS), [lessonsInChat])
   const classId = bundle.meta.id
 
   // --- chats ---------------------------------------------------------------------
@@ -148,6 +151,15 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     },
     [panelTab, splitTab, setPaneTab, widenForSplit]
   )
+
+  // Lessons moved into the chat: the Study tab goes away, wherever it was showing.
+  useEffect(() => {
+    if (!lessonsInChat) return
+    if (panelTab === 'study') {
+      setPanelTab(splitTab ?? 'lessons')
+      if (splitTab) setSplit((s) => ({ ...s, tab: null }))
+    } else if (split.tab === 'study') setSplit((s) => ({ ...s, tab: null }))
+  }, [lessonsInChat, panelTab, splitTab, split.tab])
 
   const toggleSplit = () => {
     if (splitTab) return setSplit((s) => ({ ...s, tab: null }))
@@ -248,7 +260,8 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   }, [studyFocus, bundle.sources, openSource])
 
   // Opening a lesson chat brings its study box to the front of the panel, with
-  // the first reading beside it (once the brief has picked one).
+  // the first reading beside it (once the brief has picked one). With lessons
+  // in the chat, only the reading opens.
   const studyShownFor = useRef<string | null>(null)
   const readingOpenedFor = useRef<string | null>(null)
   useEffect(() => {
@@ -258,7 +271,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     const openReading = Boolean(r) && readingOpenedFor.current !== session.id
     studyShownFor.current = session.id
     if (r) readingOpenedFor.current = session.id
-    if (showStudy) {
+    if (showStudy && !lessonsInChat) {
       // Set the layout directly: showPanel would read the panel state from before this render.
       setPanelOpen(true)
       setPaneTab('a', 'study')
@@ -270,7 +283,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         setFocus({ section: r.section, nonce: Date.now() })
       }
     } else if (r && openReading) openSource(r.sourceId, r.section)
-  }, [session, openSource, splitTab, setPaneTab, widenForSplit])
+  }, [session, lessonsInChat, openSource, splitTab, setPaneTab, widenForSplit])
 
   async function addMaterials(paths?: string[]) {
     const picked = paths ?? (await api.system.pickMaterials())
@@ -299,10 +312,11 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       const t = chats.find((x) => x.sessionId === sessionId)
       if (!t) return command('lesson', bundle.sessions.find((s) => s.id === sessionId)?.topicId)
       go({ name: 'class', classId, chatId: t.id })
+      if (lessonsInChat) return
       setPanelOpen(true)
       setPaneTab('a', 'study')
     },
-    [chats, command, bundle.sessions, go, classId, setPaneTab]
+    [chats, command, bundle.sessions, go, classId, lessonsInChat, setPaneTab]
   )
   /** A highlighted passage to discuss in the main chat ("Chat" on a selection). */
   const [quoteRequest, setQuoteRequest] = useState<{ text: string; source: string; nonce: number } | null>(null)
@@ -393,10 +407,12 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       ask: askAt,
       openSource,
       command,
+      lessonsInChat,
       openStudy: () => showPanel('study'),
+      openLessons: () => showPanel('lessons'),
       registerDiagram
     }),
-    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, showPanel, registerDiagram]
+    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, lessonsInChat, showPanel, registerDiagram]
   )
   const onOpenThread = useCallback((t: Thread, rect: DOMRect) => askAt(t.anchor, rect, t.id), [askAt])
   const onOpenNote = useCallback((a: Annotation, rect: DOMRect) => setNote({ annotation: a, pos: placeNear(rect) }), [])
@@ -485,7 +501,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     <section className="side-panel" data-testid="panel">
       <div className="pane-head">
         <div className="panel-tabs" role="tablist">
-          {PANEL_TABS.map((t) => (
+          {panelTabs.map((t) => (
             <button
               key={t.id}
               role="tab"
@@ -523,7 +539,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           <>
             <div className="split-head" data-testid="split-head">
               <div className="panel-tabs compact" role="tablist" aria-label="Split tabs">
-                {PANEL_TABS.map((t) => (
+                {panelTabs.map((t) => (
                   <button
                     key={t.id}
                     role="tab"
@@ -713,18 +729,20 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           </div>
         )}
         {/* The study box stays mounted, so a half-written answer survives a tab switch. */}
-        <div className={pageClass('study', 'scroll')} data-testid="page-study">
-          <ErrorBoundary label="the study box">
-            <StudyTab
-              bundle={bundle}
-              session={lessonSession}
-              onOpenReading={(sid, sec) => openSource(sid, sec)}
-              onResume={resumeLesson}
-              onStartNext={() => command('lesson')}
-              onDone={() => showPanel('lessons')}
-            />
-          </ErrorBoundary>
-        </div>
+        {!lessonsInChat && (
+          <div className={pageClass('study', 'scroll')} data-testid="page-study">
+            <ErrorBoundary label="the study box">
+              <StudyTab
+                bundle={bundle}
+                session={lessonSession}
+                onOpenReading={(sid, sec) => openSource(sid, sec)}
+                onResume={resumeLesson}
+                onStartNext={() => command('lesson')}
+                onDone={() => showPanel('lessons')}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
         {slot('lessons') && (
           <div className={pageClass('lessons', 'scroll')} data-testid="page-lessons">
             <ErrorBoundary label="lessons">

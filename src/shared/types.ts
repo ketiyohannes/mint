@@ -25,6 +25,8 @@ export interface ModelOption {
   isDefault?: boolean
 }
 export type ThemePref = 'light' | 'dark' | 'system'
+/** Where a lesson's brief, reading and checks show: the Study tab beside the chat, or inside the lesson chat. */
+export type LessonPlace = 'study' | 'chat'
 
 export interface Settings {
   provider: ProviderId
@@ -34,6 +36,7 @@ export interface Settings {
   /** Default allowlist used when a class builds a curriculum from trusted sources. */
   trustedDomains: string[]
   theme: ThemePref
+  lessonsIn: LessonPlace
 }
 
 export interface SettingsView extends Settings {

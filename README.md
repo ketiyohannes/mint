@@ -30,7 +30,7 @@ mint has no agent loop of its own. Every model turn runs in the **Claude Agent S
 
    | Tool | What it does |
    | --- | --- |
-   | `/lesson [topic]` | A lesson in its own chat, worked in the Study tab: brief, read, explain, apply, distinguish, wrap up |
+   | `/lesson [topic]` | A lesson in its own chat, worked in the Study tab (or inside the chat; see Settings): brief, read, explain, apply, distinguish, wrap up |
    | `/quiz [focus]` | Retrieval practice, graded, with explanations that cite your sources |
    | `/code [focus] [python\|js]` | A small IDE with tests that run offline (JavaScript, or Python via a local Pyodide) |
    | `/diagram <what>` | An interactive p5 or three.js diagram; click a part to ask about it |

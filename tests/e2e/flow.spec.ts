@@ -403,5 +403,23 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('panel')).toBeVisible() // the remaining class has loaded
   await expectShellInPlace(page)
 
+  // Settings can put lessons inside their chat instead: then there is no Study tab.
+  const openLessonChat = async () => {
+    await page.getByTestId('sidebar-class').click()
+    await page.getByTestId('sidebar-chat').filter({ hasText: 'Lesson:' }).locator('.chat-open').click()
+    await expect(page.getByTestId('chat-title')).toContainText('Lesson:')
+  }
+  await page.getByTestId('nav-settings').click()
+  await page.getByTestId('lessons-in-chat').click()
+  await expect(page.getByTestId('lessons-in-chat')).toHaveAttribute('aria-checked', 'true')
+  await openLessonChat()
+  await expect(page.getByTestId('tab-study')).toHaveCount(0)
+  await expect(page.getByTestId('chat-pane').getByTestId('session-panel')).toContainText('Session complete')
+  await page.getByTestId('nav-settings').click()
+  await page.getByTestId('lessons-in-study').click()
+  await openLessonChat()
+  await expect(page.getByTestId('tab-study')).toBeVisible()
+  await expect(page.getByTestId('chat-pane').getByTestId('session-panel')).toHaveCount(0)
+
   expect(m.errors.filter((e) => !/Download the React DevTools|Electron Security Warning/.test(e))).toEqual([])
 })

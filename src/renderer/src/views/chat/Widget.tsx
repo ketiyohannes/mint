@@ -6,6 +6,7 @@ import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
 import { RichText } from '../../components/RichText'
 import { Proposals } from '../../components/Proposals'
+import { SessionPanel } from '../study/SessionPanel'
 import { useStudy } from '../study/context'
 import { useChat } from './chatContext'
 import { QuestionsWidget } from './QuestionsWidget'
@@ -55,6 +56,13 @@ export function Widget({ message }: { message: ThreadMessage }): JSX.Element | n
     case 'lesson': {
       const session = study.bundle.sessions.find((s) => s.id === w.sessionId)
       if (!session) return <div className="widget muted small">This lesson is no longer available.</div>
+      if (study.lessonsInChat) {
+        return (
+          <div className="widget lesson" data-testid="lesson-widget">
+            <SessionPanel session={session} onOpenReading={(sid, sec) => study.openSource(sid, sec)} onDone={study.openLessons} />
+          </div>
+        )
+      }
       // The lesson itself lives in the Study tab; the chat keeps a pointer to it.
       const topic = findTopic(study.bundle.curriculum, session.topicId)
       const passed = new Set(session.attempts.filter((a) => a.verdict?.result === 'pass').map((a) => a.kind)).size

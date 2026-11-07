@@ -139,6 +139,33 @@ export function SettingsView(): JSX.Element {
               </div>
             </div>
             <div className="row">
+              <span style={{ width: 120 }}>Lessons</span>
+              <div className="tabs" role="radiogroup" aria-label="Where lessons show">
+                {(
+                  [
+                    ['study', 'Study tab'],
+                    ['chat', 'In the chat']
+                  ] as const
+                ).map(([place, label]) => (
+                  <button
+                    key={place}
+                    role="radio"
+                    aria-checked={settings.lessonsIn === place}
+                    className={`tab ${settings.lessonsIn === place ? 'active' : ''}`}
+                    onClick={() => void update({ lessonsIn: place })}
+                    data-testid={`lessons-in-${place}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="hint">
+              {settings.lessonsIn === 'chat'
+                ? 'A lesson’s brief, reading and checks show inside its chat.'
+                : 'A lesson’s brief, reading and checks open in the Study tab beside the chat, so the chat stays a conversation.'}
+            </span>
+            <div className="row">
               <span style={{ width: 120 }}>Data folder</span>
               <code className="small" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {settings.dataDir}

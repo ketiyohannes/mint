@@ -298,7 +298,7 @@ export class ChatService {
     if (!topic) throw userError(arg ? `No lesson matches "${arg}".` : 'Every lesson is done. Review one from the Lessons tab, or extend the plan.')
     const type = ctx.progress[topic.id]?.status === 'mastered' ? 'review' : 'learn'
     const session = await this.sessions.start(classId, topic.id, type)
-    const text = `**${type === 'review' ? 'Review' : 'Lesson'}: ${topic.title}.** ${topic.objective}\n\nYour brief, the reading and the checks are in the Study tab. Ask me anything about it here.`
+    const text = `**${type === 'review' ? 'Review' : 'Lesson'}: ${topic.title}.** ${topic.objective}\n\nAsk me anything about it here.`
     if (threadId) return this.threads.append(classId, threadId, [{ role: 'tutor', text, widget: { kind: 'lesson', sessionId: session.id } }], { sessionId: session.id })
     return this.threads.createChat(classId, `${type === 'review' ? 'Review' : 'Lesson'}: ${topic.title}`, [{ role: 'tutor', text, widget: { kind: 'lesson', sessionId: session.id } }], session.id)
   }
