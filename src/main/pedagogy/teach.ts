@@ -13,7 +13,7 @@ export const TEACH_SECTIONS = {
   lessons: 'Lessons',
   practice: 'Practice and feedback',
   diagnostics: 'Diagnostics and mastery',
-  help: 'Help ladder',
+  help: 'Explaining and the help ladder',
   wisdom: 'Wisdom',
   records: 'Learning records',
   glossary: 'Glossary',

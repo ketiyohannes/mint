@@ -20,7 +20,7 @@
 
 mint is laid out like the coding agents you already use (Claude Code, Codex, T3), but the project is a subject you are learning. Open a folder of materials and you get a class: a chat with a tutor, your sources open beside it, and a curriculum built from what you brought.
 
-mint has no agent loop of its own. Every model turn runs in the **Claude Agent SDK** or the **Codex app-server**. mint owns everything around the turn: the curriculum, the lesson loop, the help ladder and your learning records. Code remembers; models judge.
+mint has no agent loop of its own. Every model turn runs in the **Claude Agent SDK** or the **Codex app-server**. mint owns everything around the turn: the curriculum, the lesson loop, how the tutor helps and your learning records. Code remembers; models judge.
 
 ## How it works
 
@@ -55,7 +55,7 @@ mint has no agent loop of its own. Every model turn runs in the **Claude Agent S
 The tutor follows a modified version of [teach-skills](https://github.com/ketiyohannes/teach-skills) (itself based on Matt Pocock's `teach` skill), bundled at [`src/main/pedagogy/teach/SKILL.md`](src/main/pedagogy/teach/SKILL.md). Each tool loads the core rules plus only the sections it needs.
 
 - **Your materials are the authority.** The tutor reads and cites them (citations jump to the exact quote on the page) and labels anything from outside them.
-- **A help ladder.** Help starts as a pointer to the passage, then a guiding question, then a hint, and only then a full explanation. As you show independence, help starts lower.
+- **A tutor that teaches.** Ask about anything, from your materials or beyond them, and the tutor explains it in depth and in its own words: the intuition, each part of the definition, a worked example, and how it connects to what you know, with the passages it builds on cited as references. Prefer to work things out? Pick **Coach** in Settings for a help ladder instead: a pointer to the passage, then a guiding question, then a hint, and the full explanation only when you ask. On the ladder, help starts lower as you show independence.
 - **Mastery, not coverage.** A topic counts as learned when you can explain it, apply it to a new case, and tell it apart from nearby ideas. Mastered topics come back as spaced reviews.
 - **Records of what you know.** Learning records and a glossary hold only what you have shown you understand. They set what to teach next.
 
@@ -115,7 +115,7 @@ MINT_LIVE=claude npx vitest run tests/unit/live-harness.test.ts   # real Claude 
 MINT_LIVE=codex  npx vitest run tests/unit/live-harness.test.ts   # real Codex app-server
 ```
 
-The end-to-end test walks the whole product: opening a folder, the setup questions, the help ladder, side chats, quoting a passage into the chat, `/quiz`, a code exercise, a diagram, PDF highlights and notes, web search, a lesson to mastery, the notepad, the split panel, the trusted-source fallback and deleting a class. It fails on any console error.
+The end-to-end test walks the whole product: opening a folder, the setup questions, the tutor's explanations and the Coach help ladder, side chats, quoting a passage into the chat, `/quiz`, a code exercise, a diagram, PDF highlights and notes, web search, a lesson to mastery, the notepad, the split panel, the trusted-source fallback and deleting a class. It fails on any console error.
 
 ## Architecture
 

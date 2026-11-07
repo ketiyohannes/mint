@@ -30,7 +30,7 @@ export class SessionService {
   }
 
   /** Start (or resume) a study or review session for a topic. */
-  async start(classId: string, topicId: string, type: Session['type']): Promise<Session> {
+  async start(classId: string, topicId: string, type: Session['type'], signal?: AbortSignal): Promise<Session> {
     const ctx = await this.k.context(classId)
     const topic = findTopic(ctx.curriculum, topicId)
     if (!topic) throw userError('That topic is not in the curriculum.')
@@ -39,7 +39,7 @@ export class SessionService {
     if (open?.brief) return open
 
     const brief = await this.k.job(classId, type === 'review' ? 'Preparing your review' : 'Writing your session brief', async () =>
-      writeBrief({ runtime: await this.k.runtime(), ctx }, topic, type)
+      writeBrief({ runtime: await this.k.runtime(), ctx, signal }, topic, type)
     )
     // Code keeps only readings that point at real sources.
     const sourceIds = new Set(ctx.sources.map((s) => s.meta.id))

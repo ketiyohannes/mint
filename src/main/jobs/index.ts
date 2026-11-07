@@ -271,7 +271,14 @@ const RUNG_RULES: Record<Rung, string> = {
   1: `HELP RUNG 1 (POINTER). Do not explain and do not answer. In at most 60 words, point to the exact passage(s) in their materials that answer this, using [[cite:...]] directives, and say in one sentence what to look for there.`,
   2: `HELP RUNG 2 (GUIDING QUESTION). Do not state the answer. In at most 90 words, ask one or two guiding questions that lead the learner to work it out from the passage, and cite the passage with [[cite:...]].`,
   3: `HELP RUNG 3 (HINT). Give a partial hint that unlocks the next step (a key relation, an analogy, or the first step) but leave the conclusion to the learner. At most 130 words. Cite the passage with [[cite:...]].`,
-  4: `HELP RUNG 4 (EXPLANATION). Explain clearly and fully, grounded in their materials with [[cite:...]] citations, using one concrete example. Use as much detail as the question needs (no padding). End with one line pointing to the passage to re-read and one quick check question.`
+  4: `EXPLAIN LIKE A TEACHER. Teach the idea fully and in depth, in your own words. Never answer by pointing to the materials or restating them: first read what their materials say, then digest it for the learner.
+- Start with the intuition: what the idea means and why it is true or needed.
+- Break the definition or claim into its parts and explain each one (every symbol of a formula, every condition of a definition).
+- Work through at least one concrete example step by step; add a second, contrasting example when it sharpens the idea.
+- Connect it to what the learner already knows and to their mission, and clear up the usual confusion before it happens.
+- Go beyond the materials whenever it deepens understanding (another angle, an analogy, where it is used), labeling what is outside their materials.
+- Cite the passages you build on with [[cite:...]], woven into the explanation as references; a citation never replaces explaining.
+Take the space the idea needs (headings or numbered steps for longer answers, no padding), and end with one short question that checks understanding.`
 }
 
 const MAIN_CHAT_RULES = `You are the tutor in the class's main chat. The learner's materials are open in a viewer beside the chat.
@@ -370,7 +377,7 @@ Point at parts while you talk: put [[highlight:<elementId>]] right where you men
     system: `${tutor('help', 'wisdom')}
 
 ${thread.anchor.kind === 'general' ? MAIN_CHAT_RULES : 'You are answering in a small Ask popover next to what the learner is reading.'} ${RUNG_RULES[rung]}
-If the materials do not cover the question, say so plainly in one sentence, then help using general knowledge clearly labeled "outside your materials".${diagramRules}${t.session ? `\n${STUDY_BOX_RULES}` : ''}`,
+If the materials do not cover the question, say so in one sentence, then teach it anyway from general knowledge, labeled "outside your materials".${diagramRules}${t.session ? `\n${STUDY_BOX_RULES}` : ''}`,
     prompt: `${describeClass(env.ctx)}
 ${t.sessionTopic && !t.session ? `\nCurrent study topic: ${t.sessionTopic.title} (${t.sessionTopic.objective})` : ''}${studyBox}
 

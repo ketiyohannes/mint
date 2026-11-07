@@ -1,5 +1,5 @@
 import { useState, type JSX } from 'react'
-import type { ProviderId, SecretName, Settings } from '@shared/types'
+import type { ProviderId, SecretName, Settings, TutorStyle } from '@shared/types'
 import { useApp } from '../state/app'
 import { api, timeAgo } from '../lib/api'
 import { useUpdates } from '../lib/useUpdates'
@@ -39,6 +39,10 @@ export function SettingsView(): JSX.Element {
     { id: 'claude', title: 'Claude Agent SDK', desc: 'Uses your Claude login or an Anthropic API key.' },
     { id: 'codex', title: 'Codex app-server', desc: 'Uses your local `codex` CLI and its login.' },
     { id: 'demo', title: 'Demo (offline)', desc: 'Scripted answers to explore the app. Not a model.' }
+  ]
+  const tutorStyles: { id: TutorStyle; title: string; desc: string }[] = [
+    { id: 'teach', title: 'Teach', desc: 'Explains every question in depth, in its own words, with your materials as the reference.' },
+    { id: 'coach', title: 'Coach', desc: 'Least help first: a pointer, then a guiding question, a hint, and the full explanation when you ask.' }
   ]
 
   return (
@@ -98,6 +102,23 @@ export function SettingsView(): JSX.Element {
               <span className="hint">Requires the `codex` CLI to be installed and logged in (`codex login`).</span>
             </div>
           )}
+
+          <h2 className="section-title">How the tutor answers</h2>
+          <div className="radio-cards">
+            {tutorStyles.map((t) => (
+              <button
+                key={t.id}
+                role="radio"
+                aria-checked={settings.tutorStyle === t.id}
+                className={`radio-card ${settings.tutorStyle === t.id ? 'on' : ''}`}
+                onClick={() => void update({ tutorStyle: t.id })}
+                data-testid={`tutor-${t.id}`}
+              >
+                <b>{t.title}</b>
+                <span className="small muted">{t.desc}</span>
+              </button>
+            ))}
+          </div>
 
           <h2 className="section-title">Default trusted domains</h2>
           <div className="card stack">

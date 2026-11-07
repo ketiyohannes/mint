@@ -12,7 +12,7 @@ import { quoteMessage, splitQuoted } from '@shared/quote'
 import { Widget } from './Widget'
 
 interface Pending {
-  streamId: string | null
+  streamId: string
   user?: string
   text: string
   label: string
@@ -38,7 +38,9 @@ interface Props {
  * in-flight state never leaks between chats.
  */
 export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequest, quoteRequest, onHandled }: Props): JSX.Element {
-  const { toast, jobs } = useApp()
+  const { toast, jobs, settings } = useApp()
+  /** Coach style shows the help ladder (rung tags, More help); Teach always explains in full. */
+  const ladder = settings?.tutorStyle === 'coach'
   const study = useStudy()
   const classId = bundle.meta.id
   const [pending, setPending] = useState<Pending | null>(null)
@@ -68,6 +70,8 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
 
   // One stream subscription for the view's lifetime.
   const streamRef = useRef<string | null>(null)
+  /** The learner pressed stop: the call ends as cancelled, which is not an error to report. */
+  const stopRequested = useRef(false)
   useEffect(
     () =>
       api.on.stream((e) => {
@@ -92,13 +96,14 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
       if (pending) return
       const streamId = newStreamId()
       streamRef.current = streamId
+      stopRequested.current = false
       stickToBottom.current = true
       setPending({ streamId, user, text: '', label })
       try {
         const out = await task(streamId)
         adopt(out)
       } catch (err) {
-        toast(errorMessage(err), 'error')
+        if (!stopRequested.current) toast(errorMessage(err), 'error')
         if (user && !user.startsWith('/')) setPrefill({ text: user, nonce: Date.now() })
       } finally {
         streamRef.current = null
@@ -117,7 +122,7 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
         // A tool on a quoted passage focuses on that passage.
         const arg = slash.arg || (attached ? `"${attached.text.slice(0, 400)}"` : '')
         const call = `/${slash.command}${arg ? ` ${arg}` : ''}`
-        void run(TOOL_LABEL[slash.command], call, () => api.chat.command({ classId, threadId: shown?.id, command: slash.command, arg }))
+        void run(TOOL_LABEL[slash.command], call, (streamId) => api.chat.command({ classId, threadId: shown?.id, command: slash.command, arg, streamId }))
         return
       }
       const text = attached ? quoteMessage(attached.text, attached.source, input || 'Can you help me understand this passage?') : input
@@ -130,7 +135,7 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
 
   const command = useCallback(
     (cmd: ChatCommand, arg?: string) => {
-      void run(TOOL_LABEL[cmd], `/${cmd}${arg ? ` ${arg}` : ''}`, () => api.chat.command({ classId, threadId: shown?.id, command: cmd, arg }))
+      void run(TOOL_LABEL[cmd], `/${cmd}${arg ? ` ${arg}` : ''}`, (streamId) => api.chat.command({ classId, threadId: shown?.id, command: cmd, arg, streamId }))
     },
     [run, classId, shown?.id]
   )
@@ -181,7 +186,7 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
   const messages = shown?.messages ?? []
   const lastTutor = [...messages].reverse().find((m) => m.role === 'tutor')
   const rung = shown?.rung ?? bundle.independence.defaultRung
-  const canMoreHelp = Boolean(shown && shown.anchor.kind === 'general' && lastTutor?.rung && !lastTutor.widget && rung < 4 && !pending)
+  const canMoreHelp = Boolean(ladder && shown && shown.anchor.kind === 'general' && lastTutor?.rung && !lastTutor.widget && rung < 4 && !pending)
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')
   const showPendingUser = pending?.user && !(lastUser?.text === pending.user && messages[messages.length - 1] === lastUser)
   const empty = !messages.length && !pending
@@ -191,7 +196,14 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
     <Composer
       onSubmit={submit}
       busy={Boolean(pending)}
-      onStop={pending?.streamId ? () => void api.threads.cancel(pending.streamId!) : undefined}
+      onStop={
+        pending
+          ? () => {
+              stopRequested.current = true
+              void api.threads.cancel(pending.streamId)
+            }
+          : undefined
+      }
       placeholder={empty ? (bundle.meta.stage === 'intake' ? 'What do you want to learn from this?' : 'Ask anything, or type / for tools') : 'Reply…  (/ for tools)'}
       centered={empty}
       autoFocus
@@ -244,7 +256,7 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
           }} data-testid="chat-body">
             <div className="chat-col">
               {messages.map((m) => (
-                <MessageView key={m.id} m={m} isLast={m === lastTutor} canMoreHelp={canMoreHelp && m === lastTutor} onMoreHelp={moreHelp} />
+                <MessageView key={m.id} m={m} isLast={m === lastTutor} ladder={ladder} canMoreHelp={canMoreHelp && m === lastTutor} onMoreHelp={moreHelp} />
               ))}
               {showPendingUser && <UserMessage text={pending!.user!} />}
               {pending && (
@@ -334,7 +346,7 @@ function UserMessage({ text }: { text: string }): JSX.Element {
   )
 }
 
-function MessageView({ m, isLast, canMoreHelp, onMoreHelp }: { m: ThreadMessage; isLast: boolean; canMoreHelp: boolean; onMoreHelp: () => void }): JSX.Element {
+function MessageView({ m, isLast, ladder, canMoreHelp, onMoreHelp }: { m: ThreadMessage; isLast: boolean; ladder: boolean; canMoreHelp: boolean; onMoreHelp: () => void }): JSX.Element {
   if (m.role === 'user') return <UserMessage text={m.text} />
   return (
     <div className={`msg tutor ${m.error ? 'error' : ''}`} data-message-id={m.id} data-testid="tutor-message">
@@ -345,7 +357,7 @@ function MessageView({ m, isLast, canMoreHelp, onMoreHelp }: { m: ThreadMessage;
           <button className="icon-btn" title="Copy" aria-label="Copy reply" onClick={() => void navigator.clipboard.writeText(m.text)}>
             <Icon name="copy" size={14} />
           </button>
-          {m.rung && !m.widget && (
+          {ladder && m.rung && !m.widget && (
             <span className="rung-tag" title="Help ladder: the tutor gives as little help as you need">
               {RUNG_LABELS[m.rung]}
             </span>

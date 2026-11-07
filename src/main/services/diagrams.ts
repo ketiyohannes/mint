@@ -41,14 +41,14 @@ export function sanitizeDiagram(out: DiagramOutput): DiagramSpec {
 export class DiagramService {
   constructor(private readonly k: Kernel) {}
 
-  async create(classId: string, prompt: string, anchor?: Anchor): Promise<Explorable> {
+  async create(classId: string, prompt: string, anchor?: Anchor, signal?: AbortSignal): Promise<Explorable> {
     const request = prompt.trim().slice(0, 2000)
     if (!request) throw userError('Say what the diagram should show.')
     const ctx = await this.k.context(classId)
     let anchorContext = ''
     if (anchor?.kind === 'source') anchorContext = `"${anchor.quote}" (source ${anchor.sourceId}, section [${anchor.sectionLabel}])`
     else if (anchor?.kind === 'message') anchorContext = `A tutor reply: "${anchor.quote}"`
-    const out = await this.k.job(classId, 'Building an interactive diagram', async () => createDiagram({ runtime: await this.k.runtime(), ctx }, request, anchorContext))
+    const out = await this.k.job(classId, 'Building an interactive diagram', async () => createDiagram({ runtime: await this.k.runtime(), ctx, signal }, request, anchorContext))
     const explorable: Explorable = {
       id: newId('exp'),
       classId,

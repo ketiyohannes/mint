@@ -74,18 +74,37 @@ describe('teach skill (mint edition)', () => {
       () => {}
     )
     const [quiz, intake, reply] = runtime.requests.map((r) => r.system)
-    for (const system of [quiz, intake, reply]) expect(system).toContain('The learner\'s materials are the authority')
+    for (const system of [quiz, intake, reply]) expect(system).toContain('The learner\'s materials are the reference')
 
     expect(quiz).toContain('## Practice and feedback')
     expect(quiz).toContain('all options of a question have about the same length')
-    expect(quiz).not.toContain('## Help ladder')
+    expect(quiz).not.toContain('## Explaining and the help ladder')
 
     expect(intake).toContain('## Intake and mission')
     expect(intake).not.toContain('## Practice and feedback')
 
-    expect(reply).toContain('## Help ladder')
+    expect(reply).toContain('## Explaining and the help ladder')
     expect(reply).toContain('## Wisdom')
     expect(reply).toContain('HELP RUNG 1 (POINTER)')
+  })
+
+  it('teaches in depth at the explanation rung, with the materials as reference', async () => {
+    const runtime = capturingRuntime()
+    await tutorReply(
+      { runtime, ctx },
+      {
+        thread: { id: 't', classId: 'c1', title: '', anchor: { kind: 'general' }, messages: [{ id: 'm', role: 'user', text: 'what is a basis?', at: '' }], createdAt: '', updatedAt: '' } as never,
+        rung: 4,
+        anchorContext: ''
+      },
+      () => {}
+    )
+    const { system } = runtime.requests[0]
+    expect(system).toContain('EXPLAIN LIKE A TEACHER')
+    expect(system).toContain('Never answer by pointing to the materials or restating them')
+    expect(system).toContain('Teach from the source, in your own words')
+    expect(system).toContain('teach it anyway from general knowledge')
+    expect(system).not.toContain('Send the learner back to the source')
   })
 
   it('lets the tutor in a lesson chat see the study box, including an unsent answer', async () => {

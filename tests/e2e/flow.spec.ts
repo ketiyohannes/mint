@@ -125,11 +125,10 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('plan-widget')).toBeVisible({ timeout: 20_000 })
   await shot(page, 'plan')
 
-  // --- Chat with the tutor: help ladder, follow-up side chat ------------------------------
+  // --- Chat with the tutor: a full explanation (the Teach style), follow-up side chat ------------
   await say(page, 'Why does an eigenvector keep its direction?')
-  await expect(page.getByTestId('tutor-message').last()).toContainText(/Hint|look|passage/i)
-  await page.getByTestId('more-help').click()
   await expect(page.getByTestId('tutor-message').last()).toContainText('full explanation', { timeout: 15_000 })
+  await expect(page.getByTestId('more-help')).toHaveCount(0) // the help ladder is the Coach style's
   await selectText(page, '[data-testid=chat-body] [data-testid=tutor-message]', 'full explanation')
   await page.getByTestId('ask-followup').click()
   const side = page.getByTestId('ask-popover')
@@ -229,10 +228,8 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await pop.getByTestId('ask-send').click()
   await expect(pop.locator('.cite-chip').first()).toBeVisible()
   await expect.poll(() => highlightCount(page, 'mint-thread')).toBeGreaterThan(0)
-  const rungBefore = await pop.getByTestId('rung-bar').innerText()
-  await pop.getByTestId('more-help').click()
-  await expect(pop.getByTestId('tutor-message')).toHaveCount(2)
-  await expect(pop.getByTestId('rung-bar')).not.toHaveText(rungBefore)
+  await expect(pop.getByTestId('tutor-message').last()).toContainText('full explanation')
+  await expect(pop.getByTestId('rung-bar')).toHaveCount(0)
   await pop.locator('.cite-chip').first().click()
   await expect
     .poll(async () => (await highlightCount(page, 'mint-flash')) + (await page.locator('.block.flash, mark.hl.flash-quote').count()))
@@ -440,6 +437,19 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('sidebar')).toHaveCount(0)
   await page.keyboard.press('ControlOrMeta+B')
   await expect(page.getByTestId('sidebar')).toBeVisible()
+
+  // The Coach style answers on the help ladder: a pointer first, more help on request.
+  await page.getByTestId('nav-settings').click()
+  await page.getByTestId('tutor-coach').click()
+  await expect(page.getByTestId('tutor-coach')).toHaveAttribute('aria-checked', 'true')
+  await page.getByTestId('sidebar-class').click()
+  await page.getByTestId('new-chat').click()
+  await say(page, 'Where does the characteristic equation come from?')
+  await expect(page.locator('.rung-tag').last()).not.toHaveText('Explanation')
+  await page.getByTestId('more-help').click()
+  await expect(page.getByTestId('tutor-message')).toHaveCount(2)
+  await page.getByTestId('nav-settings').click()
+  await page.getByTestId('tutor-teach').click()
 
   expect(m.errors.filter((e) => !/Download the React DevTools|Electron Security Warning/.test(e))).toEqual([])
 })

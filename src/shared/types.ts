@@ -27,6 +27,12 @@ export interface ModelOption {
 export type ThemePref = 'light' | 'dark' | 'system'
 /** Where a lesson's brief, reading and checks show: the Study tab beside the chat, or inside the lesson chat. */
 export type LessonPlace = 'study' | 'chat'
+/**
+ * How the tutor answers questions. teach: explains in depth, in its own words,
+ * with the materials as cited reference. coach: the help ladder (least help
+ * first, more on request), which fades as the learner shows independence.
+ */
+export type TutorStyle = 'teach' | 'coach'
 
 export interface Settings {
   provider: ProviderId
@@ -37,6 +43,7 @@ export interface Settings {
   trustedDomains: string[]
   theme: ThemePref
   lessonsIn: LessonPlace
+  tutorStyle: TutorStyle
 }
 
 export interface SettingsView extends Settings {

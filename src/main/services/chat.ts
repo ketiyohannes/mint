@@ -10,6 +10,7 @@ import type { SourceService } from './sources'
 import type { ThreadService } from './threads'
 import type { Kernel } from './kernel'
 import { notice, userError, userMessage } from './kernel'
+import { AgentError } from '../agents/types'
 
 export interface ChatSendInput {
   classId: string
@@ -104,7 +105,7 @@ export class ChatService {
   }
 
   /** Run a tool in a chat (a slash command, a composer action, or a tutor offer). */
-  async command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string }): Promise<Thread> {
+  async command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string; streamId?: string }): Promise<Thread> {
     const { classId } = input
     const command = input.command
     if (!COMMANDS.includes(command)) throw userError('Unknown command.')
@@ -112,7 +113,7 @@ export class ChatService {
     const meta = await this.k.repo.requireMeta(classId)
     if (input.threadId) await this.requireChat(classId, input.threadId)
 
-    if (command === 'lesson') return this.startLesson(classId, input.threadId, arg)
+    if (command === 'lesson') return this.threads.track(input.streamId, (signal) => this.startLesson(classId, input.threadId, arg, signal))
 
     const focus = arg || (await this.currentFocus(classId)) || meta.mission.topic || meta.title
     const label = { quiz: 'Quiz', code: 'Code exercise', diagram: 'Diagram', plan: 'Plan' }[command]
@@ -122,44 +123,52 @@ export class ChatService {
       : await this.threads.createChat(classId, `${label}: ${focus}`, [{ role: 'user', text: call }])
 
     try {
-      const runtime = await this.k.runtime()
-      switch (command) {
-        case 'quiz': {
-          const ctx = await this.k.context(classId)
-          const out = await this.k.job(classId, 'Writing a quiz', () => makeQuiz({ runtime, ctx }, focus))
-          const questions = sanitizeQuiz(out.questions)
-          if (!questions.length) throw userError('The quiz came back empty. Try again.')
-          return this.threads.append(classId, thread.id, [{ role: 'tutor', text: '', widget: { kind: 'quiz', title: clip(out.title, 120) || `Quiz: ${focus}`, questions } }])
-        }
-        case 'code': {
-          const ctx = await this.k.context(classId)
-          const language: CodeLanguage | null = /\b(js|javascript|node)\b/i.test(arg) ? 'javascript' : /\b(py|python)\b/i.test(arg) ? 'python' : null
-          const out = await this.k.job(classId, 'Writing a code exercise', () => makeExercise({ runtime, ctx }, focus, language))
-          const exercise = {
-            title: clip(out.title, 120) || 'Exercise',
-            prompt: String(out.prompt ?? '').slice(0, 6000),
-            language: out.language === 'javascript' ? ('javascript' as const) : ('python' as const),
-            starter: String(out.starter ?? '').slice(0, 8000),
-            tests: String(out.tests ?? '').slice(0, 8000),
-            hint: clip(out.hint, 400) || undefined
-          }
-          return this.threads.append(classId, thread.id, [{ role: 'tutor', text: '', widget: { kind: 'code', exercise } }])
-        }
-        case 'diagram': {
-          const e = await this.diagrams.create(classId, focus)
-          return this.threads.append(classId, thread.id, [{ role: 'tutor', text: '', widget: { kind: 'diagram', explorableId: e.id } }])
-        }
-        case 'plan': {
-          const sources = await this.k.repo.read(classId, 'sources')
-          if (!sources.length) throw userError('Add materials (or approve suggested sources) before planning.')
-          await this.setup.plan(classId, arg || 'Revise the plan based on my recent evidence and any new materials.')
-          return this.appendPlan(classId, thread.id, 'Updated plan:')
-        }
-      }
+      return await this.threads.track(input.streamId, (signal) => this.runTool(classId, thread.id, command, focus, arg, signal))
     } catch (err) {
+      if (isStopped(err)) {
+        const note = command === 'plan' ? '_Stopped waiting._ The plan was already being revised; it still updates in the Lessons tab.' : '_Stopped._'
+        return this.threads.append(classId, thread.id, [{ role: 'tutor', text: note }])
+      }
       return this.threads.append(classId, thread.id, [{ role: 'tutor', text: `Sorry, that did not work: ${userMessage(err)}`, error: true }])
     }
-    return thread
+  }
+
+  private async runTool(classId: string, threadId: string, command: Exclude<ChatCommand, 'lesson'>, focus: string, arg: string, signal: AbortSignal): Promise<Thread> {
+    const runtime = await this.k.runtime()
+    switch (command) {
+      case 'quiz': {
+        const ctx = await this.k.context(classId)
+        const out = await this.k.job(classId, 'Writing a quiz', () => makeQuiz({ runtime, ctx, signal }, focus))
+        const questions = sanitizeQuiz(out.questions)
+        if (!questions.length) throw userError('The quiz came back empty. Try again.')
+        return this.threads.append(classId, threadId, [{ role: 'tutor', text: '', widget: { kind: 'quiz', title: clip(out.title, 120) || `Quiz: ${focus}`, questions } }])
+      }
+      case 'code': {
+        const ctx = await this.k.context(classId)
+        const language: CodeLanguage | null = /\b(js|javascript|node)\b/i.test(arg) ? 'javascript' : /\b(py|python)\b/i.test(arg) ? 'python' : null
+        const out = await this.k.job(classId, 'Writing a code exercise', () => makeExercise({ runtime, ctx, signal }, focus, language))
+        const exercise = {
+          title: clip(out.title, 120) || 'Exercise',
+          prompt: String(out.prompt ?? '').slice(0, 6000),
+          language: out.language === 'javascript' ? ('javascript' as const) : ('python' as const),
+          starter: String(out.starter ?? '').slice(0, 8000),
+          tests: String(out.tests ?? '').slice(0, 8000),
+          hint: clip(out.hint, 400) || undefined
+        }
+        return this.threads.append(classId, threadId, [{ role: 'tutor', text: '', widget: { kind: 'code', exercise } }])
+      }
+      case 'diagram': {
+        const e = await this.diagrams.create(classId, focus, undefined, signal)
+        return this.threads.append(classId, threadId, [{ role: 'tutor', text: '', widget: { kind: 'diagram', explorableId: e.id } }])
+      }
+      case 'plan': {
+        const sources = await this.k.repo.read(classId, 'sources')
+        if (!sources.length) throw userError('Add materials (or approve suggested sources) before planning.')
+        // Planning is shared with the Lessons tab, so a stop only stops waiting for it.
+        await this.setup.plan(classId, arg || 'Revise the plan based on my recent evidence and any new materials.')
+        return this.appendPlan(classId, threadId, 'Updated plan:')
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -173,12 +182,15 @@ export class ChatService {
       : await this.threads.createChat(classId, message, [{ role: 'user', text: message }])
     try {
       const ctx = await this.k.context(classId)
-      const out = await this.k.job(classId, 'Reading your materials', async () => intakeQuestions({ runtime: await this.k.runtime(), ctx }, message))
+      const out = await this.threads.track(input.streamId, (signal) =>
+        this.k.job(classId, 'Reading your materials', async () => intakeQuestions({ runtime: await this.k.runtime(), ctx, signal }, message))
+      )
       const questions = sanitizeQuestions(out.questions)
       if (ctx.meta.title === UNNAMED_CLASS && clip(out.title, 80)) await this.classes.update(classId, { title: clip(out.title, 80), mission: { ...ctx.meta.mission, topic: clip(out.title, 80) } })
       if (!questions.length) return this.answerQuestions(classId, thread.id, null, { kind: 'questions', answers: {}, note: '' })
       return this.threads.append(classId, thread.id, [{ role: 'tutor', text: clip(out.intro, 600), widget: { kind: 'questions', questions } }])
     } catch (err) {
+      if (isStopped(err)) return this.threads.append(classId, thread.id, [{ role: 'tutor', text: '_Stopped._ Send another message when you are ready.' }])
       return this.threads.append(classId, thread.id, [
         { role: 'tutor', text: `Sorry, I could not get started: ${userMessage(err)}\n\nSend another message to try again.`, error: true }
       ])
@@ -289,7 +301,7 @@ export class ChatService {
   // Lessons
   // -------------------------------------------------------------------------
 
-  private async startLesson(classId: string, threadId: string | undefined, arg: string): Promise<Thread> {
+  private async startLesson(classId: string, threadId: string | undefined, arg: string, signal?: AbortSignal): Promise<Thread> {
     const ctx = await this.k.context(classId)
     if (!ctx.curriculum) throw userError('There is no plan yet. Answer the intake questions first.')
     const topics = allTopics(ctx.curriculum)
@@ -299,7 +311,7 @@ export class ChatService {
       (ctx.curriculum && (await this.nextTopic(classId)))
     if (!topic) throw userError(arg ? `No lesson matches "${arg}".` : 'Every lesson is done. Review one from the Lessons tab, or extend the plan.')
     const type = ctx.progress[topic.id]?.status === 'mastered' ? 'review' : 'learn'
-    const session = await this.sessions.start(classId, topic.id, type)
+    const session = await this.sessions.start(classId, topic.id, type, signal)
     const text = `**${type === 'review' ? 'Review' : 'Lesson'}: ${topic.title}.** ${topic.objective}\n\nAsk me anything about it here.`
     if (threadId) return this.threads.append(classId, threadId, [{ role: 'tutor', text, widget: { kind: 'lesson', sessionId: session.id } }], { sessionId: session.id })
     return this.threads.createChat(classId, `${type === 'review' ? 'Review' : 'Lesson'}: ${topic.title}`, [{ role: 'tutor', text, widget: { kind: 'lesson', sessionId: session.id } }], session.id)
@@ -370,4 +382,8 @@ function sanitizeRun(r: CodeRunResult | undefined): CodeRunResult {
     tests: (Array.isArray(r?.tests) ? r!.tests : []).slice(0, 30).map((t) => ({ name: clip(t?.name, 200), pass: Boolean(t?.pass), message: t?.message ? clip(t.message, 500) : undefined })),
     error: r?.error ? String(r.error).slice(0, 2000) : undefined
   }
+}
+
+function isStopped(err: unknown): boolean {
+  return err instanceof AgentError && err.kind === 'aborted'
 }

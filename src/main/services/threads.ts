@@ -23,6 +23,30 @@ export class ThreadService {
     this.inflight.get(streamId)?.abort()
   }
 
+  /**
+   * Run chat work that the learner can stop (the composer's stop button sends
+   * `cancel(streamId)`). Stopping settles at once with an 'aborted' AgentError;
+   * the work gets the signal so model turns end too.
+   */
+  async track<T>(streamId: string | undefined, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController()
+    if (streamId) this.inflight.set(streamId, controller)
+    let onAbort = () => {}
+    const stopped = new Promise<never>((_, reject) => {
+      onAbort = () => reject(new AgentError('Cancelled', 'aborted'))
+      controller.signal.addEventListener('abort', onAbort, { once: true })
+    })
+    const running = work(controller.signal)
+    // Work still finishing after a stop must not surface as an unhandled rejection.
+    running.catch(() => undefined)
+    try {
+      return await Promise.race([running, stopped])
+    } finally {
+      controller.signal.removeEventListener('abort', onAbort)
+      if (streamId && this.inflight.get(streamId) === controller) this.inflight.delete(streamId)
+    }
+  }
+
   async create(input: AskInput & { anchor: Anchor; message: string; sessionId?: string }): Promise<Thread> {
     const { classId } = input
     const message = input.message.trim().slice(0, 4000)
@@ -38,7 +62,7 @@ export class ThreadService {
       }
     }
 
-    const independence = await this.k.independence(classId)
+    const start = await this.startRung(classId)
     const now = nowIso()
     const thread: Thread = {
       id: newId('thr'),
@@ -46,7 +70,7 @@ export class ThreadService {
       anchor,
       title: titleFor(anchor, message),
       messages: [{ id: newId('msg'), role: 'user', text: message, at: now }],
-      rung: independence.defaultRung,
+      rung: start.rung,
       pinned: false,
       sessionId: input.sessionId,
       createdAt: now,
@@ -54,7 +78,7 @@ export class ThreadService {
     }
     await this.k.repo.lock(classId, async () => {
       await this.k.repo.update(classId, 'threads', (list) => [...list, thread])
-      await this.logHelp(classId, thread.id, thread.rung, independence.defaultRung, false)
+      if (start.ladder) await this.logHelp(classId, thread.id, thread.rung, start.defaultRung, false)
     })
     this.k.changed(classId)
     return this.reply(classId, thread.id, thread.rung, input)
@@ -64,9 +88,9 @@ export class ThreadService {
     const { classId, threadId } = input
     const message = input.message.trim().slice(0, 4000)
     if (!message) throw userError('Type your question first.')
-    const independence = await this.k.independence(classId)
-    // Every new question starts again at the default rung; escalation is per question.
-    const rung = independence.defaultRung
+    // Every new question starts again at the starting rung; escalation is per question.
+    const start = await this.startRung(classId)
+    const rung = start.rung
     await this.k.repo.lock(classId, async () => {
       await this.mutate(classId, threadId, (t) => ({
         ...t,
@@ -74,13 +98,24 @@ export class ThreadService {
         messages: [...t.messages, { id: newId('msg'), role: 'user', text: message, at: nowIso() }],
         updatedAt: nowIso()
       }))
-      await this.logHelp(classId, threadId, rung, independence.defaultRung, false)
+      if (start.ladder) await this.logHelp(classId, threadId, rung, start.defaultRung, false)
     })
     this.k.changed(classId)
     return this.reply(classId, threadId, rung, input)
   }
 
-  /** The learner deliberately climbs one rung of the help ladder. */
+  /**
+   * Where a new question starts. Teach (the default): a full, in-depth
+   * explanation. Coach: the learner's rung on the help ladder, which climbs on
+   * request and is logged as evidence of independence.
+   */
+  private async startRung(classId: string): Promise<{ rung: Rung; defaultRung: Rung; ladder: boolean }> {
+    const [settings, independence] = await Promise.all([this.k.settings.get(), this.k.independence(classId)])
+    const ladder = settings.tutorStyle === 'coach'
+    return { rung: ladder ? independence.defaultRung : 4, defaultRung: independence.defaultRung, ladder }
+  }
+
+  /** The learner deliberately climbs one rung of the help ladder (Coach style). */
   async moreHelp(input: AskInput & { threadId: string }): Promise<Thread> {
     const { classId, threadId } = input
     const independence = await this.k.independence(classId)
@@ -131,28 +166,32 @@ export class ThreadService {
     rung: Rung | undefined,
     produce: (signal: AbortSignal, onDelta: (d: string) => void) => Promise<string>
   ): Promise<Thread> {
-    const controller = new AbortController()
-    this.inflight.set(streamId, controller)
     this.k.emitter.stream({ streamId, threadId })
+    let streamed = ''
     let text: string
     let failed = false
     try {
-      text = await produce(controller.signal, (delta) => this.k.emitter.stream({ streamId, delta }))
+      text = await this.track(streamId, (signal) =>
+        produce(signal, (delta) => {
+          if (signal.aborted) return
+          streamed += delta
+          this.k.emitter.stream({ streamId, delta })
+        })
+      )
       this.k.emitter.stream({ streamId, done: true })
     } catch (err) {
-      failed = true
       const aborted = err instanceof AgentError && err.kind === 'aborted'
-      text = aborted ? '_Stopped._' : `Sorry, I could not answer: ${userMessage(err)}`
+      // A stopped reply keeps what the learner already read.
+      text = aborted ? (streamed.trim() ? `${streamed.trimEnd()}\n\n_Stopped._` : '_Stopped._') : `Sorry, I could not answer: ${userMessage(err)}`
+      failed = !aborted
       this.k.emitter.stream({ streamId, error: aborted ? 'Stopped' : userMessage(err), done: true })
-    } finally {
-      this.inflight.delete(streamId)
     }
     return this.append(classId, threadId, [{ role: 'tutor', text, rung, error: failed || undefined }])
   }
 
   /** A new top-level chat (general anchor) that starts with the given messages. */
   async createChat(classId: string, title: string, messages: NewMessage[] = [], sessionId?: string): Promise<Thread> {
-    const independence = await this.k.independence(classId)
+    const { rung } = await this.startRung(classId)
     const now = nowIso()
     const t = titleText(title)
     const thread: Thread = {
@@ -161,7 +200,7 @@ export class ThreadService {
       anchor: { kind: 'general' },
       title: (t.length > 70 ? `${t.slice(0, 67)}…` : t) || 'New chat',
       messages: messages.map(toMessage),
-      rung: independence.defaultRung,
+      rung,
       pinned: false,
       sessionId,
       createdAt: now,

@@ -27,9 +27,11 @@ interface Props {
 
 const SUGGESTIONS = ['What does this mean?', 'Why is this true?', 'Give me an example', 'How does this connect to what I know?']
 
-/** One Ask conversation: messages, the help ladder, and the composer. */
+/** One Ask conversation: messages, the help ladder (Coach style), and the composer. */
 export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, intro, placeholder }: Props): JSX.Element {
-  const { toast } = useApp()
+  const { toast, settings } = useApp()
+  /** Coach style shows the help ladder; Teach always explains in full. */
+  const ladder = settings?.tutorStyle === 'coach'
   const study = useStudy()
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<Pending | null>(null)
@@ -146,7 +148,7 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
             ))}
           </div>
         )}
-        {shown?.messages.map((m) => <Message key={m.id} m={m} />)}
+        {shown?.messages.map((m) => <Message key={m.id} m={m} ladder={ladder} />)}
         {pending?.user && !(lastMessage?.role === 'user' && lastMessage.text === pending.user) && <div className="msg user">{pending.user}</div>}
         {pending && (
           <div className="msg tutor" data-testid="tutor-streaming">
@@ -170,7 +172,7 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
           <Icon name="ask" size={13} /> Ask about this
         </button>
       )}
-      {(shown || pending) && (
+      {ladder && (shown || pending) && (
         <div className="rung-bar" data-testid="rung-bar">
           <span className="rung-steps" aria-hidden="true">
             {[1, 2, 3, 4].map((r) => (
@@ -221,11 +223,11 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
   )
 }
 
-function Message({ m }: { m: ThreadMessage }): JSX.Element {
+function Message({ m, ladder }: { m: ThreadMessage; ladder: boolean }): JSX.Element {
   if (m.role === 'user') return <div className="msg user">{m.text}</div>
   return (
     <div className={`msg tutor ${m.error ? 'error' : ''}`} data-message-id={m.id} data-testid="tutor-message">
-      {m.rung && (
+      {ladder && m.rung && (
         <div className="msg-meta">
           <Icon name="sparkle" size={11} /> {RUNG_LABELS[m.rung]}
         </div>

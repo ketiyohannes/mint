@@ -66,7 +66,7 @@ describe.skipIf(provider !== 'claude' && provider !== 'codex')(`live harness: ${
     expect(s3.attempts.at(-1)?.verdict?.result).toBe('fail')
   }, 600_000)
 
-  it('answers an Ask at the hint rung with a citation that resolves', async () => {
+  it('answers an Ask with a full explanation and a citation that resolves', async () => {
     const b = await core.handlers.classes.get(classId)
     const doc = await core.handlers.sources.get(classId, b.sources[0].id)
     const block = doc.sections.flatMap((s) => s.blocks).find((x) => x.text.includes('stay on the same line'))!

@@ -42,7 +42,8 @@ export const DEFAULT_SETTINGS: Settings = {
   codexModel: '',
   trustedDomains: DEFAULT_TRUSTED_DOMAINS,
   theme: 'light',
-  lessonsIn: 'study'
+  lessonsIn: 'study',
+  tutorStyle: 'teach'
 }
 
 /** Encrypts secrets at rest. Electron's safeStorage in the app; identity in tests. */
@@ -136,6 +137,7 @@ function sanitize(input: Settings): Settings {
     trustedDomains: domains.length ? domains : DEFAULT_TRUSTED_DOMAINS,
     theme: (['light', 'dark', 'system'] as const).includes(s.theme) ? s.theme : 'light',
     lessonsIn: s.lessonsIn === 'chat' ? 'chat' : 'study',
+    tutorStyle: s.tutorStyle === 'coach' ? 'coach' : 'teach',
     claudeModel: (s.claudeModel ?? '').trim(),
     codexModel: (s.codexModel ?? '').trim()
   }

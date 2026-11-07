@@ -86,7 +86,8 @@ export interface MintApi {
     /** studyDraft: an unsent answer in the open lesson's study box, so the tutor sees it too. */
     send(input: { classId: string; threadId?: string; message: string; streamId: string; studyDraft?: { kind: CheckKind; text: string } }): Promise<Thread>
     answer(input: { classId: string; threadId: string; messageId: string; answer: WidgetAnswer }): Promise<Thread>
-    command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string }): Promise<Thread>
+    /** streamId lets the composer's stop button cancel the tool (threads.cancel). */
+    command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string; streamId?: string }): Promise<Thread>
   }
   threads: {
     create(input: { classId: string; anchor: Anchor; message: string; sessionId?: string; streamId: string }): Promise<Thread>

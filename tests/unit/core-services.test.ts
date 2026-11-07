@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, readFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -100,7 +100,39 @@ describe('mint core with the demo runtime', () => {
     }
   })
 
-  it('answers Ask threads on the help ladder and logs help for independence', async () => {
+  it('teaches every question in full by default, without touching independence', async () => {
+    const bundle = await core.handlers.classes.get(classId)
+    const doc = await core.handlers.sources.get(classId, bundle.sources[0].id)
+    const block = doc.sections[0].blocks[0]
+    const anchor: Anchor = { kind: 'source', sourceId: doc.id, sectionLabel: doc.sections[0].label, ranges: [{ blockId: block.id, start: 0, end: 20 }], quote: block.text.slice(0, 20) }
+    expect((await core.handlers.settings.get()).tutorStyle).toBe('teach')
+    const t = await core.handlers.threads.create({ classId, anchor, message: 'What does this mean?', streamId: 't1' })
+    expect(t.rung).toBe(4)
+    expect(t.messages.at(-1)?.text).toContain('full explanation')
+    await expect(core.handlers.threads.moreHelp({ classId, threadId: t.id, streamId: 't2' })).rejects.toThrow(/already the full explanation/)
+    expect((await core.handlers.classes.get(classId)).helpEvents).toHaveLength(0)
+    await core.handlers.threads.remove(classId, t.id)
+  })
+
+  it('stops a reply mid-stream and keeps what was already written', async () => {
+    const bundle = await core.handlers.classes.get(classId)
+    const doc = await core.handlers.sources.get(classId, bundle.sources[0].id)
+    const block = doc.sections[0].blocks[0]
+    const anchor: Anchor = { kind: 'source', sourceId: doc.id, sectionLabel: doc.sections[0].label, ranges: [{ blockId: block.id, start: 0, end: 20 }], quote: block.text.slice(0, 20) }
+    const replying = core.handlers.threads.create({ classId, anchor, message: 'Explain it?', streamId: 'stop1' })
+    await vi.waitFor(() => expect(streams.some((e) => e.streamId === 'stop1' && e.delta)).toBe(true), { interval: 1 })
+    await core.handlers.threads.cancel('stop1')
+    const t = await replying
+    const last = t.messages.at(-1)!
+    expect(last.text).toMatch(/\S[\s\S]*\n\n_Stopped\._$/)
+    expect(last.text).not.toContain('**Check:**') // the end of the full reply never arrived
+    expect(last.error).toBeFalsy()
+    expect(streams.some((e) => e.streamId === 'stop1' && e.error === 'Stopped' && e.done)).toBe(true)
+    await core.handlers.threads.remove(classId, t.id)
+  })
+
+  it('answers Ask threads on the help ladder (Coach style) and logs help for independence', async () => {
+    await core.handlers.settings.update({ tutorStyle: 'coach' })
     const bundle = await core.handlers.classes.get(classId)
     const doc = await core.handlers.sources.get(classId, bundle.sources[0].id)
     const block = doc.sections[0].blocks[1] ?? doc.sections[0].blocks[0]
@@ -130,6 +162,7 @@ describe('mint core with the demo runtime', () => {
     await core.handlers.threads.setPinned(classId, t.id, true)
     const note = await core.handlers.notes.fromThread(classId, t.id)
     expect(note.body).toContain('## In my own words')
+    await core.handlers.settings.update({ tutorStyle: 'teach' })
   })
 
   it('runs the session loop to mastery with records, terms and a spaced review', async () => {
