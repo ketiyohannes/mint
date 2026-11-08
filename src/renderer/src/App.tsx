@@ -8,6 +8,7 @@ import { Workspace } from './views/Workspace'
 import { Icon } from './components/Icon'
 import { api } from './lib/api'
 import { useUpdates } from './lib/useUpdates'
+import { useDarkTheme } from './lib/useDarkTheme'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 const SIDEBAR_KEY = 'mint.sidebar'
@@ -35,6 +36,10 @@ export function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+  // The window's own controls (drawn over the app on Windows) follow the theme.
+  const dark = useDarkTheme()
+  useEffect(() => void api.system.windowTheme(dark).catch(() => undefined), [dark])
+
   // An update waiting in the hidden sidebar still gets noticed.
   const updateState = useUpdates().status?.state.status
   const updateWaiting = updateState === 'available' || updateState === 'ready'

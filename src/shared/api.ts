@@ -132,6 +132,8 @@ export interface MintApi {
     pickMaterials(): Promise<string[]>
     openExternal(url: string): Promise<void>
     platform(): Promise<string>
+    /** The app switched between light and dark: restyle the window's own controls to match. */
+    windowTheme(dark: boolean): Promise<void>
   }
   /** New releases: checked in the background, downloaded and installed on request. */
   updates: {
@@ -163,7 +165,7 @@ export const API_GROUPS = {
   glossary: ['propose', 'update', 'remove'],
   records: ['supersede'],
   diagrams: ['create', 'repair', 'setKept', 'remove'],
-  system: ['pickMaterials', 'openExternal', 'platform'],
+  system: ['pickMaterials', 'openExternal', 'platform', 'windowTheme'],
   updates: ['status', 'check', 'download', 'install']
 } as const satisfies { [K in Exclude<keyof MintApi, 'on'>]: readonly (keyof MintApi[K])[] }
 

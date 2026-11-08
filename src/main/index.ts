@@ -77,6 +77,19 @@ function registerIpc(c: MintCore): void {
   }
 }
 
+const isMac = process.platform === 'darwin'
+const isWindows = process.platform === 'win32'
+/**
+ * Windows has no native title bar or menu, like macOS: the app's headers drag
+ * the window and Windows draws its own buttons over the top-right corner, in
+ * the header's colours (1px short of the 52px header, so its border shows).
+ */
+const WINDOW_CONTROLS = {
+  light: { color: '#f6f6f4', symbolColor: '#161616' },
+  dark: { color: '#111111', symbolColor: '#e7e7e5' },
+  height: 51
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -86,8 +99,9 @@ function createWindow(): void {
     show: false,
     title: 'mint',
     backgroundColor: '#fbfaf6',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    titleBarStyle: isMac ? 'hiddenInset' : isWindows ? 'hidden' : 'default',
     trafficLightPosition: { x: 16, y: 18 },
+    ...(isWindows ? { titleBarOverlay: { ...WINDOW_CONTROLS.light, height: WINDOW_CONTROLS.height } } : {}),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
       sandbox: true,
@@ -98,6 +112,9 @@ function createWindow(): void {
       spellcheck: true
     }
   })
+
+  // No File/Edit/View menu bar on Windows and Linux (editing shortcuts still work in the page).
+  if (!isMac) mainWindow.removeMenu()
 
   const contents = mainWindow.webContents
   restrictDiagramFrameNavigation(contents)
@@ -186,6 +203,9 @@ app.whenReady().then(async () => {
     },
     host: {
       platform: process.platform,
+      setWindowTheme: (dark) => {
+        if (isWindows) mainWindow?.setTitleBarOverlay({ ...(dark ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light), height: WINDOW_CONTROLS.height })
+      },
       openExternal: (url) => shell.openExternal(url),
       openPath: async (p) => {
         await shell.openPath(p)

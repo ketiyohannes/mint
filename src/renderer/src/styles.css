@@ -226,6 +226,23 @@ a {
   -webkit-app-region: no-drag;
 }
 
+/*
+ * Windows draws its window buttons over the top-right corner (titleBarOverlay),
+ * so the headers that reach that corner keep clear of them. The width comes
+ * from the window-controls-overlay area, with a fallback for the usual three buttons.
+ */
+:root[data-platform='win'] {
+  --controls-inset: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 140px)));
+}
+
+:root[data-platform='win'] .workspace > :last-child > .pane-head {
+  padding-right: calc(10px + var(--controls-inset));
+}
+
+:root[data-platform='win'] .main > .topbar {
+  padding-right: calc(18px + var(--controls-inset));
+}
+
 .sidebar-head .sidebar-toggle {
   margin: 0 6px 0 -4px;
 }

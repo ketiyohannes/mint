@@ -21,6 +21,8 @@ export interface HostBridge {
   openPath(path: string): Promise<void>
   openExternal(url: string): Promise<void>
   platform: string
+  /** Match the window's own controls to the app theme (Windows draws them over the app). */
+  setWindowTheme?(dark: boolean): void
 }
 
 /** The app updater lives in the Electron layer; headless cores (tests) report updates as disabled. */
@@ -196,7 +198,8 @@ export function createCore(
         if (!/^https?:\/\//i.test(String(url))) throw userError('Only web links can be opened.')
         await opts.host.openExternal(url)
       },
-      platform: async () => opts.host.platform
+      platform: async () => opts.host.platform,
+      windowTheme: async (dark) => opts.host.setWindowTheme?.(dark === true)
     },
     updates: opts.updates ?? disabledUpdates()
   }

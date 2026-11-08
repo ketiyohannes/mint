@@ -8,6 +8,8 @@ import { App } from './App'
 import { AppProvider } from './state/app'
 
 if (/Mac/.test(navigator.userAgent)) document.documentElement.dataset.platform = 'mac'
+// Windows draws its window buttons over the app's top-right corner.
+else if (/Windows/.test(navigator.userAgent)) document.documentElement.dataset.platform = 'win'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
