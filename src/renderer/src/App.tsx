@@ -65,19 +65,7 @@ export function App(): JSX.Element {
 
   return (
     <div className={`app ${sidebarOpen ? '' : 'sidebar-hidden'}`}>
-      {sidebarOpen ? (
-        <Sidebar bundle={bundle} onCollapse={() => setSidebarOpen(false)} />
-      ) : (
-        <button
-          className={`icon-btn sidebar-toggle sidebar-reopen ${updateWaiting ? 'has-dot' : ''}`}
-          onClick={() => setSidebarOpen(true)}
-          title={`Show the sidebar (${SIDEBAR_SHORTCUT})${updateWaiting ? ': an update is ready' : ''}`}
-          aria-label="Show the sidebar"
-          data-testid="sidebar-expand"
-        >
-          <Icon name="sidebarLeft" size={15} />
-        </button>
-      )}
+      {sidebarOpen && <Sidebar bundle={bundle} onCollapse={() => setSidebarOpen(false)} />}
       <main className="main">
         {route.name === 'settings' ? (
           <SettingsView />
@@ -121,6 +109,22 @@ export function App(): JSX.Element {
           </div>
         )}
       </main>
+      {/*
+        The show button floats over the header, which drags the window. Electron
+        applies drag and no-drag areas in document order, so it must come after
+        the headers or real clicks drag the window instead of pressing it.
+      */}
+      {!sidebarOpen && (
+        <button
+          className={`icon-btn sidebar-toggle sidebar-reopen ${updateWaiting ? 'has-dot' : ''}`}
+          onClick={() => setSidebarOpen(true)}
+          title={`Show the sidebar (${SIDEBAR_SHORTCUT})${updateWaiting ? ': an update is ready' : ''}`}
+          aria-label="Show the sidebar"
+          data-testid="sidebar-expand"
+        >
+          <Icon name="sidebarLeft" size={15} />
+        </button>
+      )}
       <Toasts />
     </div>
   )

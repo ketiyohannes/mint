@@ -470,6 +470,16 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('sidebar')).toHaveCount(0)
   await expect(page.getByTestId('sidebar-expand')).toBeVisible()
   await expectShellInPlace(page, { sidebar: false })
+  // The show button floats over the header, which drags the window. Electron applies drag areas in
+  // document order, so nothing draggable may follow the button, or a real click drags the window
+  // instead of pressing it (the synthetic clicks here would still pass).
+  const dragAreas = await page.evaluate(() => {
+    const button = document.querySelector('[data-testid=sidebar-expand]')!
+    const drags = Array.from(document.querySelectorAll('*')).filter((el) => getComputedStyle(el).getPropertyValue('app-region') === 'drag')
+    return { total: drags.length, after: drags.filter((el) => button.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).length }
+  })
+  expect(dragAreas.total).toBeGreaterThan(0)
+  expect(dragAreas.after).toBe(0)
   await page.reload()
   await expect(page.getByTestId('sidebar-expand')).toBeVisible()
   await page.getByTestId('sidebar-expand').click()
