@@ -5,6 +5,7 @@ import { api, timeAgo } from '../lib/api'
 import { useUpdates } from '../lib/useUpdates'
 import { Icon } from '../components/Icon'
 import { ModelSelect } from '../components/ModelPicker'
+import { DOCK_SHORTCUT } from './study/LessonDock'
 
 export function SettingsView(): JSX.Element {
   const { settings, setSettings, run } = useApp()
@@ -164,17 +165,17 @@ export function SettingsView(): JSX.Element {
               <div className="tabs" role="radiogroup" aria-label="Where lessons show">
                 {(
                   [
-                    ['study', 'Study tab'],
-                    ['chat', 'In the chat']
+                    ['dock', 'Over the chat'],
+                    ['tab', 'Study tab']
                   ] as const
-                ).map(([place, label]) => (
+                ).map(([view, label]) => (
                   <button
-                    key={place}
+                    key={view}
                     role="radio"
-                    aria-checked={settings.lessonsIn === place}
-                    className={`tab ${settings.lessonsIn === place ? 'active' : ''}`}
-                    onClick={() => void update({ lessonsIn: place })}
-                    data-testid={`lessons-in-${place}`}
+                    aria-checked={settings.lessonView === view}
+                    className={`tab ${settings.lessonView === view ? 'active' : ''}`}
+                    onClick={() => void update({ lessonView: view })}
+                    data-testid={`lessons-in-${view}`}
                   >
                     {label}
                   </button>
@@ -182,9 +183,9 @@ export function SettingsView(): JSX.Element {
               </div>
             </div>
             <span className="hint">
-              {settings.lessonsIn === 'chat'
-                ? 'A lesson’s brief, reading and checks show inside its chat.'
-                : 'A lesson’s brief, reading and checks open in the Study tab beside the chat, so the chat stays a conversation.'}
+              {settings.lessonView === 'dock'
+                ? `The open lesson’s brief, reading and checks float at the top of whichever chat you’re in. Fold it to one line with ${DOCK_SHORTCUT}.`
+                : 'The open lesson’s brief, reading and checks show in the Study tab beside whichever chat you’re in.'}
             </span>
             <div className="row">
               <span style={{ width: 120 }}>Data folder</span>

@@ -64,7 +64,7 @@ export class ChatService {
     }
 
     if (input.threadId) return this.threads.send({ classId, threadId: input.threadId, message, streamId: input.streamId, studyDraft: input.studyDraft })
-    return this.threads.create({ classId, anchor: { kind: 'general' }, message, streamId: input.streamId })
+    return this.threads.create({ classId, anchor: { kind: 'general' }, message, streamId: input.streamId, studyDraft: input.studyDraft })
   }
 
   async answer(input: { classId: string; threadId: string; messageId: string; answer: WidgetAnswer }): Promise<Thread> {
@@ -323,10 +323,11 @@ export class ChatService {
     return id ? findTopic(b.curriculum, id) : undefined
   }
 
-  /** What the learner is working on now: the open lesson's topic, else the next one. */
+  /** What the learner is working on now: the open lesson's topic, else the latest unfinished one, else the next one. */
   private async currentFocus(classId: string): Promise<string> {
-    const [sessions, curriculum] = await Promise.all([this.k.repo.read(classId, 'sessions'), this.k.repo.read(classId, 'curriculum')])
-    const open = [...sessions].reverse().find((s) => !s.endedAt)
+    const [meta, sessions, curriculum] = await Promise.all([this.k.repo.requireMeta(classId), this.k.repo.read(classId, 'sessions'), this.k.repo.read(classId, 'curriculum')])
+    const unfinished = sessions.filter((s) => !s.endedAt)
+    const open = unfinished.find((s) => s.id === meta.openLessonId) ?? unfinished.at(-1)
     const topic = open ? findTopic(curriculum, open.topicId) : await this.nextTopic(classId)
     return topic ? `${topic.title}: ${topic.objective}` : ''
   }

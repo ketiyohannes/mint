@@ -11,7 +11,7 @@ export interface DiagramController {
 export interface StudyApi {
   bundle: ClassBundle
   classId: string
-  /** The open lesson's session, if the current chat is a lesson. */
+  /** The class's open lesson, while it is under way (every chat sees it). */
   sessionId: string | undefined
   sourceTitle: (sourceId: string) => string | undefined
   handleDirective: (d: Directive) => void
@@ -21,10 +21,8 @@ export interface StudyApi {
   openSource: (sourceId: string, section?: string, quote?: string) => void
   /** Run a chat tool (quiz, code exercise, diagram, lesson, plan) in the current chat. */
   command: (command: ChatCommand, arg?: string) => void
-  /** Lessons show inside their chat (Settings) rather than in the Study tab. */
-  lessonsInChat: boolean
-  /** Show the Study tab (the open lesson's brief, reading and checks). */
-  openStudy: () => void
+  /** Open a lesson over the current chat (or in the Study tab), or bring the open one into view. */
+  openLesson: (sessionId: string) => void
   /** Show the Lessons tab (the plan). */
   openLessons: () => void
   /** Diagrams register so tutor directives can point at their parts. */

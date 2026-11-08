@@ -148,7 +148,8 @@ export function createCore(
       setPhase: (classId, sessionId, phase) => sessions.setPhase(classId, sessionId, phase),
       submitCheck: (classId, sessionId, kind, answer) => sessions.submitCheck(classId, sessionId, kind, String(answer ?? '')),
       finish: (classId, sessionId, r, t) => sessions.finish(classId, sessionId, r ?? [], t ?? []),
-      abandon: (classId, sessionId) => sessions.abandon(classId, sessionId)
+      abandon: (classId, sessionId) => sessions.abandon(classId, sessionId),
+      open: (classId, sessionId) => sessions.open(classId, typeof sessionId === 'string' ? sessionId : null)
     },
     chat: {
       send: (input) => chat.send(input),

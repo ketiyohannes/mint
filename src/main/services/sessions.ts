@@ -36,7 +36,11 @@ export class SessionService {
     if (!topic) throw userError('That topic is not in the curriculum.')
     const sessions = await this.k.repo.read(classId, 'sessions')
     const open = sessions.find((s) => s.topicId === topicId && !s.endedAt && s.type === type)
-    if (open?.brief) return open
+    if (open?.brief) {
+      // Starting a lesson that is already under way picks it up where it was.
+      await this.open(classId, open.id)
+      return open
+    }
 
     const brief = await this.k.job(classId, type === 'review' ? 'Preparing your review' : 'Writing your session brief', async () =>
       writeBrief({ runtime: await this.k.runtime(), ctx, signal }, topic, type)
@@ -62,6 +66,7 @@ export class SessionService {
     }
     await this.k.repo.lock(classId, async () => {
       await this.save(classId, session)
+      await this.setOpen(classId, session.id)
       await this.k.repo.update(classId, 'progress', (p) => ({
         ...p,
         [topicId]: { ...(p[topicId] ?? emptyProgress(topicId)), lastStudiedAt: nowIso() }
@@ -184,7 +189,32 @@ export class SessionService {
       const session = await this.load(classId, sessionId)
       if (session.attempts.length) await this.save(classId, { ...session, endedAt: nowIso() })
       else await this.k.repo.update(classId, 'sessions', (list) => list.filter((s) => s.id !== sessionId))
+      const meta = await this.k.repo.requireMeta(classId)
+      if (meta.openLessonId === sessionId) await this.setOpen(classId, null)
     })
     this.k.changed(classId)
+  }
+
+  /**
+   * Open a lesson in the class, or close the open one (null). The open lesson
+   * shows over every chat and every tutor in the class sees it; closing keeps
+   * the lesson in progress, to resume from the Lessons tab.
+   */
+  async open(classId: string, sessionId: string | null): Promise<void> {
+    await this.k.repo.lock(classId, async () => {
+      if (sessionId) await this.load(classId, sessionId)
+      await this.setOpen(classId, sessionId)
+    })
+    this.k.changed(classId)
+  }
+
+  /** Callers hold the class lock. Not a content change, so the class keeps its place in the list. */
+  private async setOpen(classId: string, sessionId: string | null): Promise<void> {
+    const meta = await this.k.repo.requireMeta(classId)
+    if ((meta.openLessonId ?? null) === sessionId) return
+    const next = { ...meta }
+    if (sessionId) next.openLessonId = sessionId
+    else delete next.openLessonId
+    await this.k.repo.writeMeta(next)
   }
 }

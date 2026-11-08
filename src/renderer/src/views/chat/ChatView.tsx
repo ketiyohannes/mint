@@ -126,11 +126,11 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
         return
       }
       const text = attached ? quoteMessage(attached.text, attached.source, input || 'Can you help me understand this passage?') : input
-      // In a lesson chat, the tutor also sees the answer being written in the study box.
-      const studyDraft = checkDraft(shown?.sessionId)
+      // The tutor also sees the answer being written for the open lesson, from any chat.
+      const studyDraft = checkDraft(study.sessionId)
       void run('Thinking', text, (streamId) => api.chat.send({ classId, threadId: shown?.id, message: text, streamId, studyDraft }))
     },
-    [run, classId, shown?.id, shown?.sessionId, quote]
+    [run, classId, shown?.id, study.sessionId, quote]
   )
 
   const command = useCallback(
@@ -157,7 +157,7 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
 
   const moreHelp = () => {
     if (!shown) return
-    void run('More help', undefined, (streamId) => api.threads.moreHelp({ classId, threadId: shown.id, streamId, studyDraft: checkDraft(shown.sessionId) }))
+    void run('More help', undefined, (streamId) => api.threads.moreHelp({ classId, threadId: shown.id, streamId, studyDraft: checkDraft(study.sessionId) }))
   }
 
   const chatApi = useMemo<ChatApi>(

@@ -79,6 +79,8 @@ export interface MintApi {
     submitCheck(classId: string, sessionId: string, kind: CheckKind, answer: string): Promise<Session>
     finish(classId: string, sessionId: string, acceptRecords: number[], acceptTerms: number[]): Promise<Session>
     abandon(classId: string, sessionId: string): Promise<void>
+    /** Open a lesson in the class (it shows over every chat), or close it with null. Closing keeps it in progress. */
+    open(classId: string, sessionId: string | null): Promise<void>
   }
   /** The class chat: intake, tutor replies, and tools that post interactive widgets. */
   chat: {
@@ -90,8 +92,8 @@ export interface MintApi {
     command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string; streamId?: string }): Promise<Thread>
   }
   threads: {
-    create(input: { classId: string; anchor: Anchor; message: string; sessionId?: string; streamId: string }): Promise<Thread>
-    send(input: { classId: string; threadId: string; message: string; streamId: string }): Promise<Thread>
+    create(input: { classId: string; anchor: Anchor; message: string; sessionId?: string; streamId: string; studyDraft?: { kind: CheckKind; text: string } }): Promise<Thread>
+    send(input: { classId: string; threadId: string; message: string; streamId: string; studyDraft?: { kind: CheckKind; text: string } }): Promise<Thread>
     moreHelp(input: { classId: string; threadId: string; streamId: string; studyDraft?: { kind: CheckKind; text: string } }): Promise<Thread>
     setPinned(classId: string, threadId: string, pinned: boolean): Promise<Thread>
     remove(classId: string, threadId: string): Promise<void>
@@ -153,7 +155,7 @@ export const API_GROUPS = {
   classes: ['list', 'get', 'create', 'start', 'update', 'remove', 'activate'],
   sources: ['addFiles', 'original', 'addUrl', 'get', 'remove', 'setTranscript', 'proposeTrusted', 'resolveProposals'],
   intake: ['startDiagnostic', 'submitDiagnostic', 'skipDiagnostic', 'proposeCurriculum', 'resolveCurriculum', 'autoPlan'],
-  sessions: ['start', 'setPhase', 'submitCheck', 'finish', 'abandon'],
+  sessions: ['start', 'setPhase', 'submitCheck', 'finish', 'abandon', 'open'],
   chat: ['send', 'answer', 'command'],
   threads: ['create', 'send', 'moreHelp', 'setPinned', 'remove', 'cancel'],
   annotations: ['create', 'update', 'remove'],

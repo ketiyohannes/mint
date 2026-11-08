@@ -25,8 +25,8 @@ export interface ModelOption {
   isDefault?: boolean
 }
 export type ThemePref = 'light' | 'dark' | 'system'
-/** Where a lesson's brief, reading and checks show: the Study tab beside the chat, or inside the lesson chat. */
-export type LessonPlace = 'study' | 'chat'
+/** Where the open lesson's brief, reading and checks show: docked over the chat, or in the Study tab beside it. */
+export type LessonView = 'dock' | 'tab'
 /**
  * How the tutor answers questions. teach: explains in depth, in its own words,
  * with the materials as cited reference. coach: the help ladder (least help
@@ -42,7 +42,7 @@ export interface Settings {
   /** Default allowlist used when a class builds a curriculum from trusted sources. */
   trustedDomains: string[]
   theme: ThemePref
-  lessonsIn: LessonPlace
+  lessonView: LessonView
   tutorStyle: TutorStyle
 }
 
@@ -112,6 +112,12 @@ export interface ClassMeta {
   trustedDomains: string[]
   /** Accent hue (0-360) used for the class avatar. */
   hue: number
+  /**
+   * The lesson open in this class: it shows over every chat (or in the Study
+   * tab), and every tutor in the class sees its study box. Belongs to the
+   * class, not to the chat the lesson started in.
+   */
+  openLessonId?: ID
 }
 
 export interface ClassSummary {

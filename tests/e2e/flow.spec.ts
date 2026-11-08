@@ -274,44 +274,83 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('tab-browser')).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('browser-address')).toHaveValue(/google\.com\/search\?q=characteristic/)
 
-  // --- A lesson is its own chat -------------------------------------------------------------
+  // --- The open lesson docks over whichever chat is showing ------------------------------------
+  const chatsBefore = await page.getByTestId('sidebar-chat').count()
   await page.getByTestId('tab-lessons').click()
   await page.getByTestId('start-session').click()
-  await expect(page.getByTestId('chat-title')).toContainText('Lesson:')
-  // The chat keeps a pointer; the lesson itself opens in the Study tab, its first reading beside it.
-  await expect(page.getByTestId('lesson-widget')).toContainText('checks passed')
-  await expect(page.getByTestId('tab-study')).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('chat-pane').getByTestId('session-panel')).toHaveCount(0)
-  const lesson = page.getByTestId('page-study')
-  await expect(lesson.getByTestId('brief')).toBeVisible()
-  await expect(page.getByTestId('split-tab-sources')).toHaveAttribute('aria-selected', 'true')
+  const dock = page.getByTestId('lesson-dock')
+  await expect(dock.getByTestId('brief')).toBeVisible()
+  // It starts in the chat that was showing, which keeps a pointer; the first reading opens in the panel.
+  await expect(page.getByTestId('sidebar-chat')).toHaveCount(chatsBefore)
+  await expect(page.getByTestId('lesson-widget').last()).toContainText('checks passed')
+  await expect(page.getByTestId('tab-study')).toHaveCount(0)
+  await expect(page.getByTestId('tab-sources')).toHaveAttribute('aria-selected', 'true')
+  await expect(dock.getByTestId('lesson-dock-where')).toHaveText('Brief · 1 of 6')
   // Formulas render the same way in the brief as in the chat (one renderer everywhere).
-  await expect(lesson.getByTestId('brief').locator('.katex').first()).toBeVisible()
+  await expect(dock.getByTestId('brief').locator('.katex').first()).toBeVisible()
+  // The chat scrolls behind the dock: its top padding clears the dock's height.
+  const clearance = await page.evaluate(() => {
+    const body = document.querySelector<HTMLElement>('[data-testid=chat-body]')!
+    return parseFloat(getComputedStyle(body).paddingTop) - document.querySelector<HTMLElement>('[data-testid=lesson-dock]')!.offsetHeight
+  })
+  expect(clearance).toBeGreaterThan(0)
   await shot(page, 'brief')
-  await expect(page.getByTestId('sidebar-chat')).toHaveCount(2) // the intake chat (tools ran inside it) and the lesson
-  await lesson.getByTestId('phase-next').click()
-  await expect(lesson.getByTestId('phase-read')).toHaveClass(/active/)
-  await lesson.getByTestId('phase-next').click()
-  await expect(lesson.getByTestId('check-prompt').locator('.katex').first()).toBeVisible() // and in the explain check
-  // The tutor in the lesson chat sees the study box, even an answer not submitted yet.
-  await lesson.getByTestId('check-answer').fill('A direction the matrix only stretches')
+  await dock.getByTestId('phase-next').click()
+  await expect(dock.getByTestId('phase-read')).toHaveClass(/active/)
+  await dock.getByTestId('phase-next').click()
+  await expect(dock.getByTestId('check-prompt').locator('.katex').first()).toBeVisible() // and in the explain check
+  await dock.getByTestId('check-answer').fill('A direction the matrix only stretches')
+
+  // A brand-new chat shows the same lesson, with the unsent answer, and its tutor sees both.
+  await page.getByTestId('sidebar-class').hover()
+  await page.getByTestId('new-chat').click()
+  await expect(page.getByTestId('chat-hero')).toBeVisible()
+  await expect(dock.getByTestId('check-answer')).toHaveValue('A direction the matrix only stretches')
   await say(page, 'Is my answer on track?')
   await expect(page.getByTestId('tutor-message').last()).toContainText('you are on the Explain step')
   await expect(page.getByTestId('tutor-message').last()).toContainText('starts "A direction the matrix only stretches"')
+
+  // It folds to one bar (button, ⌘L / Ctrl+L, or a double-click on its handle) and keeps the answer.
+  await dock.getByTestId('lesson-dock-fold').click()
+  await expect(dock.getByTestId('lesson-dock-body')).toBeHidden()
+  await expect(dock).toContainText('draft kept')
+  await expect(dock.getByTestId('lesson-dock-where')).toHaveText('Explain · 3 of 6')
+  expect((await dock.boundingBox())!.height).toBeLessThan(50)
+  await shot(page, 'lesson-folded')
+  await page.keyboard.press('ControlOrMeta+L')
+  await expect(dock.getByTestId('check-answer')).toHaveValue('A direction the matrix only stretches')
+  await dock.getByTestId('lesson-dock-grip').dblclick()
+  await expect(dock.getByTestId('lesson-dock-body')).toBeHidden()
+  await page.reload()
+  await expect(dock).toBeVisible()
+  await expect(dock.getByTestId('lesson-dock-body')).toBeHidden() // folded stays folded
+  await dock.locator('.lesson-dock-bar').click()
+  await expect(dock.getByTestId('lesson-dock-body')).toBeVisible()
+
+  // Closing takes it off the chats; Resume brings it back where you are.
+  const chatTitle = await page.getByTestId('chat-title').textContent()
+  await dock.getByTestId('lesson-dock-close').click()
+  await expect(dock).toHaveCount(0)
+  await page.getByTestId('tab-lessons').click()
+  await page.getByTestId('resume-session').click()
+  await expect(dock.getByTestId('check-prompt')).toBeVisible()
+  await expect(page.getByTestId('chat-title')).toHaveText(chatTitle!)
+
   const long =
     'An eigenvector is a direction the matrix does not rotate: multiplying it by the matrix only scales it, and the scale factor is the eigenvalue, so A x equals lambda x for that vector.'
   for (const next of ['apply', 'distinguish', 'wrap']) {
-    await lesson.getByTestId('check-answer').fill(long)
-    await lesson.getByTestId('check-submit').click()
-    await expect(lesson.getByTestId('verdict').last()).toContainText('Pass')
-    await lesson.getByTestId('phase-next').click()
-    await expect(lesson.getByTestId(`phase-${next}`)).toHaveClass(/active/)
+    await dock.getByTestId('check-answer').fill(long)
+    await dock.getByTestId('check-submit').click()
+    await expect(dock.getByTestId('verdict').last()).toContainText('Pass')
+    await dock.getByTestId('phase-next').click()
+    await expect(dock.getByTestId(`phase-${next}`)).toHaveClass(/active/)
   }
-  await lesson.getByTestId('finish-session').click()
-  await expect(lesson).toContainText('Session complete')
-  await expect(page.getByTestId('lesson-widget')).toContainText('complete')
-  await page.getByTestId('tab-lessons').click()
+  await dock.getByTestId('finish-session').click()
+  await expect(dock).toContainText('Session complete')
   await expect(page.locator('.status-dot.mastered').first()).toBeVisible()
+  await dock.getByTestId('close-finished').click()
+  await expect(dock).toHaveCount(0)
+  await expect(page.getByTestId('tab-lessons')).toHaveAttribute('aria-selected', 'true')
 
   // --- Notes ---------------------------------------------------------------------------------
   // A plain notepad: past notes, and a rich editor for a new one. It saves as you type.
@@ -351,8 +390,6 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
 
   // --- Split the panel: two tabs at once ---------------------------------------------------------
   const box = async (id: string) => (await page.getByTestId(id).boundingBox())!
-  // The lesson left its reading open in the split; close it first.
-  await page.getByTestId('split-close').click()
   await expect(page.getByTestId('split-head')).toHaveCount(0)
   await page.getByTestId('split-toggle').click()
   await expect(page.getByTestId('split-head')).toBeVisible()
@@ -362,6 +399,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   // Sources in the split, next to the notes; then stacked.
   await page.getByTestId('split-tab-sources').click()
   await expect(page.getByTestId('page-sources')).toHaveClass(/slot-b/)
+  await page.getByTestId('view-text').click() // the reload during the lesson went back to page view
   await expect(page.getByTestId('page-sources').getByTestId('reader')).toBeVisible()
   await expect(page.getByTestId('page-browser')).toHaveClass(/inactive/)
   await page.getByTestId('split-dir').click()
@@ -406,23 +444,26 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('panel')).toBeVisible() // the remaining class has loaded
   await expectShellInPlace(page)
 
-  // Settings can put lessons inside their chat instead: then there is no Study tab.
-  const openLessonChat = async () => {
-    await page.getByTestId('sidebar-class').click()
-    await page.getByTestId('sidebar-chat').filter({ hasText: 'Lesson:' }).locator('.chat-open').click()
-    await expect(page.getByTestId('chat-title')).toContainText('Lesson:')
-  }
+  // Settings can put the open lesson in a Study tab beside the chat instead, and the dock can send it there.
   await page.getByTestId('nav-settings').click()
-  await page.getByTestId('lessons-in-chat').click()
-  await expect(page.getByTestId('lessons-in-chat')).toHaveAttribute('aria-checked', 'true')
-  await openLessonChat()
+  await expect(page.getByTestId('lessons-in-dock')).toHaveAttribute('aria-checked', 'true')
+  await page.getByTestId('lessons-in-tab').click()
+  await expect(page.getByTestId('lessons-in-tab')).toHaveAttribute('aria-checked', 'true')
+  await page.getByTestId('sidebar-class').click()
+  await page.getByTestId('tab-lessons').click()
+  await page.getByTestId('start-session').click()
+  await expect(page.getByTestId('tab-study')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('page-study').getByTestId('brief')).toBeVisible()
+  await expect(page.getByTestId('lesson-dock')).toHaveCount(0)
+  await page.getByTestId('study-to-dock').click()
+  await expect(page.getByTestId('lesson-dock').getByTestId('brief')).toBeVisible()
   await expect(page.getByTestId('tab-study')).toHaveCount(0)
-  await expect(page.getByTestId('chat-pane').getByTestId('session-panel')).toContainText('Session complete')
+  await page.getByTestId('lesson-dock-to-tab').click()
+  await expect(page.getByTestId('page-study').getByTestId('brief')).toBeVisible()
   await page.getByTestId('nav-settings').click()
-  await page.getByTestId('lessons-in-study').click()
-  await openLessonChat()
-  await expect(page.getByTestId('tab-study')).toBeVisible()
-  await expect(page.getByTestId('chat-pane').getByTestId('session-panel')).toHaveCount(0)
+  await page.getByTestId('lessons-in-dock').click()
+  await page.getByTestId('sidebar-class').click()
+  await page.getByTestId('lesson-dock-close').click()
 
   // The sidebar folds away and comes back (button, or ⌘B / Ctrl+B), and stays put across a reload.
   await page.getByTestId('sidebar-collapse').click()

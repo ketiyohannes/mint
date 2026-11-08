@@ -7,25 +7,35 @@ import { SessionPanel } from './SessionPanel'
 
 interface Props {
   bundle: ClassBundle
-  /** The lesson of the open chat, if it is a lesson chat (ended lessons included, to show their summary). */
+  /** The class's open lesson (a finished one included, to show its summary). */
   session: Session | undefined
   onOpenReading: (sourceId: string, section: string) => void
-  /** Open a lesson's chat (its study box then shows here). */
+  /** Open a lesson in progress (it then shows here). */
   onResume: (sessionId: string) => void
   onStartNext: () => void
-  /** Leave the study box for the plan. */
+  /** The lesson was wrapped up or ended early: show the plan. */
   onDone: () => void
+  /** Leave a finished lesson. */
+  onClose: () => void
+  /** Dock lessons over the chat instead (the Settings choice). */
+  onDock: () => void
 }
 
 /**
  * The Study tab: the lesson loop (brief, read, explain, apply, distinguish,
- * wrap up) for the lesson chat that is open, so the chat stays a conversation.
+ * wrap up) of the class's open lesson, beside whichever chat is showing.
  */
-export function StudyTab({ bundle, session, onOpenReading, onResume, onStartNext, onDone }: Props): JSX.Element {
+export function StudyTab({ bundle, session, onOpenReading, onResume, onStartNext, onDone, onClose, onDock }: Props): JSX.Element {
   if (session) {
     return (
-      <div className="panel-pad" data-testid="study">
-        <SessionPanel session={session} onOpenReading={onOpenReading} onDone={onDone} />
+      <div className="panel-pad stack" data-testid="study">
+        <div className="row">
+          <span className="spacer" />
+          <button className="btn ghost sm" onClick={onDock} title="Dock lessons over the chat instead" data-testid="study-to-dock">
+            <Icon name="expand" size={13} /> Show over the chat
+          </button>
+        </div>
+        <SessionPanel session={session} onOpenReading={onOpenReading} onDone={onDone} onClose={onClose} />
       </div>
     )
   }

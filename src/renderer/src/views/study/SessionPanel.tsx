@@ -8,16 +8,27 @@ import { RichText } from '../../components/RichText'
 import { useStudy } from './context'
 import { clearCheckDraft, setCheckDraft } from './drafts'
 
-const PHASE_LABEL: Record<Phase, string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
-const ORDER: Phase[] = ['brief', 'read', 'explain', 'apply', 'distinguish', 'wrap']
+export const PHASE_LABEL: Record<Phase, string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
+export const ORDER: Phase[] = ['brief', 'read', 'explain', 'apply', 'distinguish', 'wrap']
 const CHECK_HELP: Record<CheckKind, string> = {
   explain: 'From memory, in your own words. No peeking.',
   apply: 'Use the idea on a new case.',
   distinguish: 'How it differs from nearby ideas.'
 }
 
+interface Props {
+  session: Session
+  onOpenReading: (sourceId: string, section: string) => void
+  /** The lesson was wrapped up or ended early: show the plan. */
+  onDone: () => void
+  /** Leave a finished lesson (it stops being the class's open lesson). */
+  onClose: () => void
+  /** Leave out the title, when the surrounding box already shows it. */
+  bare?: boolean
+}
+
 /** The session loop: brief → read → explain → apply → distinguish → wrap. */
-export function SessionPanel({ session, onOpenReading, onDone }: { session: Session; onOpenReading: (sourceId: string, section: string) => void; onDone: () => void }): JSX.Element {
+export function SessionPanel({ session, onOpenReading, onDone, onClose, bare = false }: Props): JSX.Element {
   const { run } = useApp()
   const study = useStudy()
   const topic = findTopic(study.bundle.curriculum, session.topicId)
@@ -38,12 +49,14 @@ export function SessionPanel({ session, onOpenReading, onDone }: { session: Sess
   const next = ORDER[idx + 1]
   return (
     <div className="stack" data-testid="session-panel">
-      <div>
-        <div className="small muted">{session.type === 'review' ? 'Review session' : 'Study session'}</div>
-        <div style={{ fontSize: 15, fontWeight: 600 }}>
-          {topic?.title ?? 'Topic'}
+      {!bare && (
+        <div>
+          <div className="small muted">{session.type === 'review' ? 'Review session' : 'Study session'}</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>
+            {topic?.title ?? 'Topic'}
+          </div>
         </div>
-      </div>
+      )}
       <div className="phase-steps" role="list">
         {ORDER.map((p, i) => (
           <button
@@ -66,7 +79,7 @@ export function SessionPanel({ session, onOpenReading, onDone }: { session: Sess
             <Icon name="check" /> Session complete
           </div>
           {session.wrap?.summary && <RichText text={session.wrap.summary} className="small" />}
-          <button className="btn" onClick={onDone}>
+          <button className="btn" onClick={onClose} data-testid="close-finished">
             Back to the plan
           </button>
         </div>
@@ -148,7 +161,7 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
   const study = useStudy()
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
-  // The tutor in the lesson chat sees what is being written here.
+  // Every tutor in the class sees what is being written here.
   useEffect(() => setCheckDraft(session.id, kind, answer), [session.id, kind, answer])
   useEffect(() => () => clearCheckDraft(session.id, kind), [session.id, kind])
   const prompt = session.prompts[kind]

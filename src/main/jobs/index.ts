@@ -320,7 +320,7 @@ export function describeStudyBox(ctx: ClassContext, session: Session, topic: Top
   const sourceTitle = (id: string) => ctx.sources.find((s) => s.meta.id === id)?.meta.title ?? id
   const steps = PHASES_IN_ORDER.map((p) => (p === session.phase ? `${STEP_LABEL[p]} (current)` : STEP_LABEL[p])).join(' → ')
   const lines = [
-    `## The study box (beside the chat; the learner sees exactly this)`,
+    `## The study box (the class's open lesson, shown with this chat; the learner sees exactly this)`,
     `${session.type === 'review' ? 'Review' : 'Lesson'}: ${topic?.title ?? session.topicId}${topic ? `. Objective: ${topic.objective}` : ''}`,
     session.endedAt ? 'The lesson is finished.' : `Steps: ${steps}`
   ]

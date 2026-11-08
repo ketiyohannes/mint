@@ -58,7 +58,7 @@ export class ThreadService {
       const threads = await this.k.repo.read(classId, 'threads')
       const parent = threads.find((t) => t.id === anchor.threadId)
       if (parent && parent.anchor.kind === 'message') {
-        return this.send({ classId, threadId: parent.id, message: `> ${anchor.quote}\n\n${message}`, streamId: input.streamId })
+        return this.send({ classId, threadId: parent.id, message: `> ${anchor.quote}\n\n${message}`, streamId: input.streamId, studyDraft: input.studyDraft })
       }
     }
 
@@ -262,10 +262,12 @@ export class ThreadService {
     } else if (a.kind === 'diagram') {
       explorable = (await this.k.repo.read(classId, 'explorables')).find((e) => e.id === a.explorableId)
     }
+    // Every chat in the class sees the open lesson, wherever that lesson started.
     let sessionTopic
     let session
-    if (thread.sessionId) {
-      session = (await this.k.repo.read(classId, 'sessions')).find((s) => s.id === thread.sessionId)
+    const { openLessonId } = await this.k.repo.requireMeta(classId)
+    if (openLessonId) {
+      session = (await this.k.repo.read(classId, 'sessions')).find((s) => s.id === openLessonId)
       if (session) sessionTopic = findTopic(await this.k.repo.read(classId, 'curriculum'), session.topicId)
     }
     return { thread, rung, anchorContext, explorable, sessionTopic, session, studyDraft: session && !session.endedAt ? studyDraft : undefined }

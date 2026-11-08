@@ -446,6 +446,19 @@ a {
   padding: 20px 0 80px;
 }
 
+/*
+ * pdf.js appends a measuring canvas to <body> and expects its own stylesheet
+ * (not loaded here) to hide it; left in the flow it makes the window scrollable.
+ */
+.hiddenCanvasElement {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 /* Wider than the column when zoomed in: scrolls sideways, with room for page numbers and pins. */
 .pdf-pages {
   width: max-content;
@@ -1560,7 +1573,7 @@ button.chip {
   margin-bottom: 12px;
 }
 
-/* A lesson in the chat is a pointer to the Study tab (unless Settings puts lessons in the chat). */
+/* A lesson in the chat is a pointer to the open lesson (docked over the chat, or in the Study tab). */
 .widget.lesson-card {
   flex-direction: row;
   align-items: center;
@@ -1579,6 +1592,161 @@ button.chip {
 
 .lesson-card-title {
   font-weight: 600;
+}
+
+/*
+ * The open lesson, docked over the top of the chat. It floats: messages scroll
+ * behind it (the chat pads its top by the dock's height, --dock-h, so the first
+ * message can scroll clear), it folds to one bar, and its handle sets its height.
+ */
+.chat-pane.has-dock .chat-body {
+  padding-top: calc(var(--dock-h, 0px) + 20px);
+  overflow-anchor: none;
+}
+
+.chat-pane.has-dock .chat-hero {
+  padding-top: calc(var(--dock-h, 0px) + 24px);
+}
+
+.lesson-dock {
+  position: absolute;
+  top: 60px; /* under the 52px pane head */
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 32px), 748px);
+  /* Leaves room for the composer below (ROOM_BELOW in LessonDock.tsx). */
+  max-height: min(var(--dock-max, 380px), calc(100% - 52px - 8px - 190px));
+  min-height: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.05);
+  animation: dock-in 0.18s ease-out;
+}
+
+:root[data-theme='dark'] .lesson-dock {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+}
+
+.lesson-dock-bar {
+  position: relative;
+  flex: none;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 12px;
+  min-width: 0;
+}
+
+.lesson-dock.folded .lesson-dock-bar {
+  cursor: pointer;
+}
+
+.lesson-dock-bar > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.lesson-dock-kind {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.lesson-dock-title {
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lesson-dock-draft {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.lesson-dock-where {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.lesson-dock-fold svg {
+  transition: transform 0.18s;
+}
+
+.lesson-dock:not(.folded) .lesson-dock-fold svg {
+  transform: rotate(180deg);
+}
+
+.lesson-dock-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--border);
+}
+
+.lesson-dock-progress i {
+  display: block;
+  height: 100%;
+  background: var(--fg);
+  transition: width 0.3s;
+}
+
+.lesson-dock-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.lesson-dock.folded .lesson-dock-body {
+  display: none;
+}
+
+.lesson-dock-grip {
+  flex: none;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.lesson-dock-grip i {
+  width: 34px;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--border-strong);
+  transition: background 0.12s;
+}
+
+.lesson-dock-grip:hover i {
+  background: var(--muted);
 }
 
 .study-empty {

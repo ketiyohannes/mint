@@ -165,6 +165,41 @@ describe('mint core with the demo runtime', () => {
     await core.handlers.settings.update({ tutorStyle: 'teach' })
   })
 
+  it('keeps one open lesson per class that every chat sees, wherever the lesson started', async () => {
+    const s = await core.handlers.sessions.start(classId, topicId, 'learn')
+    expect((await core.handlers.classes.get(classId)).meta.openLessonId).toBe(s.id)
+
+    // A chat that never mentioned the lesson still sees its study box, and the unsent answer.
+    const t = await core.handlers.threads.create({
+      classId,
+      anchor: { kind: 'general' },
+      message: 'Is my answer on track?',
+      streamId: 'open1',
+      studyDraft: { kind: 'explain', text: 'It keeps its direction under the matrix' }
+    })
+    expect(t.sessionId).toBeUndefined()
+    expect(t.messages.at(-1)!.text).toContain('In your study box you are on the **Brief** step')
+    expect(t.messages.at(-1)!.text).toContain('starts "It keeps its direction under the matrix"')
+
+    // Closing takes it off the chats but keeps it in progress.
+    await core.handlers.sessions.open(classId, null)
+    let b = await core.handlers.classes.get(classId)
+    expect(b.meta.openLessonId).toBeUndefined()
+    expect(b.sessions.find((x) => x.id === s.id)?.endedAt).toBeUndefined()
+    const closed = await core.handlers.threads.send({ classId, threadId: t.id, message: 'And now?', streamId: 'open2' })
+    expect(closed.messages.at(-1)!.text).not.toContain('study box')
+
+    // Resuming opens it again, from any chat; starting the same lesson does too.
+    await core.handlers.sessions.open(classId, s.id)
+    expect((await core.handlers.classes.get(classId)).meta.openLessonId).toBe(s.id)
+    await core.handlers.sessions.open(classId, null)
+    expect((await core.handlers.sessions.start(classId, topicId, 'learn')).id).toBe(s.id)
+    b = await core.handlers.classes.get(classId)
+    expect(b.meta.openLessonId).toBe(s.id)
+    await expect(core.handlers.sessions.open(classId, 'ses_missing')).rejects.toThrow(/no longer exists/)
+    await core.handlers.threads.remove(classId, t.id)
+  })
+
   it('runs the session loop to mastery with records, terms and a spaced review', async () => {
     let s = await core.handlers.sessions.start(classId, topicId, 'learn')
     expect(s.brief?.questions.length).toBeGreaterThan(0)

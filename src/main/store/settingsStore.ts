@@ -42,7 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
   codexModel: '',
   trustedDomains: DEFAULT_TRUSTED_DOMAINS,
   theme: 'light',
-  lessonsIn: 'study',
+  lessonView: 'dock',
   tutorStyle: 'teach'
 }
 
@@ -136,7 +136,7 @@ function sanitize(input: Settings): Settings {
     provider,
     trustedDomains: domains.length ? domains : DEFAULT_TRUSTED_DOMAINS,
     theme: (['light', 'dark', 'system'] as const).includes(s.theme) ? s.theme : 'light',
-    lessonsIn: s.lessonsIn === 'chat' ? 'chat' : 'study',
+    lessonView: s.lessonView === 'tab' ? 'tab' : 'dock',
     tutorStyle: s.tutorStyle === 'coach' ? 'coach' : 'teach',
     claudeModel: (s.claudeModel ?? '').trim(),
     codexModel: (s.codexModel ?? '').trim()

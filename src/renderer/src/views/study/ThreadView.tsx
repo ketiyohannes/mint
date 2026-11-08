@@ -5,6 +5,7 @@ import { useApp } from '../../state/app'
 import { RichText } from '../../components/RichText'
 import { Icon } from '../../components/Icon'
 import { useStudy } from './context'
+import { checkDraft } from './drafts'
 
 interface Pending {
   streamId: string
@@ -78,9 +79,11 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
     setPending({ streamId, user: message, text: '' })
     setDraft('')
     try {
+      // Side chats see the open lesson too, including an unsent answer.
+      const studyDraft = checkDraft(study.sessionId)
       const out = shown
-        ? await api.threads.send({ classId: study.classId, threadId: shown.id, message, streamId })
-        : await api.threads.create({ classId: study.classId, anchor, message, sessionId: study.sessionId, streamId })
+        ? await api.threads.send({ classId: study.classId, threadId: shown.id, message, streamId, studyDraft })
+        : await api.threads.create({ classId: study.classId, anchor, message, sessionId: study.sessionId, streamId, studyDraft })
       setLocal(out)
       onThreadRef.current(out.id)
       afterReply(out)

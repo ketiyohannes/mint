@@ -26,11 +26,11 @@ mint has no agent loop of its own. Every model turn runs in the **Claude Agent S
 
 1. **Open a folder.** The folder button in the sidebar (hide it with ⌘B / Ctrl+B) turns a folder of PDFs, Markdown, Word files, web links or YouTube lectures into a class. No materials? mint searches trusted sites and imports only what you approve.
 2. **Say what you want.** A new chat opens with the prompt in the middle. The tutor asks two to four quick multiple-choice questions (goal, background, time, style), like a coding agent clarifying a task, then posts a plan.
-3. **Learn in the chat.** Quizzes, code exercises and diagrams appear as cards in the conversation; a lesson opens in the **Study** tab beside it. Type `/` for tools:
+3. **Learn in the chat.** Quizzes, code exercises and diagrams appear as cards in the conversation; a lesson floats over the top of the chat. Type `/` for tools:
 
    | Tool | What it does |
    | --- | --- |
-   | `/lesson [topic]` | A lesson in its own chat, worked in the Study tab (or inside the chat; see Settings): brief, read, explain, apply, distinguish, wrap up. The tutor in that chat sees the study box, including an answer you have not submitted yet |
+   | `/lesson [topic]` | A lesson that stays open over every chat of the class (fold it to one line with ⌘L, or put it in a Study tab in Settings): brief, read, explain, apply, distinguish, wrap up. Every tutor in the class sees the study box, including an answer you have not submitted yet, and Resume opens it in the chat you are in |
    | `/quiz [focus]` | Retrieval practice, graded, with explanations that cite your sources |
    | `/code [focus] [python\|js]` | A small IDE with tests that run offline (JavaScript, or Python via a local Pyodide) |
    | `/diagram <what>` | An interactive p5 or three.js diagram; click a part to ask about it |

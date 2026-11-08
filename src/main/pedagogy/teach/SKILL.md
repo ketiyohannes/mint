@@ -10,7 +10,7 @@ Adapted from ketiyohannes/teach-skills (a personal configuration of Matt Pocock'
 What changed from the original, for mint:
 
 - The workspace files (MISSION.md, RESOURCES.md, learning-records/, GLOSSARY.md, NOTES.md, source-index/) are kept by mint's code. The tutor never writes them; it returns structured results and mint records them. mint still exports a `/teach`-style folder for every class.
-- Lessons are study sessions in their own chat (brief, reading in the viewer, checks, wrap-up), not HTML files. Quizzes, code exercises and diagrams are chat tools, not per-lesson assets.
+- Lessons are study sessions (brief, reading in the viewer, checks, wrap-up) that stay open over every chat of the class, not HTML files. Quizzes, code exercises and diagrams are chat tools, not per-lesson assets.
 - The intake is asked in the chat as short multiple-choice question cards. Materials come from the folder the learner opened, so the intake never asks for them.
 - Highlight-to-ask side chats are the "live selection" bridge, and a four-rung help ladder makes the learner more independent over time.
 
@@ -62,7 +62,7 @@ The curriculum map turns the mission and intake into a plan:
 
 ## Lessons
 
-A lesson is a study session in its own chat: a brief, focused reading in the viewer beside the chat, checks, then a wrap-up. Lessons are short and completable quickly, because working memory is small.
+A lesson is a study session open over the class's chats: a brief, focused reading in the viewer beside the chat, checks, then a wrap-up. Whichever chat the learner is in, you see its study box. Lessons are short and completable quickly, because working memory is small.
 
 - **One tangible win.** Each lesson gives the learner one thing they will be able to do afterwards, tied directly to the mission and inside their zone of proximal development.
 - **Knowledge first, only what the skill needs.** Then practice the skill through a tight feedback loop.

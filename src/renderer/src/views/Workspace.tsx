@@ -15,6 +15,7 @@ import { StudyCtx, type DiagramController, type StudyApi } from './study/context
 import { ChatView } from './chat/ChatView'
 import { LessonsPanel } from './LessonsPanel'
 import { StudyTab } from './study/StudyTab'
+import { LessonDock } from './study/LessonDock'
 import { useDarkTheme } from '../lib/useDarkTheme'
 import { BrowserPanel } from './BrowserPanel'
 import { NotesPanel } from './notes/NotesPanel'
@@ -59,20 +60,21 @@ const PANEL_W_KEY = 'mint.panelWidth'
 /** 'dark' or 'light' PDF pages; unset follows the app theme. */
 const PDF_PAGES_KEY = 'mint.pdfPages'
 const SWAP_KEY = 'mint.swapped'
+const DOCK_FOLDED_KEY = 'mint.lessonDock.folded'
 const MIN_PANEL = 340
 const MIN_CHAT = 420
 
 /**
  * A class, like a project in a coding agent: the chat with the tutor, and a
- * panel with your sources, lessons, the study box of the open lesson, a browser
- * for your own research, and notes. The chat and the panel can swap sides.
- * The middle is only ever the conversation.
+ * panel with your sources, lessons, a browser for your own research, and
+ * notes. The chat and the panel can swap sides. The class's open lesson docks
+ * over whichever chat is showing (or sits in the panel's Study tab).
  */
 export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: string | null | undefined }): JSX.Element {
-  const { toast, run, studyFocus, go, classes, settings } = useApp()
-  /** Lessons show in the Study tab unless Settings puts them inside their chat (then there is no Study tab). */
-  const lessonsInChat = settings?.lessonsIn === 'chat'
-  const panelTabs = useMemo(() => (lessonsInChat ? PANEL_TABS.filter((t) => t.id !== 'study') : PANEL_TABS), [lessonsInChat])
+  const { toast, run, studyFocus, go, classes, settings, setSettings } = useApp()
+  /** The open lesson docks over the chat unless Settings puts it in the Study tab (otherwise there is no Study tab). */
+  const docked = (settings?.lessonView ?? 'dock') === 'dock'
+  const panelTabs = useMemo(() => (docked ? PANEL_TABS.filter((t) => t.id !== 'study') : PANEL_TABS), [docked])
   const classId = bundle.meta.id
 
   // --- chats ---------------------------------------------------------------------
@@ -94,9 +96,12 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     if (!(chatId && chatId === adoptedChat.current)) chatKey.current.key += 1
     chatKey.current.chatId = chatId
   }
-  /** The open chat's lesson, finished or not (the Study tab shows a finished one's summary). */
-  const lessonSession = thread?.sessionId ? bundle.sessions.find((s) => s.id === thread.sessionId) : undefined
-  const session = lessonSession && !lessonSession.endedAt ? lessonSession : undefined
+  /**
+   * The class's open lesson, the same in every chat. A finished one stays open
+   * (showing its summary) until it is closed.
+   */
+  const openLesson = bundle.meta.openLessonId ? bundle.sessions.find((s) => s.id === bundle.meta.openLessonId) : undefined
+  const session = openLesson && !openLesson.endedAt ? openLesson : undefined
 
   // --- layout --------------------------------------------------------------------
   const [panelTab, setPanelTab] = useState<PanelTab>('sources')
@@ -152,14 +157,24 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     [panelTab, splitTab, setPaneTab, widenForSplit]
   )
 
-  // Lessons moved into the chat: the Study tab goes away, wherever it was showing.
+  // Lessons dock over the chat: the Study tab goes away, wherever it was showing.
   useEffect(() => {
-    if (!lessonsInChat) return
+    if (!docked) return
     if (panelTab === 'study') {
       setPanelTab(splitTab ?? 'lessons')
       if (splitTab) setSplit((s) => ({ ...s, tab: null }))
     } else if (split.tab === 'study') setSplit((s) => ({ ...s, tab: null }))
-  }, [lessonsInChat, panelTab, splitTab, split.tab])
+  }, [docked, panelTab, splitTab, split.tab])
+
+  const [dockFolded, setDockFolded] = useState(() => localStorage.getItem(DOCK_FOLDED_KEY) === '1')
+  useEffect(() => localStorage.setItem(DOCK_FOLDED_KEY, dockFolded ? '1' : '0'), [dockFolded])
+
+  /** Bring the open lesson into view: unfold the dock, or show the Study tab. */
+  const revealLesson = useCallback(() => {
+    if (docked) return setDockFolded(false)
+    setPanelOpen(true)
+    setPaneTab('a', 'study')
+  }, [docked, setPaneTab])
 
   const toggleSplit = () => {
     if (splitTab) return setSplit((s) => ({ ...s, tab: null }))
@@ -259,31 +274,34 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     }
   }, [studyFocus, bundle.sources, openSource])
 
-  // Opening a lesson chat brings its study box to the front of the panel, with
-  // the first reading beside it (once the brief has picked one). With lessons
-  // in the chat, only the reading opens.
-  const studyShownFor = useRef<string | null>(null)
+  // A lesson that becomes the open one (started, or resumed from any chat)
+  // comes into view, with its first reading open in the panel the first time.
+  // A lesson already open when the class opens stays as it was left.
+  const shownLesson = useRef(bundle.meta.openLessonId)
   const readingOpenedFor = useRef<string | null>(null)
   useEffect(() => {
+    if (session?.id === shownLesson.current) return
+    shownLesson.current = session?.id
     if (!session) return
     const r = session.brief?.readings[0]
-    const showStudy = studyShownFor.current !== session.id
     const openReading = Boolean(r) && readingOpenedFor.current !== session.id
-    studyShownFor.current = session.id
     if (r) readingOpenedFor.current = session.id
-    if (showStudy && !lessonsInChat) {
-      // Set the layout directly: showPanel would read the panel state from before this render.
-      setPanelOpen(true)
-      setPaneTab('a', 'study')
-      if (r && openReading) {
-        setVisited((v) => new Set(v).add('sources'))
-        if (!splitTab) widenForSplit()
-        setSplit((sp) => ({ ...sp, tab: 'sources' }))
-        setActiveSourceId(r.sourceId)
-        setFocus({ section: r.section, nonce: Date.now() })
-      }
-    } else if (r && openReading) openSource(r.sourceId, r.section)
-  }, [session, lessonsInChat, openSource, splitTab, setPaneTab, widenForSplit])
+    if (docked) {
+      setDockFolded(false)
+      if (r && openReading) openSource(r.sourceId, r.section)
+      return
+    }
+    // Set the layout directly: showPanel would read the panel state from before this render.
+    setPanelOpen(true)
+    setPaneTab('a', 'study')
+    if (r && openReading) {
+      setVisited((v) => new Set(v).add('sources'))
+      if (!splitTab) widenForSplit()
+      setSplit((sp) => ({ ...sp, tab: 'sources' }))
+      setActiveSourceId(r.sourceId)
+      setFocus({ section: r.section, nonce: Date.now() })
+    }
+  }, [session, docked, openSource, splitTab, setPaneTab, widenForSplit])
 
   async function addMaterials(paths?: string[]) {
     const picked = paths ?? (await api.system.pickMaterials())
@@ -298,25 +316,33 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
 
   // --- chat tools ------------------------------------------------------------------
   const [commandRequest, setCommandRequest] = useState<{ command: ChatCommand; arg?: string; nonce: number } | null>(null)
-  const command = useCallback(
-    (cmd: ChatCommand, arg?: string) => {
-      // Every lesson gets its own chat, like a new thread.
-      if (cmd === 'lesson') go({ name: 'class', classId, chatId: null })
-      setCommandRequest({ command: cmd, arg, nonce: Date.now() })
-    },
-    [go, classId]
-  )
-  /** Open a lesson's chat; its study box comes to the front of the panel. */
-  const resumeLesson = useCallback(
+  // Tools run in the chat that is showing (a new one from the class home); a lesson started there opens over every chat.
+  const command = useCallback((cmd: ChatCommand, arg?: string) => setCommandRequest({ command: cmd, arg, nonce: Date.now() }), [])
+  /**
+   * Resume a lesson where you are: it becomes the class's open lesson, over
+   * the chat that is showing. A finished or missing one starts afresh.
+   */
+  const openLessonById = useCallback(
     (sessionId: string) => {
-      const t = chats.find((x) => x.sessionId === sessionId)
-      if (!t) return command('lesson', bundle.sessions.find((s) => s.id === sessionId)?.topicId)
-      go({ name: 'class', classId, chatId: t.id })
-      if (lessonsInChat) return
+      const s = bundle.sessions.find((x) => x.id === sessionId)
+      if (!s || (s.endedAt && s.id !== bundle.meta.openLessonId)) return command('lesson', s?.topicId)
+      if (s.id === bundle.meta.openLessonId) return revealLesson()
+      void run(() => api.sessions.open(classId, s.id))
+    },
+    [bundle.sessions, bundle.meta.openLessonId, command, revealLesson, run, classId]
+  )
+  const closeLesson = useCallback(() => void run(() => api.sessions.open(classId, null)), [run, classId])
+  /** The Settings choice, from the dock or the Study tab. */
+  const setLessonView = useCallback(
+    async (lessonView: 'dock' | 'tab') => {
+      const s = await run(() => api.settings.update({ lessonView }))
+      if (!s) return
+      setSettings(s)
+      if (lessonView === 'dock') return setDockFolded(false)
       setPanelOpen(true)
       setPaneTab('a', 'study')
     },
-    [chats, command, bundle.sessions, go, classId, lessonsInChat, setPaneTab]
+    [run, setSettings, setPaneTab]
   )
   /** A highlighted passage to discuss in the main chat ("Chat" on a selection). */
   const [quoteRequest, setQuoteRequest] = useState<{ text: string; source: string; nonce: number } | null>(null)
@@ -407,12 +433,11 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       ask: askAt,
       openSource,
       command,
-      lessonsInChat,
-      openStudy: () => showPanel('study'),
+      openLesson: openLessonById,
       openLessons: () => showPanel('lessons'),
       registerDiagram
     }),
-    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, lessonsInChat, showPanel, registerDiagram]
+    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, openLessonById, showPanel, registerDiagram]
   )
   const onOpenThread = useCallback((t: Thread, rect: DOMRect) => askAt(t.anchor, rect, t.id), [askAt])
   const onOpenNote = useCallback((a: Annotation, rect: DOMRect) => setNote({ annotation: a, pos: placeNear(rect) }), [])
@@ -442,7 +467,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
 
   // --- render --------------------------------------------------------------------------
   const chatPane = (
-    <section className="chat-pane" data-testid="chat-pane">
+    <section className={`chat-pane ${docked && openLesson ? 'has-dock' : ''}`} data-testid="chat-pane">
       <div className="pane-head">
         <div className="crumbs">
           <Icon name="folder" size={14} />
@@ -494,6 +519,18 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         commandRequest={commandRequest}
         quoteRequest={quoteRequest}
       />
+      {docked && openLesson && (
+        <LessonDock
+          key={openLesson.id}
+          session={openLesson}
+          folded={dockFolded}
+          onFold={setDockFolded}
+          onClose={closeLesson}
+          onMoveToTab={() => void setLessonView('tab')}
+          onOpenReading={(sid, sec) => openSource(sid, sec)}
+          onDone={() => showPanel('lessons')}
+        />
+      )}
     </section>
   )
 
@@ -729,16 +766,21 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           </div>
         )}
         {/* The study box stays mounted, so a half-written answer survives a tab switch. */}
-        {!lessonsInChat && (
+        {!docked && (
           <div className={pageClass('study', 'scroll')} data-testid="page-study">
             <ErrorBoundary label="the study box">
               <StudyTab
                 bundle={bundle}
-                session={lessonSession}
+                session={openLesson}
                 onOpenReading={(sid, sec) => openSource(sid, sec)}
-                onResume={resumeLesson}
+                onResume={openLessonById}
                 onStartNext={() => command('lesson')}
                 onDone={() => showPanel('lessons')}
+                onClose={() => {
+                  closeLesson()
+                  showPanel('lessons')
+                }}
+                onDock={() => void setLessonView('dock')}
               />
             </ErrorBoundary>
           </div>
@@ -749,7 +791,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
             <LessonsPanel
               bundle={bundle}
               onStart={(topicId) => command('lesson', topicId)}
-              onResume={resumeLesson}
+              onResume={openLessonById}
               openSource={(sid, sec) => openSource(sid, sec)}
             />
             </ErrorBoundary>

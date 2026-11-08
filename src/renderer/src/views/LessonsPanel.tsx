@@ -11,7 +11,7 @@ const LEVELS = ['Guided', 'Supported', 'Coached', 'Independent']
 
 interface Props {
   bundle: ClassBundle
-  /** Start (or review) a topic as a lesson chat. */
+  /** Start (or review) a topic as a lesson, in the chat that is showing. */
   onStart: (topicId: string) => void
   /** Open the chat of an open lesson. */
   onResume: (sessionId: string) => void

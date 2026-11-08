@@ -167,7 +167,7 @@ export function tutorReply(t: ThreadContext): string {
   return studyBoxNote(t) + ladderReply(t)
 }
 
-/** In a lesson chat, show that the tutor sees the study box (the step, and an unsent answer). */
+/** Show that the tutor sees the open lesson's study box (the step, and an unsent answer), from any chat. */
 function studyBoxNote(t: ThreadContext): string {
   const s = t.session
   if (!s || s.endedAt) return ''
