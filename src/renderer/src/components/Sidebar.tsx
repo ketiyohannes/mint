@@ -129,7 +129,7 @@ function UpdateRow(): JSX.Element | null {
   if (state?.status === 'available') {
     return (
       <button className="class-row plain update-row" onClick={download} title={`mint ${state.version} is available`} data-testid="update-row">
-        <Icon name="update" size={14} /> {state.installable ? 'Update mint' : 'Get the new mint'}
+        <Icon name="update" size={14} /> Update mint
         <span className="update-row-note">{state.version}</span>
       </button>
     )

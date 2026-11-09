@@ -1,4 +1,4 @@
-import type { Brief, CheckKind, Diagnostic, NoteDoc, Session, Topic, Verdict } from '@shared/types'
+import type { Brief, CheckAttempt, CheckKind, Diagnostic, NoteDoc, Session, Topic, Verdict } from '@shared/types'
 import type { ClassContext } from './context'
 import type { ThreadContext } from './index'
 import type { CurriculumOutput, DiagramOutput, ExerciseOutput, IntakeQuestionsOutput, QuizOutput } from './schemas'
@@ -125,20 +125,22 @@ export function checkPrompt(topic: Topic, kind: CheckKind): string {
   return `"${topic.title}" is easy to confuse with nearby ideas. Name one, and explain how they differ and when each applies.`
 }
 
-export function verdict(answer: string, kind: CheckKind): Verdict {
-  const n = words(answer)
+/** Scripted judging. A retry counts what the earlier tries already said, as the real judge does. */
+export function verdict(answer: string, kind: CheckKind, earlier: CheckAttempt[] = []): Verdict {
   const unsure = /i don'?t know|no idea|not sure/i.test(answer)
+  const n = words(answer) + (unsure ? 0 : earlier.reduce((sum, a) => sum + words(a.answer), 0))
+  const retry = earlier.length ? 'Building on your earlier try: ' : ''
   if (unsure || n < 8) {
-    return { result: 'fail', feedback: 'That is not enough to judge yet, which is useful to know. Re-read the planned section and try again in your own words.', misconceptions: [] }
+    return { result: 'fail', feedback: `${retry}That is not enough to judge yet, which is useful to know. Re-read the planned section and try again in your own words.`, misconceptions: [] }
   }
   if (n < 25) {
     return {
       result: 'partial',
-      feedback: `Good start for the ${kind} check. Add the reason behind it, and one concrete detail from the reading.`,
+      feedback: `${retry}Good start for the ${kind} check. Add the reason behind it, and one concrete detail from the reading.`,
       misconceptions: []
     }
   }
-  return { result: 'pass', feedback: 'Clear and in your own words. You covered the core idea with a reason. Nice work.', misconceptions: [] }
+  return { result: 'pass', feedback: `${retry}Clear and in your own words. You covered the core idea with a reason. Nice work.`, misconceptions: [] }
 }
 
 export function wrap(topic: Topic, session: Session) {

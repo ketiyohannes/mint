@@ -7,10 +7,11 @@ import { api } from '../lib/api'
 import type { SelectionAnchor } from '../lib/anchors'
 import { Icon, type IconName } from '../components/Icon'
 import { Activity } from '../components/Activity'
+import { FocusTimer } from '../components/FocusTimer'
 import { KIND_ICON } from '../components/Sidebar'
 import { Reader, type ReaderFocus } from './study/Reader'
 import { PdfView } from './study/PdfView'
-import { AskPopover, NotePopover, SelectionToolbar, TermPopover, placeNear, type AskState } from './study/Popovers'
+import { AskPopover, NotePopover, SelectionToolbar, TermPopover, placeExpanded, placeNear, type AskState } from './study/Popovers'
 import { StudyCtx, type DiagramController, type StudyApi } from './study/context'
 import { ChatView } from './chat/ChatView'
 import { LessonsPanel } from './LessonsPanel'
@@ -479,6 +480,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         </div>
         <span className="spacer" />
         <Activity classId={classId} />
+        <FocusTimer />
         <button className="icon-btn" onClick={() => setSwapped((s) => !s)} title="Swap the chat and the panel" aria-label="Swap sides" data-testid="swap">
           <Icon name="swap" size={14} />
         </button>
@@ -866,15 +868,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           onMove={(pos) => setAsk((a) => (a ? { ...a, pos } : a))}
           onMinimize={minimizeAsk}
           onClose={() => setAsk(null)}
-          onExpand={() => {
-            // Continue the side chat as a main chat.
-            if (ask.threadId) {
-              const t = threadsById.get(ask.threadId)
-              if (t?.anchor.kind === 'general') go({ name: 'class', classId, chatId: t.id })
-              else pinIfNeeded(ask.threadId)
-            }
-            setAsk(null)
-          }}
+          onExpand={(expanded) => setAsk((a) => (a ? { ...a, expanded, pos: expanded ? placeExpanded(a.pos) : a.pos } : a))}
           onThread={(id) => {
             const key = ask.key
             // Only the popover that asked may adopt the thread; if it is gone, keep the thread as a sticky.

@@ -66,6 +66,7 @@ Every class is also a plain folder you own, in the `/teach` workspace format: `M
 - **Rich rendering everywhere.** Markdown, LaTeX, code, and arrays or matrices as cells look the same in the chat, side chats, lesson briefs, checks and quizzes.
 - **Notes.** A notepad with headings, lists and checklists, highlights, code, links and LaTeX formulas (type `$x^2$`). It saves as you type.
 - **Layout.** Swap the chat and the panel, resize them, or split the panel into two tabs, side by side or stacked.
+- **Focus timer.** A Pomodoro timer in the chat's header: focus blocks, short breaks, and a long break after every few blocks, with lengths you set. It keeps running across views and restarts, chimes and notifies when a block ends, and counts today's focused minutes.
 
 ## Install
 

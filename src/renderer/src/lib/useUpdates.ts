@@ -5,11 +5,10 @@ import { api } from './api'
 export interface Updates {
   status: UpdateStatus | null
   check(): void
-  /** Download and verify the available version, or open its release page when mint cannot install it here. */
+  /** Download and verify the available version. */
   download(): void
   /** Restart into the downloaded version. */
   install(): void
-  openRelease(): void
 }
 
 /** The app update state, kept live from the main process. */
@@ -26,18 +25,9 @@ export function useUpdates(): Updates {
     }
   }, [])
 
-  const state = status?.state
-  const releaseUrl = state && 'releaseUrl' in state ? state.releaseUrl : undefined
-  const openRelease = useCallback(() => {
-    if (releaseUrl) void api.system.openExternal(releaseUrl)
-  }, [releaseUrl])
-
   const check = useCallback(() => void api.updates.check().then(setStatus), [])
-  const download = useCallback(() => {
-    if (state?.status === 'available' && !state.installable) openRelease()
-    else void api.updates.download().then(setStatus)
-  }, [state, openRelease])
+  const download = useCallback(() => void api.updates.download().then(setStatus), [])
   const install = useCallback(() => void api.updates.install(), [])
 
-  return { status, check, download, install, openRelease }
+  return { status, check, download, install }
 }

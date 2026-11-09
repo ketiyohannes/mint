@@ -10,13 +10,54 @@ import { useHasDraft } from './drafts'
 import { ORDER, PHASE_LABEL, SessionPanel } from './SessionPanel'
 
 const HEIGHT_KEY = 'mint.lessonDock.height'
+const PLACE_KEY = 'mint.lessonDock.place'
+const WIDTH_KEY = 'mint.lessonDock.width'
 const DEFAULT_HEIGHT = 380
 const MIN_HEIGHT = 140
 /** Dragging the handle this far above the smallest height folds the dock. */
 const FOLD_PULL = 60
-/** Kept clear under the dock (matches the max-height in styles.css). */
+/** Kept clear under the docked lesson (matches the max-height in styles.css). */
 const ROOM_BELOW = 190
+/** The docked lesson's top, and the pane head's height (styles.css). */
+const DOCK_TOP = 60
+const PANE_HEAD = 52
+/** A floating lesson keeps this far inside the chat pane. */
+const EDGE = 8
+const FLOAT_WIDTH = 480
+const MIN_WIDTH = 320
+/** Dropping the lesson this close to the top docks it again. */
+const SNAP = 28
+/** The pointer moves this far before a press on the bar becomes a drag. */
+const DRAG_SLOP = 4
 export const DOCK_SHORTCUT = IS_MAC ? '⌘L' : 'Ctrl+L'
+
+/** Where a floating lesson sits, in pixels from the chat pane's top left. */
+interface Place {
+  x: number
+  y: number
+  w: number
+}
+
+function readPlace(): Place | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(PLACE_KEY) ?? 'null') as Partial<Place> | null
+    return p && [p.x, p.y, p.w].every((n) => typeof n === 'number' && Number.isFinite(n)) ? (p as Place) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Keeps a floating lesson whole inside the pane, and below the pane head
+ * (a window-drag region, which would take its clicks). Returns the same
+ * object when nothing moves, so a refit does not re-render.
+ */
+function fit(p: Place, paneW: number, paneH: number, dockH: number): Place {
+  const w = Math.round(Math.max(Math.min(MIN_WIDTH, paneW - 2 * EDGE), Math.min(p.w, paneW - 2 * EDGE)))
+  const x = Math.round(Math.max(EDGE, Math.min(p.x, paneW - w - EDGE)))
+  const y = Math.round(Math.max(PANE_HEAD + EDGE, Math.min(p.y, paneH - dockH - EDGE)))
+  return x === p.x && y === p.y && w === p.w ? p : { x, y, w }
+}
 
 interface Props {
   session: Session
@@ -32,9 +73,10 @@ interface Props {
 
 /**
  * The open lesson, docked over the top of the chat. It floats: the chat
- * scrolls behind it, it folds to one line, and its handle sets its height. It
- * lives outside the chat view, so it stays put (with a half-written answer)
- * when another chat opens.
+ * scrolls behind it, it folds to one line, and its handle sets its height.
+ * Dragged by its bar, it lifts off anywhere over the chat; dropped back at the
+ * top, it docks again. It lives outside the chat view, so it stays put (with a
+ * half-written answer) when another chat opens.
  */
 export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOpenReading, onDone }: Props): JSX.Element {
   const study = useStudy()
@@ -43,15 +85,23 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
     const stored = Number(localStorage.getItem(HEIGHT_KEY))
     return stored >= MIN_HEIGHT ? stored : DEFAULT_HEIGHT
   })
+  /** Null while docked at the top. */
+  const [place, setPlace] = useState<Place | null>(readPlace)
+  const floating = place !== null
+  /** Shows where a lesson dragged to the top will dock. */
+  const [snapping, setSnapping] = useState(false)
+  /** Set when a press on the bar became a drag, so its click does not unfold the lesson. */
+  const dragged = useRef(false)
   const hasDraft = useHasDraft(session.id)
   const topic = findTopic(study.bundle.curriculum, session.topicId)
   const step = ORDER.indexOf(session.phase)
   const where = session.endedAt ? 'Complete' : `${PHASE_LABEL[session.phase]} · ${step + 1} of ${ORDER.length}`
   const progress = session.endedAt ? 1 : step / ORDER.length
 
-  // The chat pane pads its messages by the dock's height (--dock-h), so the
-  // first message can scroll out from under it. When that padding changes,
-  // the messages on screen hold still instead of jumping.
+  // The chat pane pads its messages by the docked lesson's height (--dock-h),
+  // so the first message can scroll out from under it; a floating lesson
+  // reserves no room. When that padding changes, the messages on screen hold
+  // still instead of jumping.
   useLayoutEffect(() => {
     const el = ref.current
     const pane = el?.parentElement
@@ -62,7 +112,7 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
       if (body) body.scrollTop += delta
     }
     const sync = () => {
-      const h = el.offsetHeight
+      const h = floating ? 0 : el.offsetHeight
       if (h === current) return
       pane.style.setProperty('--dock-h', `${h}px`)
       shift(h - current)
@@ -76,7 +126,26 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
       pane.style.removeProperty('--dock-h')
       shift(-current)
     }
-  }, [])
+  }, [floating])
+
+  // A floating lesson stays whole on screen: when the pane narrows, or the
+  // lesson unfolds near the bottom, it moves back inside.
+  useLayoutEffect(() => {
+    const el = ref.current
+    const pane = el?.parentElement
+    if (!floating || !el || !pane) return
+    const refit = () => setPlace((p) => p && fit(p, pane.clientWidth, pane.clientHeight, el.offsetHeight))
+    refit()
+    const observer = new ResizeObserver(refit)
+    observer.observe(el)
+    observer.observe(pane)
+    return () => observer.disconnect()
+  }, [floating])
+
+  useEffect(() => {
+    if (place) localStorage.setItem(PLACE_KEY, JSON.stringify(place))
+    else localStorage.removeItem(PLACE_KEY)
+  }, [place])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -88,117 +157,210 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
     return () => window.removeEventListener('keydown', onKey)
   }, [folded, onFold])
 
+  /** Follows one pointer drag on a handle, captured so it cannot slip off. */
+  const track = (handle: HTMLElement, pointerId: number, move: (ev: PointerEvent) => void, end: () => void) => {
+    handle.setPointerCapture(pointerId)
+    const stop = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+      end()
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+  }
+
   const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
     e.preventDefault()
-    const grip = e.currentTarget
     const dock = ref.current!
     const top = dock.getBoundingClientRect().top
-    // Leave the composer and a few lines of chat in view.
-    const limit = Math.max(MIN_HEIGHT, dock.parentElement!.getBoundingClientRect().bottom - top - ROOM_BELOW)
+    // Docked, leave the composer and a few lines of chat in view; floating, stay inside the pane.
+    const limit = Math.max(MIN_HEIGHT, dock.parentElement!.getBoundingClientRect().bottom - top - (floating ? EDGE : ROOM_BELOW))
     let next = Math.min(height, limit)
     let fold = false
-    grip.setPointerCapture(e.pointerId)
     document.body.classList.add('resizing', 'resizing-v')
-    const move = (ev: PointerEvent) => {
-      const want = ev.clientY - top
-      fold = want < MIN_HEIGHT - FOLD_PULL
-      next = Math.round(Math.min(limit, Math.max(MIN_HEIGHT, want)))
-      setHeight(next)
-    }
-    const end = () => {
-      grip.removeEventListener('pointermove', move)
-      grip.removeEventListener('pointerup', end)
-      grip.removeEventListener('pointercancel', end)
-      document.body.classList.remove('resizing', 'resizing-v')
-      if (fold) onFold(true)
-      else localStorage.setItem(HEIGHT_KEY, String(next))
-    }
-    grip.addEventListener('pointermove', move)
-    grip.addEventListener('pointerup', end)
-    grip.addEventListener('pointercancel', end)
+    track(
+      e.currentTarget,
+      e.pointerId,
+      (ev) => {
+        const want = ev.clientY - top
+        fold = want < MIN_HEIGHT - FOLD_PULL
+        next = Math.round(Math.min(limit, Math.max(MIN_HEIGHT, want)))
+        setHeight(next)
+      },
+      () => {
+        document.body.classList.remove('resizing', 'resizing-v')
+        if (fold) onFold(true)
+        else localStorage.setItem(HEIGHT_KEY, String(next))
+      }
+    )
+  }
+
+  const startMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragged.current = false
+    if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return
+    const dock = ref.current!
+    const pane = dock.parentElement!
+    const from = { x: e.clientX, y: e.clientY }
+    const rect = dock.getBoundingClientRect()
+    let grab = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    let w = rect.width
+    let snap = false
+    track(
+      e.currentTarget,
+      e.pointerId,
+      (ev) => {
+        if (!dragged.current) {
+          if (Math.hypot(ev.clientX - from.x, ev.clientY - from.y) < DRAG_SLOP) return
+          dragged.current = true
+          document.body.classList.add('moving')
+          if (!floating) {
+            // Lifted off the top, it narrows to its floating width around the pointer.
+            w = Math.min(rect.width, Number(localStorage.getItem(WIDTH_KEY)) || FLOAT_WIDTH)
+            grab = { x: (grab.x * w) / rect.width, y: grab.y }
+          }
+        }
+        const box = pane.getBoundingClientRect()
+        const next = fit({ x: ev.clientX - box.left - grab.x, y: ev.clientY - box.top - grab.y, w }, pane.clientWidth, pane.clientHeight, dock.offsetHeight)
+        snap = next.y < DOCK_TOP + SNAP
+        setSnapping(snap)
+        setPlace(next)
+      },
+      () => {
+        document.body.classList.remove('moving')
+        setSnapping(false)
+        if (dragged.current && snap) setPlace(null)
+      }
+    )
+  }
+
+  const startWiden = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !place) return
+    e.preventDefault()
+    const dock = ref.current!
+    const room = dock.parentElement!.clientWidth - place.x - EDGE
+    const left = dock.getBoundingClientRect().left
+    const start = place
+    let w = start.w
+    document.body.classList.add('resizing', 'resizing-x')
+    track(
+      e.currentTarget,
+      e.pointerId,
+      (ev) => {
+        w = Math.round(Math.max(MIN_WIDTH, Math.min(room, ev.clientX - left)))
+        setPlace({ ...start, w })
+      },
+      () => {
+        document.body.classList.remove('resizing', 'resizing-x')
+        localStorage.setItem(WIDTH_KEY, String(w))
+      }
+    )
   }
 
   return (
-    <div
-      ref={ref}
-      className={`lesson-dock ${folded ? 'folded' : ''}`}
-      style={{ ['--dock-max' as string]: `${height}px` }}
-      role="region"
-      aria-label="Open lesson"
-      data-testid="lesson-dock"
-    >
+    <>
+      {snapping && <div className="lesson-dock-slot" aria-hidden="true" data-testid="lesson-dock-slot" />}
       <div
-        className="lesson-dock-bar"
-        onClick={(e) => {
-          if (folded && !(e.target as HTMLElement).closest('button')) onFold(false)
-        }}
+        ref={ref}
+        className={`lesson-dock ${folded ? 'folded' : ''} ${floating ? 'floating' : ''}`}
+        style={{ ['--dock-max' as string]: `${height}px`, ...(place && { left: place.x, top: place.y, width: place.w }) }}
+        role="region"
+        aria-label="Open lesson"
+        data-testid="lesson-dock"
       >
-        <Icon name="study" size={15} />
-        <span className="lesson-dock-kind">{session.type === 'review' ? 'Review' : 'Lesson'}</span>
-        <RichText text={topic?.title ?? 'Lesson'} inline className="lesson-dock-title" />
-        <span className="spacer" />
-        {folded && hasDraft && <span className="lesson-dock-draft">draft kept</span>}
-        <span className="lesson-dock-where" data-testid="lesson-dock-where">
-          {where}
-        </span>
-        <button className="icon-btn" onClick={onMoveToTab} title="Show lessons in the Study tab instead" aria-label="Show lessons in the Study tab" data-testid="lesson-dock-to-tab">
-          <Icon name="sidebar" size={14} />
-        </button>
-        <button
-          className="icon-btn lesson-dock-fold"
-          onClick={() => onFold(!folded)}
-          title={`${folded ? 'Unfold' : 'Fold'} (${DOCK_SHORTCUT})`}
-          aria-label={folded ? 'Unfold the lesson' : 'Fold the lesson'}
-          aria-expanded={!folded}
-          data-testid="lesson-dock-fold"
+        <div
+          className="lesson-dock-bar"
+          onPointerDown={startMove}
+          onClick={(e) => {
+            if (folded && !dragged.current && !(e.target as HTMLElement).closest('button')) onFold(false)
+          }}
+          title={floating ? 'Drag to move it, or to the top to dock it' : 'Drag to move it anywhere over the chat'}
+          data-testid="lesson-dock-bar"
         >
-          <Icon name="caret" size={14} />
-        </button>
-        <button
-          className="icon-btn"
-          onClick={onClose}
-          title={session.endedAt ? 'Close' : 'Close (the lesson stays in progress)'}
-          aria-label="Close the lesson"
-          data-testid="lesson-dock-close"
-        >
-          <Icon name="x" size={13} />
-        </button>
-        {folded && (
-          <div className="lesson-dock-progress" aria-hidden="true">
-            <i style={{ width: `${Math.round(progress * 100)}%` }} />
+          <Icon name="study" size={15} />
+          <span className="lesson-dock-kind">{session.type === 'review' ? 'Review' : 'Lesson'}</span>
+          <RichText text={topic?.title ?? 'Lesson'} inline className="lesson-dock-title" />
+          <span className="spacer" />
+          {folded && hasDraft && <span className="lesson-dock-draft">draft kept</span>}
+          <span className="lesson-dock-where" data-testid="lesson-dock-where">
+            {where}
+          </span>
+          {floating && (
+            <button className="icon-btn" onClick={() => setPlace(null)} title="Dock at the top" aria-label="Dock the lesson at the top" data-testid="lesson-dock-pin">
+              <Icon name="pin" size={14} />
+            </button>
+          )}
+          <button className="icon-btn" onClick={onMoveToTab} title="Show lessons in the Study tab instead" aria-label="Show lessons in the Study tab" data-testid="lesson-dock-to-tab">
+            <Icon name="sidebar" size={14} />
+          </button>
+          <button
+            className="icon-btn lesson-dock-fold"
+            onClick={() => onFold(!folded)}
+            title={`${folded ? 'Unfold' : 'Fold'} (${DOCK_SHORTCUT})`}
+            aria-label={folded ? 'Unfold the lesson' : 'Fold the lesson'}
+            aria-expanded={!folded}
+            data-testid="lesson-dock-fold"
+          >
+            <Icon name="caret" size={14} />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={onClose}
+            title={session.endedAt ? 'Close' : 'Close (the lesson stays in progress)'}
+            aria-label="Close the lesson"
+            data-testid="lesson-dock-close"
+          >
+            <Icon name="x" size={13} />
+          </button>
+          {folded && (
+            <div className="lesson-dock-progress" aria-hidden="true">
+              <i style={{ width: `${Math.round(progress * 100)}%` }} />
+            </div>
+          )}
+        </div>
+        {/* Stays mounted while folded, so a half-written answer survives. */}
+        <div className="lesson-dock-body" data-testid="lesson-dock-body">
+          <ErrorBoundary label="the lesson">
+            <SessionPanel
+              session={session}
+              onOpenReading={onOpenReading}
+              onDone={onDone}
+              onClose={() => {
+                onClose()
+                onDone()
+              }}
+              bare
+            />
+          </ErrorBoundary>
+        </div>
+        {!folded && (
+          <div
+            className="lesson-dock-grip"
+            onPointerDown={startResize}
+            onDoubleClick={() => onFold(true)}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the lesson"
+            title="Drag to resize, double-click to fold"
+            data-testid="lesson-dock-grip"
+          >
+            <i />
           </div>
         )}
-      </div>
-      {/* Stays mounted while folded, so a half-written answer survives. */}
-      <div className="lesson-dock-body" data-testid="lesson-dock-body">
-        <ErrorBoundary label="the lesson">
-          <SessionPanel
-            session={session}
-            onOpenReading={onOpenReading}
-            onDone={onDone}
-            onClose={() => {
-              onClose()
-              onDone()
-            }}
-            bare
+        {floating && !folded && (
+          <div
+            className="lesson-dock-side"
+            onPointerDown={startWiden}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the lesson's width"
+            title="Drag to resize"
+            data-testid="lesson-dock-side"
           />
-        </ErrorBoundary>
+        )}
       </div>
-      {!folded && (
-        <div
-          className="lesson-dock-grip"
-          onPointerDown={startResize}
-          onDoubleClick={() => onFold(true)}
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize the lesson"
-          title="Drag to resize, double-click to fold"
-          data-testid="lesson-dock-grip"
-        >
-          <i />
-        </div>
-      )}
-    </div>
+    </>
   )
 }

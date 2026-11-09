@@ -7,6 +7,8 @@
  * these structures after schema validation.
  */
 
+import type { FocusSpec } from './focus'
+
 export type ID = string
 
 // ---------------------------------------------------------------------------
@@ -44,6 +46,8 @@ export interface Settings {
   theme: ThemePref
   lessonView: LessonView
   tutorStyle: TutorStyle
+  /** The focus timer's rhythm (block and break lengths). */
+  focus: FocusSpec
 }
 
 export interface SettingsView extends Settings {
@@ -63,12 +67,12 @@ export type UpdateState =
   | { status: 'idle' }
   | { status: 'checking' }
   | { status: 'current'; checkedAt: string }
-  /** `installable` is false when mint cannot replace itself here (e.g. run from a disk image); the release page is offered instead. */
-  | { status: 'available'; version: string; releaseUrl: string; installable: boolean }
-  | { status: 'downloading'; version: string; releaseUrl: string; percent: number }
+  /** `notes`: what changed, as plain text from the release. */
+  | { status: 'available'; version: string; notes?: string }
+  | { status: 'downloading'; version: string; percent: number }
   /** Downloaded and verified; applied on restart (or when mint quits). */
-  | { status: 'ready'; version: string; releaseUrl: string }
-  | { status: 'error'; message: string; releaseUrl: string }
+  | { status: 'ready'; version: string; notes?: string }
+  | { status: 'error'; message: string }
 
 export interface UpdateStatus {
   currentVersion: string

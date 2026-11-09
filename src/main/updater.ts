@@ -1,11 +1,12 @@
 import electron from 'electron'
 import updaterModule from 'electron-updater'
-import type { AppUpdater, ProgressInfo, UpdateInfo } from 'electron-updater'
+import type { AppUpdater, NsisUpdater, ProgressInfo, UpdateInfo } from 'electron-updater'
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
-import { access, constants, mkdir, rm } from 'node:fs/promises'
+import { access, constants, mkdir, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
+import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { UpdateState, UpdateStatus } from '@shared/types'
@@ -20,8 +21,9 @@ const FIRST_CHECK_MS = 15_000
 const CHECK_EVERY_MS = 4 * 60 * 60 * 1000
 
 /**
- * Swaps the app bundle once mint has exited, then relaunches it. Runs detached
- * from mint: $1 pid to wait for, $2 installed bundle, $3 verified new bundle,
+ * Puts the new app bundle in place once mint has exited, then relaunches it.
+ * Runs detached from mint: $1 pid to wait for, $2 where the app goes (the
+ * installed bundle, or a new one in Applications), $3 verified new bundle,
  * $4 relaunch (1/0). A failed swap puts the old bundle back.
  */
 const MAC_SWAP_SCRIPT = `
@@ -31,13 +33,41 @@ while kill -0 "$pid" 2>/dev/null; do
   i=$((i + 1)); [ "$i" -gt 600 ] && exit 1
   sleep 0.2
 done
-backup="$target.previous-$$"
-if mv "$target" "$backup"; then
-  if mv "$staged" "$target"; then rm -rf "$backup"; else mv "$backup" "$target"; fi
+if [ -e "$target" ]; then
+  backup="$target.previous-$$"
+  if mv "$target" "$backup"; then
+    if mv "$staged" "$target"; then rm -rf "$backup"; else mv "$backup" "$target"; fi
+  fi
+else
+  mkdir -p "$(dirname "$target")" && mv "$staged" "$target"
 fi
-[ "$relaunch" = 1 ] && open "$target"
+[ "$relaunch" = 1 ] && open -n "$target"
 exit 0
 `
+
+/**
+ * The same swap where mint may not write (an app installed by another
+ * account): macOS asks for an administrator's password, the swap runs as
+ * root, and mint relaunches as the learner. $5 is MAC_SWAP_SCRIPT.
+ */
+const MAC_ADMIN_SWAP_SCRIPT = `
+pid="$1"; target="$2"; staged="$3"; relaunch="$4"; swap="$5"
+/usr/bin/osascript \
+  -e 'on run argv' \
+  -e 'do shell script "/bin/sh -c " & quoted form of item 1 of argv & " mint-update " & quoted form of item 2 of argv & " " & quoted form of item 3 of argv & " " & quoted form of item 4 of argv & " 0" with prompt "mint needs an administrator to install its update." with administrator privileges' \
+  -e 'end run' "$swap" "$pid" "$target" "$staged"
+[ "$relaunch" = 1 ] && open -n "$target"
+exit 0
+`
+
+/** Linux, when mint is neither an AppImage nor a package: updates install as an AppImage here. */
+const LINUX_APPIMAGE = join(homedir(), 'Applications', 'mint.AppImage')
+
+/** Where the new macOS bundle goes, and whether that needs an administrator. */
+interface MacPlan {
+  target: string
+  admin: boolean
+}
 
 export interface UpdaterOptions {
   /** Why updates are off (development or test builds); undefined when they are on. */
@@ -49,22 +79,33 @@ export interface UpdaterOptions {
    * instead of GitHub, for trying an update end to end before releasing it.
    */
   feedUrl?: string
+  /** macOS: the Applications folder a copy run from the disk image installs into (for trying that path without touching the real one). */
+  applicationsDir?: string
 }
 
 /**
  * Checks GitHub releases for a newer mint, downloads it on request and
- * installs it on restart.
+ * installs it on restart, inside the app on every platform, wherever mint
+ * was installed or run from.
  *
- * Windows and Linux use electron-updater end to end. macOS builds are ad-hoc
- * signed, which Squirrel.Mac rejects, so there electron-updater only reads the
- * release feed: mint downloads the zip itself, checks its SHA-512, signature
- * and version, and a small script swaps the bundle after mint quits.
+ * Windows and Linux use electron-updater end to end. On Windows, a copy
+ * unzipped by hand is updated in place by running the installer into its
+ * folder. On Linux, a copy that is neither an AppImage nor a package is
+ * replaced by the AppImage in ~/Applications.
+ *
+ * macOS builds are ad-hoc signed, which Squirrel.Mac rejects, so there
+ * electron-updater only reads the release feed: mint downloads the zip itself,
+ * checks its SHA-512, signature and version, and a small script swaps the
+ * bundle after mint quits. A copy run from the disk image or straight from
+ * Downloads installs into Applications; one mint may not write asks for an
+ * administrator's password.
  */
 export class Updater implements UpdateController {
   private state: UpdateState
   private info: UpdateInfo | null = null
   /** macOS: the verified new bundle, waiting to replace the installed one. */
   private staged: string | null = null
+  private macPlan: MacPlan | null = null
   private swapping = false
   private timers: NodeJS.Timeout[] = []
   private readonly updater: AppUpdater | null
@@ -84,6 +125,8 @@ export class Updater implements UpdateController {
     u.allowDowngrade = false
     u.logger = { info: (m) => opts.log(`update: ${m}`), warn: (m) => opts.log(`update: ${m}`), error: (m) => opts.log(`update error: ${m}`), debug: () => undefined }
     if (opts.feedUrl) u.setFeedURL({ provider: 'generic', url: opts.feedUrl })
+    // electron-updater only updates an AppImage it was started from; anything else becomes the AppImage in ~/Applications.
+    if (process.platform === 'linux' && !process.env.APPIMAGE && !existsSync(join(process.resourcesPath, 'package-type'))) process.env.APPIMAGE = LINUX_APPIMAGE
     u.on('download-progress', (p: ProgressInfo) => this.progress(p.percent))
     if (process.platform === 'darwin') void rm(this.stagingDir(), { recursive: true, force: true }).catch(() => undefined)
   }
@@ -116,7 +159,7 @@ export class Updater implements UpdateController {
       } else {
         this.info = result.updateInfo
         const version = result.updateInfo.version
-        this.set({ status: 'available', version, releaseUrl: releaseUrl(version), installable: await this.installable(result.updateInfo) })
+        this.set({ status: 'available', version, notes: releaseNotes(result.updateInfo) })
       }
     } catch (err) {
       this.fail(err)
@@ -127,13 +170,18 @@ export class Updater implements UpdateController {
   download = async (): Promise<UpdateStatus> => {
     const u = this.updater
     const info = this.info
-    if (!u || !info || this.state.status !== 'available' || !this.state.installable) return this.snapshot()
-    const version = info.version
-    this.set({ status: 'downloading', version, releaseUrl: releaseUrl(version), percent: 0 })
+    if (!u || !info || this.state.status !== 'available') return this.snapshot()
+    const { version, notes } = this.state
+    this.set({ status: 'downloading', version, percent: 0 })
     try {
-      if (process.platform === 'darwin') this.staged = await this.downloadMac(info)
-      else await u.downloadUpdate()
-      this.set({ status: 'ready', version, releaseUrl: releaseUrl(version) })
+      if (process.platform === 'darwin') {
+        this.macPlan = await planMac(this.opts.applicationsDir ? [this.opts.applicationsDir] : ['/Applications', join(homedir(), 'Applications')])
+        this.staged = await this.downloadMac(info)
+      } else {
+        if (process.platform === 'win32') await this.planWindows(u as NsisUpdater)
+        await u.downloadUpdate()
+      }
+      this.set({ status: 'ready', version, notes })
     } catch (err) {
       this.fail(err)
     }
@@ -148,14 +196,16 @@ export class Updater implements UpdateController {
         this.swapMac(true)
         app.quit()
       } else {
-        this.updater?.quitAndInstall(true, true)
+        if (process.env.APPIMAGE === LINUX_APPIMAGE) void this.prepareLinuxAppImage().then(() => this.updater?.quitAndInstall(true, true))
+        else this.updater?.quitAndInstall(true, true)
       }
     })
   }
 
   /** macOS: an update downloaded but not yet installed is applied when mint quits. */
   applyOnQuit(): void {
-    if (process.platform === 'darwin' && this.state.status === 'ready') this.swapMac(false)
+    // No password prompt while quitting: an update that needs an administrator waits for Restart to update.
+    if (process.platform === 'darwin' && this.state.status === 'ready' && !this.macPlan?.admin) this.swapMac(false)
   }
 
   // -- internals -------------------------------------------------------------
@@ -178,30 +228,23 @@ export class Updater implements UpdateController {
   private fail(err: unknown): void {
     const raw = err instanceof Error ? err.message : String(err)
     this.opts.log(`update failed: ${raw}`)
-    const version = this.info?.version
-    this.set({ status: 'error', message: friendlyError(raw), releaseUrl: version ? releaseUrl(version) : latestReleasesUrl() })
+    this.set({ status: 'error', message: friendlyError(raw) })
   }
 
-  /** Whether this copy of mint can replace itself; otherwise the release page is offered. */
-  private async installable(info: UpdateInfo): Promise<boolean> {
-    const exe = app.getPath('exe')
-    if (process.platform === 'darwin') {
-      const bundle = macBundle()
-      if (!bundle || !macZip(info)) return false
-      // Run from a disk image or a quarantined download (App Translocation): nothing to replace.
-      if (bundle.startsWith('/Volumes/') || bundle.includes('/AppTranslocation/')) return false
-      try {
-        await access(bundle, constants.W_OK)
-        await access(dirname(bundle), constants.W_OK)
-        return true
-      } catch {
-        return false
-      }
-    }
-    // The zip build has no uninstaller; the setup installer would put a second copy elsewhere.
-    if (process.platform === 'win32') return existsSync(join(dirname(exe), 'Uninstall mint.exe'))
-    // AppImage, or a .deb install (electron-builder leaves a package-type marker).
-    return Boolean(process.env.APPIMAGE) || existsSync(join(process.resourcesPath, 'package-type'))
+  /**
+   * The zip build has no uninstaller. The installer then installs into its
+   * folder, so this copy becomes the new version (rather than a second copy
+   * elsewhere); a folder mint may not write gets the usual per-user install.
+   */
+  private async planWindows(u: NsisUpdater): Promise<void> {
+    const folder = dirname(app.getPath('exe'))
+    if (!existsSync(join(folder, 'Uninstall mint.exe')) && (await writable(folder))) u.installDirectory = folder
+  }
+
+  /** The AppImage electron-updater replaces must exist, even on the first install there. */
+  private async prepareLinuxAppImage(): Promise<void> {
+    await mkdir(dirname(LINUX_APPIMAGE), { recursive: true })
+    if (!existsSync(LINUX_APPIMAGE)) await writeFile(LINUX_APPIMAGE, '')
   }
 
   private stagingDir(): string {
@@ -258,15 +301,44 @@ export class Updater implements UpdateController {
   }
 
   private swapMac(relaunch: boolean): void {
-    const target = macBundle()
-    if (this.swapping || !this.staged || !target) return
+    const plan = this.macPlan
+    if (this.swapping || !this.staged || !plan) return
     this.swapping = true
-    this.opts.log(`update: replacing ${target} on exit${relaunch ? ' and relaunching' : ''}`)
-    spawn('/bin/sh', ['-c', MAC_SWAP_SCRIPT, 'mint-update', String(process.pid), target, this.staged, relaunch ? '1' : '0'], {
-      detached: true,
-      stdio: 'ignore'
-    }).unref()
+    this.opts.log(`update: installing ${plan.target} on exit${plan.admin ? ' as an administrator' : ''}${relaunch ? ' and relaunching' : ''}`)
+    const args = [String(process.pid), plan.target, this.staged, relaunch ? '1' : '0']
+    const script = plan.admin ? [MAC_ADMIN_SWAP_SCRIPT, 'mint-update', ...args, MAC_SWAP_SCRIPT] : [MAC_SWAP_SCRIPT, 'mint-update', ...args]
+    spawn('/bin/sh', ['-c', ...script], { detached: true, stdio: 'ignore' }).unref()
   }
+}
+
+async function writable(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.W_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Where the new bundle goes. An installed copy is replaced where it is. One
+ * run from the disk image (read-only) or straight from Downloads (App
+ * Translocation runs it from a random read-only path) has nothing to replace,
+ * so the update installs into /Applications, or ~/Applications when mint may
+ * not write there (`appDirs`, in order), and opens that copy.
+ */
+async function planMac(appDirs: string[]): Promise<MacPlan> {
+  const bundle = macBundle()
+  if (!bundle) throw new Error('mint is not running from an app bundle, so it cannot update itself.')
+  const translocated = bundle.includes('/AppTranslocation/')
+  if (!translocated && (await writable(bundle)) && (await writable(dirname(bundle)))) return { target: bundle, admin: false }
+  if (!translocated && !bundle.startsWith('/Volumes/')) return { target: bundle, admin: true }
+  for (const dir of appDirs) {
+    if (dir.startsWith(homedir())) await mkdir(dir, { recursive: true }).catch(() => undefined)
+    const target = join(dir, 'mint.app')
+    if ((await writable(dir)) && (!existsSync(target) || (await writable(target)))) return { target, admin: false }
+  }
+  return { target: join(appDirs[0], 'mint.app'), admin: true }
 }
 
 /** The installed mint.app (…/mint.app/Contents/MacOS/mint → …/mint.app). */
@@ -280,12 +352,22 @@ function macZip(info: UpdateInfo): UpdateInfo['files'][number] | undefined {
   return zips.find((f) => f.url.includes(`-${process.arch}.`)) ?? (zips.length === 1 && process.arch === 'arm64' ? zips[0] : undefined)
 }
 
-function releaseUrl(version: string): string {
-  return `https://github.com/${RELEASES.owner}/${RELEASES.repo}/releases/tag/v${version}`
-}
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" }
 
-function latestReleasesUrl(): string {
-  return `https://github.com/${RELEASES.owner}/${RELEASES.repo}/releases`
+/** The release's notes as plain text, shown in Settings (GitHub sends them as HTML). */
+export function releaseNotes(info: Pick<UpdateInfo, 'releaseNotes'>): string | undefined {
+  const raw = info.releaseNotes
+  const html = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.map((n) => n.note ?? '').join('\n') : ''
+  const text = html
+    .replace(/<\/(p|div|h[1-6]|li|ul|ol|pre)>|<br\s*\/?>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(#39|[a-z]+);/gi, (m, name: string) => ENTITIES[name.toLowerCase()] ?? m)
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (!text) return undefined
+  return text.length > 2000 ? `${text.slice(0, 2000).trimEnd()}…` : text
 }
 
 function friendlyError(raw: string): string {

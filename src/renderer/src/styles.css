@@ -119,6 +119,21 @@ body.resizing-v {
   cursor: row-resize;
 }
 
+body.resizing-x {
+  cursor: ew-resize;
+}
+
+body.moving,
+body.moving * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+body.moving webview,
+body.moving iframe {
+  pointer-events: none;
+}
+
 /* Embedded pages would swallow the mouse mid-drag. */
 body.resizing webview,
 body.resizing iframe {
@@ -1615,6 +1630,8 @@ button.chip {
  * The open lesson, docked over the top of the chat. It floats: messages scroll
  * behind it (the chat pads its top by the dock's height, --dock-h, so the first
  * message can scroll clear), it folds to one bar, and its handle sets its height.
+ * Dragged by its bar it goes .floating: placed in pixels (inline left, top and
+ * width) anywhere below the pane head, with no room reserved in the chat.
  */
 .chat-pane.has-dock .chat-body {
   padding-top: calc(var(--dock-h, 0px) + 20px);
@@ -1651,6 +1668,33 @@ button.chip {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
 }
 
+/* LessonDock.tsx keeps it inside the pane, so it can be as tall as the pane allows. */
+.lesson-dock.floating {
+  transform: none;
+  max-height: min(var(--dock-max, 380px), calc(100% - 52px - 16px));
+  animation: none;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme='dark'] .lesson-dock.floating {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* Where a lesson dragged to the top will dock. */
+.lesson-dock-slot {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 32px), 748px);
+  height: 42px;
+  z-index: 3;
+  border: 1.5px dashed var(--muted);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  pointer-events: none;
+}
+
 @keyframes dock-in {
   from {
     opacity: 0;
@@ -1667,6 +1711,12 @@ button.chip {
   gap: 8px;
   padding: 0 6px 0 12px;
   min-width: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.lesson-dock-bar button {
+  cursor: default;
 }
 
 .lesson-dock.folded .lesson-dock-bar {
@@ -1764,6 +1814,17 @@ button.chip {
 
 .lesson-dock-grip:hover i {
   background: var(--muted);
+}
+
+/* A floating lesson's right edge sets its width. */
+.lesson-dock-side {
+  position: absolute;
+  top: 42px;
+  right: 0;
+  bottom: 12px;
+  width: 8px;
+  cursor: ew-resize;
+  touch-action: none;
 }
 
 .study-empty {
@@ -2735,6 +2796,155 @@ button.chip {
   text-overflow: ellipsis;
 }
 
+/* Release notes, as plain text, under the update status in Settings. */
+.update-notes {
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  color: var(--fg-2);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+/* ---------- focus timer ---------- */
+
+.focus-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.focus-pill:hover {
+  background: var(--surface-3);
+}
+
+.focus-pill.break {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: var(--ok-soft);
+}
+
+.focus-pill.paused {
+  color: var(--muted);
+}
+
+.focus-menu {
+  width: 272px;
+  padding: 12px;
+  gap: 10px;
+}
+
+.focus-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.focus-phase {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+
+.focus-rounds {
+  display: flex;
+  gap: 4px;
+}
+
+.focus-rounds i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+
+.focus-rounds i.on {
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
+.focus-clock {
+  font-size: 40px;
+  font-weight: 300;
+  line-height: 1.1;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.focus-bar {
+  height: 3px;
+  border-radius: 99px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.focus-bar i {
+  display: block;
+  height: 100%;
+  background: var(--fg);
+  transition: width 0.4s linear;
+}
+
+.focus-bar.break i {
+  background: var(--ok);
+}
+
+.focus-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.focus-today {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.focus-spec {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.focus-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  font-size: 12.5px;
+}
+
+.focus-value {
+  min-width: 58px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
 /* ---------- reader ---------- */
 
 
@@ -2993,6 +3203,16 @@ mark.hl.flash-quote {
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
   animation: pop 0.14s ease-out;
+}
+
+.popover.expanded {
+  width: min(760px, calc(100vw - 48px));
+  height: min(860px, calc(100vh - 88px));
+  max-height: none;
+}
+
+.popover.expanded .quote-line {
+  max-height: 120px;
 }
 
 .popover-head {

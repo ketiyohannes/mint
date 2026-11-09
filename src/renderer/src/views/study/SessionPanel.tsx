@@ -172,8 +172,9 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
   async function submit() {
     setBusy(true)
     try {
-      await api.sessions.submitCheck(study.classId, session.id, kind, answer)
-      setAnswer('')
+      const next = await api.sessions.submitCheck(study.classId, session.id, kind, answer)
+      // Not passed yet: the answer stays, to revise or add to; the judge sees the earlier tries.
+      if (next.attempts.at(-1)?.verdict?.result === 'pass') setAnswer('')
     } catch (err) {
       toast(err instanceof Error ? err.message.replace(/^.*mint:/, '') : String(err), 'error')
     } finally {
@@ -215,7 +216,7 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
         <div className="stack" style={{ gap: 8 }}>
           <textarea
             className="textarea"
-            placeholder={last ? 'Try again, after re-reading the passage it pointed you to…' : 'Your answer…'}
+            placeholder={last ? 'Try again, after re-reading the passage it pointed you to. Your earlier tries count…' : 'Your answer…'}
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
             style={{ minHeight: 110 }}

@@ -136,6 +136,20 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await side.getByTestId('ask-input').fill('What does that mean?')
   await side.getByTestId('ask-send').click()
   await expect(side.getByTestId('tutor-message').first()).toBeVisible()
+  // Expand grows the side chat into a big window, with the conversation intact, and shrinks it back.
+  const small = (await side.boundingBox())!
+  await side.getByTestId('popover-expand').click()
+  await expect(side).toHaveClass(/expanded/)
+  const big = (await side.boundingBox())!
+  expect(big.width).toBeGreaterThan(small.width + 200)
+  expect(big.height).toBeGreaterThan(small.height)
+  expect(big.x + big.width).toBeLessThanOrEqual(page.viewportSize()?.width ?? 1440)
+  expect(big.y + big.height).toBeLessThanOrEqual(page.viewportSize()?.height ?? 900)
+  await expect(side.getByTestId('tutor-message').first()).toBeVisible()
+  await shot(page, 'side-chat-expanded')
+  await side.getByTestId('popover-expand').click()
+  await expect(side).not.toHaveClass(/expanded/)
+  expect((await side.boundingBox())!.width).toBeCloseTo(small.width, 0)
   await page.keyboard.press('Escape')
   await expect(side).toHaveCount(0)
 
@@ -327,6 +341,44 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await dock.locator('.lesson-dock-bar').click()
   await expect(dock.getByTestId('lesson-dock-body')).toBeVisible()
 
+  // Dragging its bar lifts it anywhere over the chat, which then reserves no room for it; the place
+  // survives a reload, and dropping it back at the top (or the pin) docks it again.
+  const dragBar = async (toX: number, toY: number) => {
+    const bar = (await dock.getByTestId('lesson-dock-bar').boundingBox())!
+    await page.mouse.move(bar.x + 60, bar.y + bar.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(toX, toY, { steps: 12 })
+    await page.mouse.up()
+  }
+  const chatPadding = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('[data-testid=chat-body]')!).paddingTop))
+  const pane = (await page.getByTestId('chat-pane').boundingBox())!
+  await dragBar(pane.x + pane.width - 220, pane.y + pane.height / 2)
+  await expect(dock).toHaveClass(/floating/)
+  await expect(dock.getByTestId('lesson-dock-body')).toBeVisible() // a drag is not a click
+  const floated = (await dock.boundingBox())!
+  expect(floated.width).toBeLessThanOrEqual(480)
+  expect(floated.y).toBeGreaterThan(pane.y + 52) // never over the pane head's window-drag region
+  expect(floated.x + floated.width).toBeLessThanOrEqual(pane.x + pane.width)
+  expect(floated.y + floated.height).toBeLessThanOrEqual(pane.y + pane.height)
+  expect(await chatPadding()).toBeLessThan(40)
+  await shot(page, 'lesson-floating')
+  const edge = (await dock.getByTestId('lesson-dock-side').boundingBox())!
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(edge.x - 80, edge.y + edge.height / 2, { steps: 6 })
+  await page.mouse.up()
+  expect((await dock.boundingBox())!.width).toBeLessThan(floated.width - 60)
+  await page.reload()
+  await expect(dock).toHaveClass(/floating/)
+  await expect(dock.getByTestId('check-prompt')).toBeVisible()
+  await dragBar(pane.x + pane.width / 2, pane.y + 70)
+  await expect(dock).not.toHaveClass(/floating/)
+  await expect(dock.getByTestId('lesson-dock-pin')).toHaveCount(0)
+  expect(await chatPadding()).toBeGreaterThan((await dock.boundingBox())!.height)
+  await dragBar(pane.x + pane.width / 2, pane.y + pane.height / 2)
+  await dock.getByTestId('lesson-dock-pin').click()
+  await expect(dock).not.toHaveClass(/floating/)
+
   // Closing takes it off the chats; Resume brings it back where you are.
   const chatTitle = await page.getByTestId('chat-title').textContent()
   await dock.getByTestId('lesson-dock-close').click()
@@ -336,9 +388,24 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(dock.getByTestId('check-prompt')).toBeVisible()
   await expect(page.getByTestId('chat-title')).toHaveText(chatTitle!)
 
+  // A retry builds on the earlier try: the answer stays in the box to revise, and the judge reads both.
+  const firstTry = 'An eigenvector is a direction the matrix only stretches, never turns.'
+  await dock.getByTestId('check-answer').fill(firstTry)
+  await dock.getByTestId('check-submit').click()
+  await expect(dock.getByTestId('verdict').last()).toContainText('Almost')
+  await expect(dock.getByTestId('check-answer')).toHaveValue(firstTry)
+  await dock.getByTestId('check-answer').fill('Adding the reason: how much it stretches is the eigenvalue, so A x equals lambda x.')
+  await dock.getByTestId('check-submit').click()
+  await expect(dock.getByTestId('verdict')).toHaveCount(2)
+  await expect(dock.getByTestId('verdict').last()).toContainText('Pass')
+  await expect(dock.getByTestId('verdict').last()).toContainText('Building on your earlier try')
+  await expect(dock.getByTestId('check-answer')).toHaveCount(0)
+  await dock.getByTestId('phase-next').click()
+  await expect(dock.getByTestId('phase-apply')).toHaveClass(/active/)
+
   const long =
     'An eigenvector is a direction the matrix does not rotate: multiplying it by the matrix only scales it, and the scale factor is the eigenvalue, so A x equals lambda x for that vector.'
-  for (const next of ['apply', 'distinguish', 'wrap']) {
+  for (const next of ['distinguish', 'wrap']) {
     await dock.getByTestId('check-answer').fill(long)
     await dock.getByTestId('check-submit').click()
     await expect(dock.getByTestId('verdict').last()).toContainText('Pass')
@@ -422,6 +489,42 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await page.getByTestId('toggle-panel').click()
   await page.getByTestId('swap').click()
   await shot(page, 'notes')
+
+  // --- Focus timer: blocks and breaks in the learner's rhythm, kept across reloads ---------------
+  const timer = page.getByTestId('focus-timer')
+  await timer.click()
+  const focusMenu = page.getByTestId('focus-menu')
+  await expect(page.getByTestId('focus-phase')).toHaveText('Focus')
+  await expect(page.getByTestId('focus-clock')).toHaveText('25:00')
+  await page.getByRole('button', { name: 'Less focus' }).click()
+  await expect(page.getByTestId('focus-focusMinutes').getByTestId('focus-value')).toHaveText('20 min')
+  await expect(page.getByTestId('focus-clock')).toHaveText('20:00')
+  expect(await page.evaluate(() => window.mint.settings.get().then((s) => s.focus.focusMinutes))).toBe(20)
+  await page.getByTestId('focus-start').click()
+  const pillTime = page.getByTestId('focus-pill-time')
+  await expect(pillTime).toHaveText(/^19:5\d$/, { timeout: 3000 }) // counting down
+  await shot(page, 'focus-timer')
+  await page.getByTestId('focus-start').click() // pause
+  await expect(timer).toHaveClass(/paused/)
+  const pausedAt = await pillTime.textContent()
+  await page.keyboard.press('Escape')
+  await expect(focusMenu).toHaveCount(0)
+  await page.reload()
+  await expect(pillTime).toHaveText(pausedAt!)
+  // A block that ends rings in, and the break is ready to start.
+  await page.evaluate(() => localStorage.setItem('mint.focus.state', JSON.stringify({ phase: 'focus', endsAt: Date.now() + 1500, left: null, done: 0 })))
+  await page.reload()
+  await expect(page.getByText('Focus block done. Take a 5-minute break.')).toBeVisible({ timeout: 5000 })
+  await expect(timer).toHaveClass(/break/)
+  await expect(pillTime).toHaveText('Break')
+  await timer.click()
+  await expect(page.getByTestId('focus-phase')).toHaveText('Short break')
+  await expect(page.getByTestId('focus-clock')).toHaveText('5:00')
+  await expect(page.getByTestId('focus-today')).toHaveText('Today: 1 block · 20 min focused')
+  await page.getByTestId('focus-reset').click()
+  await expect(page.getByTestId('focus-phase')).toHaveText('Focus')
+  await page.keyboard.press('Escape')
+  await expect(timer).not.toHaveClass(/focus-pill/)
 
   // --- No materials: the tutor finds trusted sources in the chat --------------------------------
   await page.getByTestId('new-class').click()

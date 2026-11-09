@@ -8,6 +8,10 @@ import { ThreadView } from './ThreadView'
 import { useStudy } from './context'
 
 const POP_W = 380
+/** An expanded side chat: room for long answers, still a window over the page. */
+const BIG_W = 760
+const BIG_H = 860
+const MARGIN = 24
 
 /**
  * Initial popover position: beside the selection, inside the reader column
@@ -34,8 +38,27 @@ export function placeNear(rect: DOMRect | undefined): { x: number; y: number } {
   return { x: Math.max(minX, Math.min(maxX, x)), y: Math.max(64, y) }
 }
 
+/** Where a side chat goes when it grows: as near its place as fits on screen. */
+export function placeExpanded(pos: { x: number; y: number }): { x: number; y: number } {
+  const w = Math.min(BIG_W, window.innerWidth - 2 * MARGIN)
+  const h = Math.min(BIG_H, window.innerHeight - 64 - MARGIN)
+  return { x: Math.max(MARGIN, Math.min(pos.x, window.innerWidth - MARGIN - w)), y: Math.max(64, Math.min(pos.y, window.innerHeight - MARGIN - h)) }
+}
+
 /** A non-modal, draggable floating window. The page behind it stays usable. */
-function Floating({ pos, onMove, children, testId }: { pos: { x: number; y: number }; onMove: (p: { x: number; y: number }) => void; children: (dragHandle: (e: React.MouseEvent) => void) => ReactNode; testId?: string }): JSX.Element {
+function Floating({
+  pos,
+  onMove,
+  children,
+  testId,
+  className = ''
+}: {
+  pos: { x: number; y: number }
+  onMove: (p: { x: number; y: number }) => void
+  children: (dragHandle: (e: React.MouseEvent) => void) => ReactNode
+  testId?: string
+  className?: string
+}): JSX.Element {
   const drag = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
     const startX = e.clientX - pos.x
@@ -54,7 +77,7 @@ function Floating({ pos, onMove, children, testId }: { pos: { x: number; y: numb
     window.addEventListener('mouseup', up)
   }
   return (
-    <div className="popover" style={{ left: pos.x, top: pos.y }} role="dialog" aria-modal="false" data-testid={testId}>
+    <div className={`popover ${className}`} style={{ left: pos.x, top: pos.y }} role="dialog" aria-modal="false" data-testid={testId}>
       {children(drag)}
     </div>
   )
@@ -65,6 +88,8 @@ export interface AskState {
   anchor: Anchor
   threadId?: string
   pos: { x: number; y: number }
+  /** Grown to a large window for long answers. */
+  expanded?: boolean
 }
 
 export function AskPopover({
@@ -81,7 +106,8 @@ export function AskPopover({
   onMove: (p: { x: number; y: number }) => void
   onMinimize: () => void
   onClose: () => void
-  onExpand: () => void
+  /** Grow to a large window, or back to the small one. */
+  onExpand: (expanded: boolean) => void
   onThread: (threadId: string) => void
 }): JSX.Element {
   const { run } = useApp()
@@ -105,7 +131,7 @@ export function AskPopover({
   const parent = a.kind === 'message' ? study.bundle.threads.find((t) => t.id === a.threadId) : undefined
 
   return (
-    <Floating pos={state.pos} onMove={onMove} testId="ask-popover">
+    <Floating pos={state.pos} onMove={onMove} testId="ask-popover" className={state.expanded ? 'expanded' : ''}>
       {(drag) => (
         <>
           <div className="popover-head" onMouseDown={drag}>
@@ -130,8 +156,15 @@ export function AskPopover({
                 <Icon name="trash" size={13} />
               </button>
             )}
-            <button className="btn ghost sm icon" title="Open in side panel" aria-label="Open in side panel" onClick={onExpand}>
-              <Icon name="expand" size={13} />
+            <button
+              className="btn ghost sm icon"
+              title={state.expanded ? 'Make smaller' : 'Make bigger'}
+              aria-label={state.expanded ? 'Make the side chat smaller' : 'Make the side chat bigger'}
+              aria-pressed={Boolean(state.expanded)}
+              onClick={() => onExpand(!state.expanded)}
+              data-testid="popover-expand"
+            >
+              <Icon name={state.expanded ? 'collapse' : 'expand'} size={13} />
             </button>
             <button className="btn ghost sm icon" title={thread ? 'Pin as a sticky (Esc)' : 'Close (Esc)'} aria-label="Minimize" onClick={thread ? onMinimize : onClose} data-testid="popover-minimize">
               <Icon name={thread ? 'minus' : 'x'} size={13} />

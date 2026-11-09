@@ -10,6 +10,7 @@ import { api } from './lib/api'
 import { useUpdates } from './lib/useUpdates'
 import { useDarkTheme } from './lib/useDarkTheme'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { FocusHost } from './components/FocusTimer'
 
 const SIDEBAR_KEY = 'mint.sidebar'
 
@@ -131,6 +132,7 @@ export function App(): JSX.Element {
         </button>
       )}
       <Toasts />
+      <FocusHost />
     </div>
   )
 }

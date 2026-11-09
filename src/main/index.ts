@@ -186,7 +186,8 @@ app.whenReady().then(async () => {
     disabledReason: isE2E ? 'Updates are off during tests.' : app.isPackaged ? undefined : 'This is a development build; installed copies of mint update themselves.',
     emit: (status) => send(EVENT_CHANNELS.update, status),
     log: (m) => console.log(`[mint] ${m}`),
-    feedUrl: process.env.MINT_UPDATE_FEED || undefined
+    feedUrl: process.env.MINT_UPDATE_FEED || undefined,
+    applicationsDir: process.env.MINT_UPDATE_FEED ? process.env.MINT_UPDATE_APPLICATIONS || undefined : undefined
   })
 
   const fixtures = isE2E ? process.env.MINT_E2E_FIXTURES : undefined

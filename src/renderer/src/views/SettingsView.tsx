@@ -184,7 +184,7 @@ export function SettingsView(): JSX.Element {
             </div>
             <span className="hint">
               {settings.lessonView === 'dock'
-                ? `The open lesson’s brief, reading and checks float at the top of whichever chat you’re in. Fold it to one line with ${DOCK_SHORTCUT}.`
+                ? `The open lesson’s brief, reading and checks float at the top of whichever chat you’re in. Drag its bar to move it anywhere over the chat, and fold it to one line with ${DOCK_SHORTCUT}.`
                 : 'The open lesson’s brief, reading and checks show in the Study tab beside whichever chat you’re in.'}
             </span>
             <div className="row">
@@ -207,7 +207,8 @@ export function SettingsView(): JSX.Element {
 }
 
 function UpdatesCard(): JSX.Element | null {
-  const { status, check, download, install, openRelease } = useUpdates()
+  const { status, check, download, install } = useUpdates()
+  const [showNotes, setShowNotes] = useState(false)
   if (!status) return null
   const { state } = status
 
@@ -226,9 +227,7 @@ function UpdatesCard(): JSX.Element | null {
       text = `You have the latest version. Checked ${timeAgo(state.checkedAt)}.`
       break
     case 'available':
-      text = state.installable
-        ? `mint ${state.version} is available.`
-        : `mint ${state.version} is available. This copy can't update itself (on a Mac, move it to Applications first), so get it from the release page.`
+      text = `mint ${state.version} is available.`
       break
     case 'downloading':
       text = `Downloading mint ${state.version}… ${state.percent}%`
@@ -255,8 +254,8 @@ function UpdatesCard(): JSX.Element | null {
           <span className="small muted" style={{ flex: 1 }} data-testid="update-status">
             {text}
           </span>
-          {(state.status === 'available' || state.status === 'ready') && (
-            <button className="btn sm ghost" onClick={openRelease}>
+          {(state.status === 'available' || state.status === 'ready') && state.notes && (
+            <button className="btn sm ghost" onClick={() => setShowNotes((s) => !s)} aria-expanded={showNotes} data-testid="update-notes-toggle">
               What's new
             </button>
           )}
@@ -272,7 +271,7 @@ function UpdatesCard(): JSX.Element | null {
           )}
           {state.status === 'available' && (
             <button className="btn sm primary" onClick={download} data-testid="update-download">
-              <Icon name="update" size={14} /> {state.installable ? 'Download and install' : 'Open the release page'}
+              <Icon name="update" size={14} /> Download and install
             </button>
           )}
           {state.status === 'ready' && (
@@ -281,6 +280,11 @@ function UpdatesCard(): JSX.Element | null {
             </button>
           )}
         </div>
+        {showNotes && (state.status === 'available' || state.status === 'ready') && state.notes && (
+          <div className="update-notes small" data-testid="update-notes">
+            {state.notes}
+          </div>
+        )}
         {state.status === 'downloading' && (
           <div className="progress-bar">
             <div style={{ width: `${state.percent}%` }} />

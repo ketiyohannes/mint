@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import type { SecretName, Settings, SettingsView } from '@shared/types'
+import { DEFAULT_FOCUS, sanitizeFocus } from '@shared/focus'
 import { readJson, writeJson } from './fsutil'
 
 /** Curated starting allowlist for curricula built from public sources. */
@@ -43,7 +44,8 @@ export const DEFAULT_SETTINGS: Settings = {
   trustedDomains: DEFAULT_TRUSTED_DOMAINS,
   theme: 'light',
   lessonView: 'dock',
-  tutorStyle: 'teach'
+  tutorStyle: 'teach',
+  focus: DEFAULT_FOCUS
 }
 
 /** Encrypts secrets at rest. Electron's safeStorage in the app; identity in tests. */
@@ -138,6 +140,7 @@ function sanitize(input: Settings): Settings {
     theme: (['light', 'dark', 'system'] as const).includes(s.theme) ? s.theme : 'light',
     lessonView: s.lessonView === 'tab' ? 'tab' : 'dock',
     tutorStyle: s.tutorStyle === 'coach' ? 'coach' : 'teach',
+    focus: sanitizeFocus(s.focus),
     claudeModel: (s.claudeModel ?? '').trim(),
     codexModel: (s.codexModel ?? '').trim()
   }

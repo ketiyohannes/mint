@@ -4,6 +4,7 @@ import type {
   CodeLanguage,
   CodeRunResult,
   Brief,
+  CheckAttempt,
   CheckKind,
   Diagnostic,
   DiagramSpec,
@@ -203,7 +204,15 @@ export async function checkPrompt(env: JobEnv, topic: Topic, brief: Brief | unde
   return out.prompt.trim()
 }
 
-export function judgeCheck(env: JobEnv, topic: Topic, kind: CheckKind, prompt: string, answer: string, rubricHint: string): Promise<Verdict> {
+/**
+ * Judges an answer to a check. `earlier` holds the learner's previous tries at
+ * this same check, with the verdicts they got: a retry is a repair of those,
+ * judged with them in view rather than from scratch.
+ */
+export function judgeCheck(env: JobEnv, topic: Topic, kind: CheckKind, prompt: string, answer: string, rubricHint: string, earlier: CheckAttempt[] = []): Promise<Verdict> {
+  const tries = earlier
+    .map((a, i) => `Try ${i + 1}:\n${a.answer}\nYour verdict: ${a.verdict?.result ?? 'n/a'}${a.verdict ? `\nYour feedback: ${a.verdict.feedback}` : ''}${a.verdict?.misconceptions.length ? `\nMisconceptions you named: ${a.verdict.misconceptions.join('; ')}` : ''}`)
+    .join('\n\n')
   return runStructured(env.runtime, {
     ...base(env),
     purpose: `judge-${kind}`,
@@ -217,6 +226,7 @@ Your job now: judge one ${kind === 'explain' ? 'explain-back' : kind === 'apply'
 - "fail": wrong, missing the core idea, or just restating the question. "I don't know" is fail (that is fine and useful).
 - feedback (markdown, at most 120 words): name what was right, then the single most important gap or misconception, and send them to the exact passage to fix it with a [[cite:...]] directive. Do not give a full model answer; the learner should do the repair.
 - misconceptions: short phrases for any wrong beliefs you can see (empty if none).
+When there are earlier tries, this answer is the learner's repair after your feedback. Judge what they understand now, reading it together with their earlier tries: credit what they already got right (they need not repeat it), and judge whether they fixed the gap you named. Make your feedback continue from your earlier feedback: acknowledge the repair, and do not repeat a pointer they have already acted on. Misconceptions are the ones still present.
 Be honest; never pass an answer just to be encouraging.`,
     prompt: `${describeClass(env.ctx, { includeRecords: false })}
 
@@ -225,13 +235,13 @@ ${rubricHint ? `\nWhat the learner read: ${rubricHint}` : ''}
 
 Prompt given to the learner:
 ${prompt}
-
-Learner's answer:
+${tries ? `\nEarlier tries at this check, oldest first:\n\n${tries}\n` : ''}
+${tries ? "Learner's new try" : "Learner's answer"}:
 ${answer.trim() || '(empty)'}
 
 Check the relevant passages, then judge.`,
     schema: VerdictSchema,
-    demo: () => demo.verdict(answer, kind)
+    demo: () => demo.verdict(answer, kind, earlier)
   })
 }
 

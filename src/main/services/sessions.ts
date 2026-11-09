@@ -124,7 +124,15 @@ export class SessionService {
     if (!topic) throw userError('That topic is not in the curriculum anymore.')
     const reading = session.brief?.readings.map((r) => `${ctx.sources.find((s) => s.meta.id === r.sourceId)?.meta.title ?? r.sourceId} [${r.section}]`).join('; ') ?? ''
     const verdict = await this.k.job(classId, 'Checking your answer', async () =>
-      judgeCheck({ runtime: await this.k.runtime(), ctx }, topic, kind, prompt, text, reading)
+      judgeCheck(
+        { runtime: await this.k.runtime(), ctx },
+        topic,
+        kind,
+        prompt,
+        text,
+        reading,
+        session.attempts.filter((a) => a.kind === kind)
+      )
     )
     const attempt: CheckAttempt = { id: newId('att'), kind, prompt, answer: text, at: nowIso(), verdict }
     await this.k.repo.lock(classId, async () => {

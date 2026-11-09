@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentRuntime, AgentTurnRequest } from '../../src/main/agents/types'
 import type { ClassContext } from '../../src/main/jobs/context'
-import type { Session, Topic } from '../../src/shared/types'
-import { intakeQuestions, makeQuiz, tutorReply } from '../../src/main/jobs'
+import type { CheckAttempt, Session, Topic } from '../../src/shared/types'
+import { intakeQuestions, judgeCheck, makeQuiz, tutorReply } from '../../src/main/jobs'
 import { parseSections, teach, TEACH_SECTIONS } from '../../src/main/pedagogy/teach'
 
 /** Runs every turn on its demo answer and keeps the requests for inspection. */
@@ -147,5 +147,34 @@ describe('teach skill (mint edition)', () => {
     await tutorReply({ runtime, ctx }, { thread: { ...(thread as object), sessionId: undefined } as never, rung: 1, anchorContext: '' }, () => {})
     expect(runtime.requests[1].prompt).not.toContain('study box')
     expect(runtime.requests[1].system).not.toContain('you can see it')
+  })
+
+  it('judges a retry with the earlier tries and its own feedback in view', async () => {
+    const runtime = capturingRuntime()
+    const topic = { id: 'eigen', title: 'Eigenvalues', objective: 'Compute eigenvalues of 2x2 matrices', prerequisites: [], sources: [] } as unknown as Topic
+    const first: CheckAttempt = {
+      id: 'att1',
+      kind: 'explain',
+      prompt: 'Explain eigenvalues.',
+      answer: 'An eigenvector is a direction the matrix only stretches.',
+      at: '2026-11-09T00:00:00.000Z',
+      verdict: { result: 'partial', feedback: 'Say what the eigenvalue is.', misconceptions: ['eigenvalues are directions'] }
+    }
+    const verdict = await judgeCheck({ runtime, ctx }, topic, 'explain', 'Explain eigenvalues.', 'And the stretch factor along that direction is the eigenvalue, so A times x equals lambda times x.', '', [first])
+    const prompt = runtime.requests[0].prompt
+    expect(prompt).toContain('Earlier tries at this check')
+    expect(prompt).toContain('An eigenvector is a direction the matrix only stretches.')
+    expect(prompt).toContain('Your feedback: Say what the eigenvalue is.')
+    expect(prompt).toContain('Misconceptions you named: eigenvalues are directions')
+    expect(prompt).toContain("Learner's new try:\nAnd the stretch factor")
+    expect(runtime.requests[0].system).toContain('repair after your feedback')
+    // The scripted judge counts the earlier try too: the repair alone would only be partial.
+    expect(verdict.result).toBe('pass')
+    expect(verdict.feedback).toMatch(/^Building on your earlier try/)
+
+    const fresh = capturingRuntime()
+    await judgeCheck({ runtime: fresh, ctx }, topic, 'explain', 'Explain eigenvalues.', 'A first answer here.', '')
+    expect(fresh.requests[0].prompt).not.toContain('Earlier tries')
+    expect(fresh.requests[0].prompt).toContain("Learner's answer:")
   })
 })
