@@ -1157,6 +1157,8 @@ a {
   display: block;
   width: 100%;
   min-height: 22px;
+  /* Composer.tsx grows it with the text; on a short window it stops sooner. */
+  max-height: min(220px, 22vh);
   border: 0;
   outline: none;
   resize: none;
@@ -2520,6 +2522,14 @@ button.chip {
   line-height: 1.5;
 }
 
+/* The answer to a check sits in the lesson, which can be short: a fixed
+   height that shrinks with the window, using the width for the text. */
+.textarea.check-answer {
+  resize: none;
+  min-height: 0;
+  height: clamp(56px, 10vh, 96px);
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -3321,7 +3331,7 @@ mark.hl.flash-quote {
 .composer textarea {
   flex: 1;
   min-height: 36px;
-  max-height: 140px;
+  max-height: min(140px, 20vh);
   resize: none;
   border: 1px solid var(--border-strong);
   border-radius: 10px;

@@ -215,11 +215,10 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
       {(!last || last.verdict?.result !== 'pass') && (
         <div className="stack" style={{ gap: 8 }}>
           <textarea
-            className="textarea"
+            className="textarea check-answer"
             placeholder={last ? 'Try again, after re-reading the passage it pointed you to. Your earlier tries count…' : 'Your answer…'}
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
-            style={{ minHeight: 110 }}
             data-testid="check-answer"
           />
           <div className="row">

@@ -1,8 +1,8 @@
 # Builds mint on macOS, Windows and Linux, runs the end-to-end test against each
 # packaged app, and uploads the installers to the GitHub release for the tag.
 #
-#   git tag v0.1.0-alpha.11 && git push origin v0.1.0-alpha.11
-#   gh release create v0.1.0-alpha.11 --prerelease --notes "…"   # the jobs upload into it
+#   git tag v0.1.0-alpha.12 && git push origin v0.1.0-alpha.12
+#   gh release create v0.1.0-alpha.12 --prerelease --notes "…"   # the jobs upload into it
 #
 # Or run it by hand for an existing tag (Actions → Release builds → Run workflow).
 name: Release builds
