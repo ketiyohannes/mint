@@ -4,6 +4,7 @@ dist/
 resources/diagram-sandbox/vendor/
 test-results/
 playwright-report/
+.shots/
 .mint-test-data/
 *.log
 .DS_Store

@@ -1,0 +1,54 @@
+# Checks every push to main and every pull request: formatting, types, unit tests, and the
+# end-to-end test on the unpackaged build. Releases run the same test against
+# the packaged apps on macOS, Windows and Linux (release.yml).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, unit and end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Install scripts stay off (some dependencies fetch optional GPU runtimes); Electron's own is run explicitly.
+      - name: Install
+        run: |
+          npm ci --ignore-scripts
+          node node_modules/electron/install.js
+
+      - name: Formatting, typecheck and unit tests
+        run: |
+          npm run format:check
+          npm run check
+
+      - name: End-to-end test
+        run: xvfb-run -a npm run test:e2e
+        env:
+          # CI runners restrict unprivileged user namespaces, which Chromium's sandbox needs.
+          ELECTRON_DISABLE_SANDBOX: '1'
+
+      - name: Keep the failure trace
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-trace
+          path: test-results/
+          if-no-files-found: ignore

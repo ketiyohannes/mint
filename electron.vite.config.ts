@@ -15,7 +15,7 @@ function cspPlugin(): Plugin {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://i.ytimg.com",
     "font-src 'self' data:",
-    "frame-src mint-sandbox: https://www.youtube-nocookie.com",
+    'frame-src mint-sandbox: https://www.youtube-nocookie.com',
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'none'"

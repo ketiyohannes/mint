@@ -24,11 +24,7 @@ const p5Target = join(vendorDir, 'p5.min.js')
 const threeTarget = join(vendorDir, 'three.iife.js')
 const stampFile = join(vendorDir, '.stamp.json')
 
-const THREE_ENTRY = [
-  "import * as THREE from 'three'",
-  "import { OrbitControls } from 'three/addons/controls/OrbitControls.js'",
-  'globalThis.THREE = { ...THREE, OrbitControls }'
-].join('\n')
+const THREE_ENTRY = ["import * as THREE from 'three'", "import { OrbitControls } from 'three/addons/controls/OrbitControls.js'", 'globalThis.THREE = { ...THREE, OrbitControls }'].join('\n')
 
 async function packageVersion(name) {
   const pkg = JSON.parse(await readFile(join(root, 'node_modules', name, 'package.json'), 'utf8'))
@@ -57,10 +53,7 @@ async function computeStamp() {
 async function main() {
   const started = performance.now()
   const stamp = await computeStamp()
-  const upToDate =
-    (await exists(p5Target)) &&
-    (await exists(threeTarget)) &&
-    (await readFile(stampFile, 'utf8').catch(() => '')) === stamp
+  const upToDate = (await exists(p5Target)) && (await exists(threeTarget)) && (await readFile(stampFile, 'utf8').catch(() => '')) === stamp
 
   if (upToDate) {
     console.log(`[diagram-runtime] vendor up to date (${relative(root, vendorDir)})`)

@@ -1,0 +1,17 @@
+# Prettier formats the TypeScript and the scripts; everything else is left as written.
+node_modules/
+out/
+dist/
+build/
+docs/
+resources/
+test-results/
+.shots/
+.vitest/
+package-lock.json
+*.md
+*.json
+*.yml
+*.yaml
+*.html
+*.py

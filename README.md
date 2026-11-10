@@ -66,6 +66,8 @@ Every class is also a plain folder you own, in the `/teach` workspace format: `M
 - **Rich rendering everywhere.** Markdown, LaTeX, code, and arrays or matrices as cells look the same in the chat, side chats, lesson briefs, checks and quizzes.
 - **Notes.** A notepad with headings, lists and checklists, highlights, code, links and LaTeX formulas (type `$x^2$`). It saves as you type.
 - **Layout.** Swap the chat and the panel, resize them, or split the panel into two tabs, side by side or stacked.
+- **Keyboard first.** New chat, switch chats, show or hide the sidebar and the panel, run tests, check an answer, stop a reply: each has a shortcut, and **Settings → Keyboard shortcuts** lists them all. `/` goes to the prompt box from anywhere.
+- **Nothing typed is lost.** Unsent messages, half-written check answers and exercise code are kept when you move around or restart. The reader reopens each source where you left it, and the Browser tab reopens its last page.
 - **Focus timer.** A Pomodoro timer in the chat's header: focus blocks, short breaks, and a long break after every few blocks, with lengths you set. It keeps running across views and restarts, chimes and notifies when a block ends, and counts today's focused minutes.
 
 ## Install
@@ -86,7 +88,7 @@ Then pick a harness in **Settings** and press **Test connection**:
 
 Choose the model from the pill in the prompt box (or in Settings). mint asks each harness which models it offers; each harness remembers its own choice, and it applies to every class.
 
-**Updates.** From 0.1.0-alpha.4 on, mint checks GitHub for new releases and shows **Update mint** at the bottom of the sidebar. One click downloads the new version and checks it; **Restart to update** installs it (or it installs the next time mint quits). **Settings → Updates** shows your version and checks on demand. In-app updates work from `/Applications` on macOS, the setup installer on Windows, and the AppImage or `.deb` on Linux. Other copies (a disk image, the Windows `.zip`) link to the release page instead.
+**Updates.** From 0.1.0-alpha.4 on, mint checks GitHub for new releases and shows **Update mint** at the bottom of the sidebar. One click downloads the new version and checks it; **Restart to update** installs it (or it installs the next time mint quits). **Settings → Updates** shows your version and checks on demand. Updates install inside mint on every system and for every kind of copy; **What's new** in Settings shows the release notes. A copy opened straight from the disk image moves itself into Applications as it updates.
 
 Your classes, notes and settings stay on your computer (on macOS, `~/Library/Application Support/mint`). API keys are encrypted with the system keychain.
 
@@ -97,24 +99,16 @@ Requires Node 22 or newer.
 ```bash
 npm install
 npm run dev          # development, with hot reload
-npm run dist         # package for this system into dist/ (npm run dist:mac for the Apple silicon dmg)
-npm run icon         # redraw the app icon (Python 3 with Pillow)
+npm run check        # typecheck and unit tests
+npm run test:e2e     # builds, then drives the whole app with Playwright
+npm run dist         # package for this system into dist/
 ```
 
-If you start it from inside another Electron app's terminal (VS Code, T3 Code), run `env -u ELECTRON_RUN_AS_NODE npm run dev`.
+A copy run from source keeps its own profile, so it never touches the classes in an installed mint. [CONTRIBUTING.md](CONTRIBUTING.md) covers the rest: profiles, debugging, the test flags, environment variables, how to add an API call, and releasing.
 
-Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml): pushing a `v*` tag builds macOS, Windows and Linux on their own runners, runs the end-to-end test against each packaged app, and uploads the installers and update feeds (`latest*.yml`) to the release for that tag. Installed copies pick the release up from there.
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml): `npm run release` tags a version, and the workflow builds macOS, Windows and Linux on their own runners, runs the end-to-end test against each packaged app, and uploads the installers and update feeds (`latest*.yml`) to the release. Installed copies pick the release up from there.
 
 ### Tests
-
-```bash
-npm run typecheck
-npm test                    # unit and integration tests (headless, Demo runtime)
-npm run test:e2e            # builds, then drives the whole app with Playwright
-MINT_E2E_EXECUTABLE=dist/mac-arm64/mint.app/Contents/MacOS/mint npx playwright test   # the same flow on the packaged app
-MINT_LIVE=claude npx vitest run tests/unit/live-harness.test.ts   # real Claude Agent SDK (uses your account)
-MINT_LIVE=codex  npx vitest run tests/unit/live-harness.test.ts   # real Codex app-server
-```
 
 The end-to-end test walks the whole product: opening a folder, the setup questions, the tutor's explanations and the Coach help ladder, side chats, quoting a passage into the chat, `/quiz`, a code exercise, a diagram, PDF highlights and notes, web search, a lesson to mastery, the notepad, the split panel, the trusted-source fallback and deleting a class. It fails on any console error.
 
