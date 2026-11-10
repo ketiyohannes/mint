@@ -46,8 +46,7 @@ export function curriculumMd(c: Curriculum, sources: SourceMeta[]): string {
 }
 
 export function resourcesMd(meta: ClassMeta, sources: SourceMeta[], proposals: SourceProposal[]): string {
-  const entry = (s: SourceMeta) =>
-    `- ${s.url ? `[${s.title}](${s.url})` : s.title} (${s.kind}, ${s.origin === 'user' ? 'yours' : 'found by mint'})${s.why ? `\n  ${s.why}` : ''}`
+  const entry = (s: SourceMeta) => `- ${s.url ? `[${s.title}](${s.url})` : s.title} (${s.kind}, ${s.origin === 'user' ? 'yours' : 'found by mint'})${s.why ? `\n  ${s.why}` : ''}`
   const rejected = proposals.filter((p) => p.status === 'rejected')
   return `# ${meta.title} Resources
 

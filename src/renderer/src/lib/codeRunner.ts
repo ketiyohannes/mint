@@ -7,12 +7,24 @@ import { CODE_RUNNER_URL, isRunnerMessage, type RunRequest } from '@shared/diagr
  */
 let frame: HTMLIFrameElement | null = null
 let ready: Promise<void> | null = null
+/** Stops listening to the current frame. */
+let detach: (() => void) | null = null
 const pending = new Map<string, (r: CodeRunResult) => void>()
 let counter = 0
+/** How long the runner frame may take to load before a run gives up on it. */
+const START_TIMEOUT = 15_000
+
+function dropFrame(): void {
+  detach?.()
+  detach = null
+  frame?.remove()
+  frame = null
+  ready = null
+}
 
 function ensureFrame(): Promise<void> {
   if (ready && frame?.isConnected) return ready
-  frame?.remove()
+  dropFrame()
   const el = document.createElement('iframe')
   el.src = CODE_RUNNER_URL
   el.setAttribute('sandbox', 'allow-scripts')
@@ -34,13 +46,30 @@ function ensureFrame(): Promise<void> {
       }
     }
     window.addEventListener('message', onMessage)
+    detach = () => window.removeEventListener('message', onMessage)
   })
   document.body.appendChild(el)
   return ready
 }
 
 export async function runCode(language: CodeLanguage, code: string, tests: string, timeoutMs = 5000): Promise<CodeRunResult> {
-  await ensureFrame()
+  // A frame that never loads must not leave the run (and its spinner) waiting forever.
+  let startTimer: ReturnType<typeof setTimeout> | undefined
+  const loading = ensureFrame()
+  const waitedFor = frame
+  const started = await Promise.race([
+    loading.then(() => true),
+    new Promise<boolean>((resolve) => {
+      startTimer = setTimeout(() => resolve(false), START_TIMEOUT)
+    })
+  ])
+  clearTimeout(startTimer)
+  const target = started ? waitedFor?.contentWindow : null
+  if (!target) {
+    // The next run starts a fresh frame (unless another run already has).
+    if (frame === waitedFor) dropFrame()
+    return { ok: false, output: [], tests: [], error: 'The code runner did not start. Run the tests again.' }
+  }
   const id = `run${Date.now().toString(36)}${++counter}`
   // Python's first run also loads the runtime; give it a generous ceiling on the host side.
   const hostTimeout = timeoutMs + (language === 'python' ? 70_000 : 3_000)
@@ -54,6 +83,6 @@ export async function runCode(language: CodeLanguage, code: string, tests: strin
       resolve(r)
     })
     const msg: RunRequest = { type: 'run', id, language, code, tests, timeoutMs }
-    frame!.contentWindow!.postMessage(msg, '*')
+    target.postMessage(msg, '*')
   })
 }

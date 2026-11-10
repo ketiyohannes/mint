@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import { RUNG_LABELS, type Anchor, type Thread, type ThreadMessage } from '@shared/types'
 import { api, errorMessage, newStreamId } from '../../lib/api'
 import { useApp } from '../../state/app'
@@ -11,7 +11,6 @@ interface Pending {
   streamId: string
   user?: string
   text: string
-  error?: string
 }
 
 interface Props {
@@ -54,9 +53,30 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
     if (autoFocus) inputRef.current?.focus()
   }, [autoFocus])
 
+  // New text keeps the bottom in view, unless the learner scrolled up to read.
+  const stickToBottom = useRef(true)
   useEffect(() => {
-    bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight })
+    if (stickToBottom.current) bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight })
   }, [shown?.messages.length, pending?.text])
+
+  // The box grows with the text, up to its max-height in styles.css.
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`
+  }, [draft])
+
+  // "Ask about this" belongs to a selection: it goes when the selection does.
+  const following = follow !== null
+  useEffect(() => {
+    if (!following) return
+    const onChange = () => {
+      if (window.getSelection()?.isCollapsed !== false) setFollow(null)
+    }
+    document.addEventListener('selectionchange', onChange)
+    return () => document.removeEventListener('selectionchange', onChange)
+  }, [following])
 
   // One subscription for the view's lifetime; the active stream id lives in a ref
   // so no event can arrive before the listener exists.
@@ -66,7 +86,7 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
       api.on.stream((e) => {
         if (!streamRef.current || e.streamId !== streamRef.current) return
         if (e.threadId) onThreadRef.current(e.threadId)
-        setPending((p) => (p && p.streamId === e.streamId ? { ...p, text: p.text + (e.delta ?? ''), error: e.error ?? p.error } : p))
+        setPending((p) => (p && p.streamId === e.streamId ? { ...p, text: p.text + (e.delta ?? '') } : p))
       }),
     []
   )
@@ -76,6 +96,7 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
     if (!message || pending) return
     const streamId = newStreamId()
     streamRef.current = streamId
+    stickToBottom.current = true
     setPending({ streamId, user: message, text: '' })
     setDraft('')
     try {
@@ -99,9 +120,10 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
     if (!shown || pending) return
     const streamId = newStreamId()
     streamRef.current = streamId
+    stickToBottom.current = true
     setPending({ streamId, text: '' })
     try {
-      const out = await api.threads.moreHelp({ classId: study.classId, threadId: shown.id, streamId })
+      const out = await api.threads.moreHelp({ classId: study.classId, threadId: shown.id, streamId, studyDraft: checkDraft(study.sessionId) })
       setLocal(out)
       onThreadRef.current(out.id)
       afterReply(out)
@@ -140,7 +162,18 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
 
   return (
     <>
-      <div className="thread-body" ref={bodyRef} onMouseUp={onBodyMouseUp} data-testid="thread-body">
+      <div
+        className="thread-body"
+        ref={bodyRef}
+        onMouseUp={onBodyMouseUp}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+          // The button is placed on the screen, not in the text: it would stay behind.
+          if (follow) setFollow(null)
+        }}
+        data-testid="thread-body"
+      >
         {!shown?.messages.length && !pending && intro}
         {!shown?.messages.length && !pending && suggestions && (
           <div className="chips" style={{ marginTop: 2 }}>
@@ -151,7 +184,9 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
             ))}
           </div>
         )}
-        {shown?.messages.map((m) => <Message key={m.id} m={m} ladder={ladder} />)}
+        {shown?.messages.map((m) => (
+          <Message key={m.id} m={m} ladder={ladder} />
+        ))}
         {pending?.user && !(lastMessage?.role === 'user' && lastMessage.text === pending.user) && <div className="msg user">{pending.user}</div>}
         {pending && (
           <div className="msg tutor" data-testid="tutor-streaming">
@@ -205,7 +240,8 @@ export function ThreadView({ anchor, thread, onThread, autoFocus, suggestions, i
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // Enter that confirms an IME candidate is not a send.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               void submit(draft)
             }

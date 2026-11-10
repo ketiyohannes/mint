@@ -76,7 +76,11 @@ export function selectionToAnchor(container: HTMLElement, blockText: (blockId: s
     if (ranges.length >= 50) break
   }
   if (!ranges.length) return null
-  const quote = ranges.map((r) => (blockText(r.blockId) ?? '').slice(r.start, r.end)).join(' ').replace(/\s+/g, ' ').trim()
+  const quote = ranges
+    .map((r) => (blockText(r.blockId) ?? '').slice(r.start, r.end))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (!quote) return null
   const sectionLabel = startBlock.closest<HTMLElement>('[data-section-label]')?.dataset.sectionLabel ?? ''
   return { ranges, quote: quote.slice(0, 2000), rect: range.getBoundingClientRect(), sectionLabel }
@@ -142,23 +146,36 @@ function normalize(s: string): string {
     .trim()
 }
 
+/**
+ * Read `text` the way normalize() does: lower-cased letters and digits, one
+ * space per run of anything else, quotes dropped. `emit` gets each character of
+ * the result with its offset in `text`. Read by code point, so letters outside
+ * the basic plane (the math italics of many PDFs) count as letters.
+ */
+function scan(text: string, state: { space: boolean }, emit: (ch: string, at: number) => void): void {
+  let at = 0
+  for (const raw of text) {
+    const from = at
+    at += raw.length
+    if (/[“”"‘’'`]/.test(raw)) continue
+    if (/[\p{L}\p{N}]/u.test(raw)) {
+      const low = raw.toLowerCase()
+      for (let k = 0; k < low.length; k++) emit(low[k], from + Math.min(k, raw.length - 1))
+      state.space = false
+    } else if (!state.space) {
+      emit(' ', from)
+      state.space = true
+    }
+  }
+}
+
 function normalizeWithMap(s: string): { norm: string; map: number[] } {
   let norm = ''
   const map: number[] = []
-  let lastSpace = true
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i].toLowerCase()
-    if (/[“”"‘’'`]/.test(ch)) continue
-    if (/[\p{L}\p{N}]/u.test(ch)) {
-      norm += ch
-      map.push(i)
-      lastSpace = false
-    } else if (!lastSpace) {
-      norm += ' '
-      map.push(i)
-      lastSpace = true
-    }
-  }
+  scan(s, { space: true }, (ch, at) => {
+    norm += ch
+    map.push(at)
+  })
   return { norm: norm.trimEnd(), map }
 }
 
@@ -213,27 +230,18 @@ export function rangeForQuote(root: HTMLElement, quote: string): Range | null {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   let norm = ''
   const map: { node: Text; offset: number }[] = []
-  let lastSpace = true
+  const state = { space: true }
   for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
-    const t = n.data
-    for (let i = 0; i < t.length; i++) {
-      const ch = t[i].toLowerCase()
-      if (/[“”"‘’'`]/.test(ch)) continue
-      if (/[\p{L}\p{N}]/u.test(ch)) {
-        norm += ch
-        map.push({ node: n, offset: i })
-        lastSpace = false
-      } else if (!lastSpace) {
-        norm += ' '
-        map.push({ node: n, offset: i })
-        lastSpace = true
-      }
-    }
+    const node = n
+    scan(node.data, state, (ch, at) => {
+      norm += ch
+      map.push({ node, offset: at })
+    })
     // Text layer spans are separate words/lines: treat a node boundary as a space.
-    if (!lastSpace) {
+    if (!state.space) {
       norm += ' '
-      map.push({ node: n, offset: t.length })
-      lastSpace = true
+      map.push({ node, offset: node.data.length })
+      state.space = true
     }
   }
   let idx = norm.indexOf(q)

@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
 import type { ChatCommand } from '@shared/types'
 import { Icon, type IconName } from '../../components/Icon'
 import { ModelPicker } from '../../components/ModelPicker'
+import { isTypingTarget } from '../../lib/shortcuts'
 
 export const SLASH_COMMANDS: { command: ChatCommand; args: string; description: string; icon: IconName }[] = [
   { command: 'lesson', args: '[topic]', description: 'Start the next lesson (or a named one)', icon: 'lesson' },
@@ -20,6 +21,11 @@ export function parseSlash(text: string): { command: ChatCommand; arg: string } 
 }
 
 interface Props {
+  /** The unsent text. The chat owns it, so it outlives this box (which moves when the first message arrives). */
+  draft: string
+  onDraft: (text: string) => void
+  /** The text box, so the chat can put the cursor in it. */
+  inputRef: RefObject<HTMLTextAreaElement | null>
   onSubmit: (text: string) => void
   busy: boolean
   onStop?: () => void
@@ -27,8 +33,8 @@ interface Props {
   centered?: boolean
   autoFocus?: boolean
   onAddMaterials: () => void
-  /** Prefill (e.g. from a suggestion chip) without sending. */
-  prefill?: { text: string; nonce: number } | null
+  /** The learner's last message: ↑ in an empty box brings it back. */
+  recall?: string
   /** A highlighted passage attached to the next message. */
   quote?: { text: string; source: string } | null
   onClearQuote?: () => void
@@ -36,27 +42,36 @@ interface Props {
 
 /** The prompt box: auto-growing input, slash commands, actions menu, model picker, send/stop. */
 export function Composer(props: Props): JSX.Element {
-  const { onSubmit, busy, onStop, placeholder, centered, autoFocus, onAddMaterials, prefill, quote, onClearQuote } = props
-  const [draft, setDraft] = useState('')
+  const { draft, onDraft, inputRef, onSubmit, busy, onStop, placeholder, centered, autoFocus, onAddMaterials, recall, quote, onClearQuote } = props
   const [menu, setMenu] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  /** Esc puts the tools list away until the text changes. */
+  const [slashOff, setSlashOff] = useState(false)
+  useEffect(() => setSlashOff(false), [draft])
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus()
-  }, [autoFocus])
+  }, [autoFocus, inputRef])
 
   // Attaching a passage puts the cursor in the box, ready for the question.
   useEffect(() => {
     if (quote) inputRef.current?.focus()
-  }, [quote])
+  }, [quote, inputRef])
 
+  // "/" from anywhere that is not a text field goes to the box and lists the tools.
+  const latest = useRef({ draft, onDraft })
+  latest.current = { draft, onDraft }
   useEffect(() => {
-    if (!prefill) return
-    setDraft(prefill.text)
-    inputRef.current?.focus()
-  }, [prefill])
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.defaultPrevented || isTypingTarget(e.target)) return
+      e.preventDefault()
+      inputRef.current?.focus()
+      if (!latest.current.draft) latest.current.onDraft('/')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [inputRef])
 
   // Grow with the text, up to a limit.
   useLayoutEffect(() => {
@@ -64,28 +79,38 @@ export function Composer(props: Props): JSX.Element {
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`
-  }, [draft])
+  }, [draft, inputRef])
 
   useEffect(() => {
     if (!menu) return
     const close = (e: MouseEvent) => !menuRef.current?.contains(e.target as Node) && setMenu(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setMenu(false)
+      // Back to the button that opened the menu.
+      menuRef.current?.querySelector('button')?.focus()
+    }
     window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [menu])
 
   const slashQuery = /^\/(\w*)$/.exec(draft)?.[1]
   const matches = slashQuery !== undefined ? SLASH_COMMANDS.filter((c) => c.command.startsWith(slashQuery.toLowerCase())) : []
-  const showSlash = matches.length > 0
+  const showSlash = matches.length > 0 && !slashOff
 
   const send = () => {
     const text = draft.trim()
     if ((!text && !quote) || busy) return
     onSubmit(text)
-    setDraft('')
+    onDraft('')
   }
 
   const complete = (command: ChatCommand) => {
-    setDraft(`/${command} `)
+    onDraft(`/${command} `)
     setSlashIndex(0)
     inputRef.current?.focus()
   }
@@ -93,7 +118,7 @@ export function Composer(props: Props): JSX.Element {
   const action = (text: string) => {
     setMenu(false)
     if (text.endsWith(' ')) {
-      setDraft(text)
+      onDraft(text)
       inputRef.current?.focus()
     } else if (!busy) onSubmit(text)
   }
@@ -139,10 +164,11 @@ export function Composer(props: Props): JSX.Element {
         placeholder={placeholder}
         value={draft}
         onChange={(e) => {
-          setDraft(e.target.value)
+          onDraft(e.target.value)
           setSlashIndex(0)
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return
           if (showSlash) {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
@@ -160,7 +186,20 @@ export function Composer(props: Props): JSX.Element {
               return
             }
           }
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (e.key === 'Escape' && (showSlash || (busy && onStop))) {
+            // Esc here means this box only: nothing else (a side chat, a menu) closes with it.
+            e.preventDefault()
+            e.stopPropagation()
+            if (showSlash) setSlashOff(true)
+            else onStop?.()
+            return
+          }
+          if (e.key === 'ArrowUp' && !draft && recall) {
+            e.preventDefault()
+            onDraft(recall)
+            return
+          }
+          if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             send()
           }
@@ -180,16 +219,17 @@ export function Composer(props: Props): JSX.Element {
                   setMenu(false)
                   onAddMaterials()
                 }}
+                data-testid="action-add-materials"
               >
                 <Icon name="upload" size={14} /> Add materials…
               </button>
-              <button className="menu-item" onClick={() => action('/lesson')} data-testid="action-lesson">
+              <button className="menu-item" disabled={busy} onClick={() => action('/lesson')} data-testid="action-lesson">
                 <Icon name="lesson" size={14} /> Start the next lesson
               </button>
-              <button className="menu-item" onClick={() => action('/quiz')} data-testid="action-quiz">
+              <button className="menu-item" disabled={busy} onClick={() => action('/quiz')} data-testid="action-quiz">
                 <Icon name="quiz" size={14} /> Quiz me
               </button>
-              <button className="menu-item" onClick={() => action('/code')} data-testid="action-code">
+              <button className="menu-item" disabled={busy} onClick={() => action('/code')} data-testid="action-code">
                 <Icon name="code" size={14} /> Code exercise
               </button>
               <button className="menu-item" onClick={() => action('/diagram ')} data-testid="action-diagram">
@@ -202,7 +242,7 @@ export function Composer(props: Props): JSX.Element {
         <span className="spacer" />
         <span className="composer-hint">/ for tools</span>
         {busy && onStop ? (
-          <button className="send-btn" aria-label="Stop" onClick={onStop} data-testid="ask-stop">
+          <button className="send-btn" aria-label="Stop" title="Stop (Esc)" onClick={onStop} data-testid="ask-stop">
             <Icon name="stop" size={11} />
           </button>
         ) : (

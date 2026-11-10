@@ -33,6 +33,7 @@ export function Proposals({ bundle, compact }: { bundle: ClassBundle; compact?: 
   }
 
   const waiting = open.filter((p) => p.status !== 'approved').map((p) => p.id)
+  const sites = bundle.meta.trustedDomains.length
 
   return (
     <div className="proposals stack" data-testid="proposals">
@@ -42,7 +43,7 @@ export function Proposals({ bundle, compact }: { bundle: ClassBundle; compact?: 
       {!open.length && (
         <>
           <p className="small muted">
-            mint searches only {bundle.meta.trustedDomains.length} trusted sites plus YouTube, says why each source is trustworthy, and imports nothing without your approval.
+            mint searches only {sites} trusted {sites === 1 ? 'site' : 'sites'} plus YouTube, says why each source is trustworthy, and imports nothing without your approval.
           </p>
           <form
             className="row"
@@ -58,55 +59,68 @@ export function Proposals({ bundle, compact }: { bundle: ClassBundle; compact?: 
           </form>
         </>
       )}
-      {open.map((p) => (
-        <label key={p.id} className="proposal" data-testid="proposal">
-          {p.status === 'approved' ? (
-            <span className="spinner tiny" />
-          ) : (
-            <input
-              type="checkbox"
-              checked={picked.has(p.id)}
-              onChange={(e) =>
-                setPicked((s) => {
-                  const next = new Set(s)
-                  if (e.target.checked) next.add(p.id)
-                  else next.delete(p.id)
-                  return next
-                })
-              }
-            />
-          )}
-          <div className="proposal-body">
-            <div className="row">
-              <Icon name={p.kind === 'youtube' ? 'video' : 'globe'} size={13} />
-              <b className="ellipsis">
-                <RichText text={p.title} inline />
-              </b>
+      {open.map((p) => {
+        // A row being imported has no checkbox: as a label it would press its Preview button on any click.
+        const Row = p.status === 'approved' ? 'div' : 'label'
+        return (
+          <Row key={p.id} className={`proposal ${p.status === 'approved' ? 'importing' : ''}`} data-testid="proposal">
+            {p.status === 'approved' ? (
+              <span className="spinner tiny" />
+            ) : (
+              <input
+                type="checkbox"
+                checked={picked.has(p.id)}
+                onChange={(e) =>
+                  setPicked((s) => {
+                    const next = new Set(s)
+                    if (e.target.checked) next.add(p.id)
+                    else next.delete(p.id)
+                    return next
+                  })
+                }
+              />
+            )}
+            <div className="proposal-body">
+              <div className="row">
+                <Icon name={p.kind === 'youtube' ? 'video' : 'globe'} size={13} />
+                <b className="ellipsis">
+                  <RichText text={p.title} inline />
+                </b>
+              </div>
+              <div className="small muted ellipsis">{p.url}</div>
+              <RichText text={p.why} className="small" />
+              <RichText text={`Covers: ${p.covers}`} className="small muted" />
+              {p.newDomain && <div className="small warn">{p.domain} is not on your trusted list. Approving adds it.</div>}
+              {p.status === 'failed' && <div className="small danger">Import failed: {p.error}</div>}
             </div>
-            <div className="small muted ellipsis">{p.url}</div>
-            <RichText text={p.why} className="small" />
-            <RichText text={`Covers: ${p.covers}`} className="small muted" />
-            {p.newDomain && <div className="small warn">{p.domain} is not on your trusted list. Approving adds it.</div>}
-            {p.status === 'failed' && <div className="small danger">Import failed: {p.error}</div>}
-          </div>
-          <button
-            type="button"
-            className="btn ghost sm"
-            onClick={(e) => {
-              e.preventDefault()
-              void api.system.openExternal(p.url)
-            }}
-          >
-            Preview
-          </button>
-        </label>
-      ))}
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={(e) => {
+                e.preventDefault()
+                void api.system.openExternal(p.url)
+              }}
+            >
+              Preview
+            </button>
+          </Row>
+        )
+      })}
       {open.length > 0 && (
         <div className="row">
           <button className="btn sm primary" disabled={!picked.size || importing} onClick={() => void resolve([...picked], [])} data-testid="approve-proposals">
             <Icon name="check" size={13} /> Import {picked.size || ''}
           </button>
-          <button className="btn sm ghost" disabled={!waiting.length || importing} onClick={() => void resolve([], waiting.filter((id) => !picked.has(id)))}>
+          <button
+            className="btn sm ghost"
+            disabled={!waiting.length || importing}
+            onClick={() =>
+              void resolve(
+                [],
+                waiting.filter((id) => !picked.has(id))
+              )
+            }
+          >
             Dismiss the rest
           </button>
         </div>

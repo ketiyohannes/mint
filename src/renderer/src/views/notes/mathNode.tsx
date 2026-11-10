@@ -1,4 +1,4 @@
-import { useMemo, type JSX, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import { InputRule, mergeAttributes, Node } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer, type ReactNodeViewProps } from '@tiptap/react'
 import { renderMath } from '../../lib/markdown'
@@ -71,9 +71,10 @@ export const MathNode = Node.create({
           state.tr.replaceWith(range.from, range.to, type.create({ latex: match[1].trim(), display: true }))
         }
       }),
-      // $…$ : an inline formula (not after another $ or a backslash, so "$$" and "\$" still type normally).
+      // $…$ : an inline formula (not after another $ or a backslash, so "$$" and "\$" still type normally;
+      // no space just inside the dollars, so "$5 and $10" stays a pair of prices).
       new InputRule({
-        find: /(^|[^$\\])\$([^$\n]+)\$$/,
+        find: /(^|[^$\\])\$([^\s$](?:[^$\n]*[^\s$])?)\$$/,
         handler: ({ state, range, match }) => {
           state.tr.replaceWith(range.from + match[1].length, range.to, type.create({ latex: match[2].trim() }))
         }
@@ -90,20 +91,35 @@ function MathView({ node, selected, updateAttributes, deleteNode, editor, getPos
   const leave = () => {
     const pos = getPos()
     if (!latex.trim()) deleteNode()
-    else if (typeof pos === 'number') editor.chain().focus().setTextSelection(pos + node.nodeSize).run()
+    else if (typeof pos === 'number')
+      editor
+        .chain()
+        .focus()
+        .setTextSelection(pos + node.nodeSize)
+        .run()
   }
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === 'Escape') {
+    // Enter that confirms an IME candidate stays in the box.
+    if ((e.key === 'Enter' || e.key === 'Escape') && !e.nativeEvent.isComposing) {
       e.preventDefault()
       leave()
     }
   }
 
+  // Near the note's right edge the source box opens leftwards, so it stays inside the note.
+  const editRef = useRef<HTMLSpanElement>(null)
+  const [flip, setFlip] = useState(false)
+  useLayoutEffect(() => {
+    const box = editRef.current
+    const pane = box?.closest('.note-scroll')
+    setFlip(Boolean(selected && box && pane && box.getBoundingClientRect().right > pane.getBoundingClientRect().right - 8))
+  }, [selected])
+
   return (
     <NodeViewWrapper as="span" className={`note-math ${display ? 'display' : ''} ${selected ? 'selected' : ''}`} data-testid="note-math">
       {selected && editor.isEditable && (
-        <span className="note-math-edit" contentEditable={false}>
+        <span ref={editRef} className={`note-math-edit ${flip ? 'end' : ''}`} contentEditable={false}>
           <input
             autoFocus
             value={latex}

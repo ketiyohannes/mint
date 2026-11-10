@@ -27,4 +27,12 @@ describe('quoteToRanges', () => {
     expect(quoteToRanges(blocks, 'completely unrelated words here')).toEqual([])
     expect(quoteToRanges(blocks, '  ')).toEqual([])
   })
+
+  it('matches letters outside the basic plane (the math italics of many PDFs)', () => {
+    const math = [{ id: 'm', text: 'Let 𝑥 be an eigenvector of 𝐴 and λ its eigenvalue.' }]
+    const [whole] = quoteToRanges(math, 'eigenvector of 𝐴 and')
+    expect(math[0].text.slice(whole.start, whole.end)).toBe('eigenvector of 𝐴 and')
+    const [ending] = quoteToRanges(math, 'Let 𝑥')
+    expect(math[0].text.slice(ending.start, ending.end)).toBe('Let 𝑥')
+  })
 })

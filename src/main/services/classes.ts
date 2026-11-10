@@ -5,8 +5,17 @@ import { normalizeDomain } from '../store/settingsStore'
 import type { Kernel } from './kernel'
 import { userError } from './kernel'
 
-const clean = (s: string, max = 2000) => String(s ?? '').trim().slice(0, max)
-const cleanList = (items: string[]) => (Array.isArray(items) ? items.map((i) => clean(i, 400)).filter(Boolean).slice(0, 20) : [])
+const clean = (s: string, max = 2000) =>
+  String(s ?? '')
+    .trim()
+    .slice(0, max)
+const cleanList = (items: string[]) =>
+  Array.isArray(items)
+    ? items
+        .map((i) => clean(i, 400))
+        .filter(Boolean)
+        .slice(0, 20)
+    : []
 
 export function sanitizeMission(m: Mission): Mission {
   return {
@@ -61,21 +70,20 @@ export class ClassService {
   async get(classId: string): Promise<ClassBundle> {
     const repo = this.k.repo
     const meta = await repo.requireMeta(classId)
-    const [sources, sourceProposals, diagnostic, curriculumProposals, sessions, threads, annotations, records, glossary, notes, explorables, helpEvents] =
-      await Promise.all([
-        repo.read(classId, 'sources'),
-        repo.read(classId, 'proposals'),
-        repo.read(classId, 'diagnostic'),
-        repo.read(classId, 'curriculumProposals'),
-        repo.read(classId, 'sessions'),
-        repo.read(classId, 'threads'),
-        repo.read(classId, 'annotations'),
-        repo.read(classId, 'records'),
-        repo.read(classId, 'glossary'),
-        repo.read(classId, 'notes'),
-        repo.read(classId, 'explorables'),
-        repo.read(classId, 'helpEvents')
-      ])
+    const [sources, sourceProposals, diagnostic, curriculumProposals, sessions, threads, annotations, records, glossary, notes, explorables, helpEvents] = await Promise.all([
+      repo.read(classId, 'sources'),
+      repo.read(classId, 'proposals'),
+      repo.read(classId, 'diagnostic'),
+      repo.read(classId, 'curriculumProposals'),
+      repo.read(classId, 'sessions'),
+      repo.read(classId, 'threads'),
+      repo.read(classId, 'annotations'),
+      repo.read(classId, 'records'),
+      repo.read(classId, 'glossary'),
+      repo.read(classId, 'notes'),
+      repo.read(classId, 'explorables'),
+      repo.read(classId, 'helpEvents')
+    ])
     const { curriculum, progress, next, due } = await this.k.summaryFields(classId)
     return {
       meta,
@@ -129,9 +137,7 @@ export class ClassService {
         title: patch.title !== undefined ? clean(patch.title, 120) || meta.title : meta.title,
         mission: patch.mission ? sanitizeMission(patch.mission) : meta.mission,
         intake: patch.intake ? sanitizeIntake(patch.intake) : meta.intake,
-        trustedDomains: patch.trustedDomains
-          ? Array.from(new Set(patch.trustedDomains.map(normalizeDomain).filter(Boolean)))
-          : meta.trustedDomains,
+        trustedDomains: patch.trustedDomains ? Array.from(new Set(patch.trustedDomains.map(normalizeDomain).filter(Boolean))) : meta.trustedDomains,
         updatedAt: nowIso()
       }
       await this.k.repo.writeMeta(next)

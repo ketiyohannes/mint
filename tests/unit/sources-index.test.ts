@@ -115,8 +115,6 @@ describe('importUrl', () => {
   })
 
   it('rejects unsupported content types', async () => {
-    await expect(
-      importUrl('https://example.com/pic.png', { fetchImpl: serve(new Uint8Array([137, 80, 78, 71]), 'image/png') })
-    ).rejects.toThrow(/can't import image\/png from example\.com/)
+    await expect(importUrl('https://example.com/pic.png', { fetchImpl: serve(new Uint8Array([137, 80, 78, 71]), 'image/png') })).rejects.toThrow(/can't import image\/png from example\.com/)
   })
 })

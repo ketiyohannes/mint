@@ -1,12 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  JSONRPC_METHOD_NOT_FOUND,
-  JsonRpcError,
-  JsonRpcProcessError,
-  JsonRpcStdioClient,
-  JsonRpcTimeoutError,
-  LineBuffer
-} from '../../src/main/agents/codex/jsonrpc'
+import { JSONRPC_METHOD_NOT_FOUND, JsonRpcError, JsonRpcProcessError, JsonRpcStdioClient, JsonRpcTimeoutError, LineBuffer, windowsBatchSpawn } from '../../src/main/agents/codex/jsonrpc'
 
 /** A scriptable peer: each request method triggers one behavior. */
 const PEER = String.raw`
@@ -157,6 +150,41 @@ describe('JsonRpcStdioClient', () => {
     const pending = client.request('sleep').catch((e: unknown) => e)
     await client.dispose()
     expect(await pending).toMatchObject({ message: 'client disposed' })
+    expect(client.alive).toBe(false)
+  })
+})
+
+describe('windowsBatchSpawn', () => {
+  it('runs a .cmd shim through cmd.exe on one escaped command line', () => {
+    expect(windowsBatchSpawn('C:\\npm\\codex.cmd', ['app-server'], 'cmd.exe')).toEqual({
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', '"C:\\npm\\codex.cmd ^"app-server^""']
+    })
+  })
+
+  it('keeps a path and arguments with spaces, quotes and trailing backslashes whole', () => {
+    const { args } = windowsBatchSpawn('C:\\Users\\Jane Doe\\AppData\\Roaming\\npm\\codex.cmd', ['two words', 'say "hi"', 'C:\\My Dir\\'], 'cmd.exe')
+    expect(args.slice(0, 3)).toEqual(['/d', '/s', '/c'])
+    expect(args[3]).toBe('"C:\\Users\\Jane^ Doe\\AppData\\Roaming\\npm\\codex.cmd ^"two^ words^" ^"say^ \\^"hi\\^"^" ^"C:\\My^ Dir\\\\^""')
+  })
+
+  it('leaves nothing for cmd to run as a second command', () => {
+    const line = windowsBatchSpawn('codex.cmd', ['a & calc.exe', '%PATH%', 'x | y > z'], 'cmd.exe').args[3]
+    // Every metacharacter is behind a caret: no bare &, |, <, > or % reaches cmd.
+    expect(line.slice(1, -1).replace(/\^./g, '')).not.toMatch(/[&|<>%"]/)
+  })
+})
+
+describe('JsonRpcStdioClient spawn failures', () => {
+  it('reports a spawn that throws as a process error', () => {
+    const client = new JsonRpcStdioClient({
+      command: 'codex',
+      spawnImpl: () => {
+        throw new Error('spawn EINVAL')
+      }
+    })
+    expect(() => client.start()).toThrow(JsonRpcProcessError)
+    expect(() => client.start()).toThrow(/failed to run codex: spawn EINVAL/)
     expect(client.alive).toBe(false)
   })
 })

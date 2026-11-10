@@ -1,3 +1,4 @@
+import { USER_ERROR_PREFIX } from '@shared/api'
 import type { ClassMeta, IndependenceState, ProgressEvent, ProviderId, Settings, StreamEvent } from '@shared/types'
 import type { AgentRuntime } from '../agents/types'
 import { ClaudeRuntime } from '../agents/claude'
@@ -22,6 +23,8 @@ export interface KernelOptions {
   fetchImpl?: typeof fetch
   youtube?: YouTubeClient
   log?: (msg: string) => void
+  /** The running mint version, reported to the agent harnesses as the client version. */
+  appVersion?: string
 }
 
 /**
@@ -62,13 +65,25 @@ export class Kernel {
 
   private createRuntime(p: ProviderId, s: Settings, apiKey: string | null): AgentRuntime {
     if (p === 'demo') return new DemoRuntime()
-    if (p === 'codex') return new CodexRuntime({ model: s.codexModel || undefined, log: (m) => this.log(`[codex] ${m}`) })
-    return new ClaudeRuntime({ model: s.claudeModel || undefined, apiKey, log: (m) => this.log(`[claude] ${m}`) })
+    const clientVersion = this.opts.appVersion
+    if (p === 'codex') return new CodexRuntime({ model: s.codexModel || undefined, clientVersion, log: (m) => this.log(`[codex] ${m}`) })
+    return new ClaudeRuntime({ model: s.claudeModel || undefined, apiKey, clientVersion, log: (m) => this.log(`[claude] ${m}`) })
+  }
+
+  /**
+   * Done with a runtime from `runtime(provider)`: one made just for the caller
+   * is disposed, the shared one stays (even when the provider changed meanwhile).
+   */
+  async release(runtime: AgentRuntime): Promise<void> {
+    if (this.runtimeCache?.runtime !== runtime) await runtime.dispose().catch(() => undefined)
   }
 
   async dispose(): Promise<void> {
-    await this.runtimeCache?.runtime.dispose().catch(() => undefined)
+    // Exports still waiting on their timer are written now, so quitting right after a change loses none.
+    const pending = [...this.exportTimers.keys()]
     for (const t of this.exportTimers.values()) clearTimeout(t)
+    this.exportTimers.clear()
+    await Promise.all([this.runtimeCache?.runtime.dispose().catch(() => undefined), ...pending.map((classId) => this.writeExports(classId).catch((err) => this.log(`export failed: ${String(err)}`)))])
   }
 
   /** Everything a job needs to know about a class. */
@@ -105,11 +120,7 @@ export class Kernel {
   }
 
   async independence(classId: string): Promise<IndependenceState> {
-    const [events, sessions, history] = await Promise.all([
-      this.repo.read(classId, 'helpEvents'),
-      this.repo.read(classId, 'sessions'),
-      this.repo.read(classId, 'independenceHistory')
-    ])
+    const [events, sessions, history] = await Promise.all([this.repo.read(classId, 'helpEvents'), this.repo.read(classId, 'sessions'), this.repo.read(classId, 'independenceHistory')])
     return computeIndependence(events, sessions, history)
   }
 
@@ -119,10 +130,15 @@ export class Kernel {
     await this.repo.update(classId, 'independenceHistory', (h) => appendHistory(h, state.score))
   }
 
-  /** Recompute stored progress from the curriculum (call under the class lock). */
+  /**
+   * Recompute stored progress from the curriculum (call under the class lock).
+   * Topics a re-plan dropped keep their stored progress, so one that returns
+   * later is still mastered and on its review schedule; readers recompute and
+   * only see the current plan's topics.
+   */
   async refreshProgress(classId: string): Promise<void> {
     const curriculum = await this.repo.read(classId, 'curriculum')
-    await this.repo.update(classId, 'progress', (p) => recomputeProgress(curriculum, p))
+    await this.repo.update(classId, 'progress', (p) => ({ ...p, ...recomputeProgress(curriculum, p) }))
   }
 
   async summaryFields(classId: string) {
@@ -212,10 +228,10 @@ export function notice(k: Kernel, classId: string, label: string, err: unknown):
 /** Strip the internal prefix from user-facing errors. */
 export function userMessage(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
-  return msg.startsWith('mint:') ? msg.slice(5) : msg
+  return msg.startsWith(USER_ERROR_PREFIX) ? msg.slice(USER_ERROR_PREFIX.length) : msg
 }
 
 /** Throw an error whose message is safe and helpful to show the learner. */
 export function userError(message: string): Error {
-  return new Error(`mint:${message}`)
+  return new Error(`${USER_ERROR_PREFIX}${message}`)
 }

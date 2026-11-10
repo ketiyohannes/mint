@@ -88,8 +88,14 @@ export function ModelPicker(): JSX.Element | null {
 
   useEffect(() => {
     if (!open) return
+    setCustom(null)
     const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      // Back to the pill that opened the menu.
+      ref.current?.querySelector('button')?.focus()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
     return () => {

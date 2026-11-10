@@ -2,6 +2,7 @@ import type { Anchor, DiagramSpec, Explorable } from '@shared/types'
 import { createDiagram, repairDiagram } from '../jobs'
 import { slugify, newId, nowIso } from '../store/fsutil'
 import type { DiagramOutput } from '../jobs/schemas'
+import { cleanAnchor } from './anchors'
 import type { Kernel } from './kernel'
 import { userError } from './kernel'
 
@@ -34,17 +35,23 @@ export function sanitizeDiagram(out: DiagramOutput): DiagramSpec {
     code,
     elements,
     params,
-    caption: String(out.caption ?? '').trim().slice(0, 300)
+    caption: String(out.caption ?? '')
+      .trim()
+      .slice(0, 300)
   }
 }
 
 export class DiagramService {
   constructor(private readonly k: Kernel) {}
 
-  async create(classId: string, prompt: string, anchor?: Anchor, signal?: AbortSignal): Promise<Explorable> {
-    const request = prompt.trim().slice(0, 2000)
+  async create(classId: string, prompt: string, where?: Anchor, signal?: AbortSignal): Promise<Explorable> {
+    const request = String(prompt ?? '')
+      .trim()
+      .slice(0, 2000)
     if (!request) throw userError('Say what the diagram should show.')
     const ctx = await this.k.context(classId)
+    // The anchor is stored with the diagram, so only its known, bounded shape is kept.
+    const anchor = cleanAnchor(where)
     let anchorContext = ''
     if (anchor?.kind === 'source') anchorContext = `"${anchor.quote}" (source ${anchor.sourceId}, section [${anchor.sectionLabel}])`
     else if (anchor?.kind === 'message') anchorContext = `A tutor reply: "${anchor.quote}"`

@@ -13,11 +13,7 @@ import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams, type SpawnOpti
  *   through a single registered handler, or with -32601 when none matches.
  */
 
-export type SpawnFn = (
-  command: string,
-  args: readonly string[],
-  options: SpawnOptionsWithoutStdio
-) => ChildProcessWithoutNullStreams
+export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams
 
 export type RequestId = number | string
 
@@ -50,7 +46,10 @@ export class JsonRpcProcessError extends Error {
 
 /** A request did not get a response in time. */
 export class JsonRpcTimeoutError extends Error {
-  constructor(readonly method: string, readonly timeoutMs: number) {
+  constructor(
+    readonly method: string,
+    readonly timeoutMs: number
+  ) {
     super(`JSON-RPC request "${method}" timed out after ${timeoutMs} ms`)
     this.name = 'JsonRpcTimeoutError'
   }
@@ -133,6 +132,23 @@ function stripAnsi(text: string): string {
   return text.replace(ANSI_PATTERN, '')
 }
 
+/** Characters cmd.exe gives a meaning to; a caret makes each one literal. */
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g
+
+/**
+ * How to start a Windows batch file (.cmd/.bat, such as the `codex.cmd` shim
+ * npm installs). Node refuses to spawn those directly, so they run through
+ * cmd.exe on a command line escaped by hand: every argument is quoted the way
+ * the C runtime reads it back (backslashes before a quote doubled), then cmd's
+ * own metacharacters are caret-escaped. Paths and arguments with spaces or
+ * quotes arrive intact, and nothing in them is run as a second command.
+ */
+export function windowsBatchSpawn(command: string, args: readonly string[], comspec: string = process.env.comspec || 'cmd.exe'): { command: string; args: string[] } {
+  const quote = (arg: string): string => `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1')}"`.replace(CMD_META, '^$1')
+  const line = [command.replace(CMD_META, '^$1'), ...args.map(quote)].join(' ')
+  return { command: comspec, args: ['/d', '/s', '/c', `"${line}"`] }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -176,15 +192,26 @@ export class JsonRpcStdioClient {
     return this.stderrTail
   }
 
-  /** Spawns the child. Spawn failures surface through `onExit` and pending calls. */
+  /** Spawns the child. Most spawn failures surface through `onExit` and pending calls; one thrown by spawn itself is rethrown as a JsonRpcProcessError. */
   start(): void {
     if (this.child) throw new Error('JsonRpcStdioClient already started')
     const spawnImpl = this.options.spawnImpl ?? (nodeSpawn as SpawnFn)
-    const child = spawnImpl(this.options.command, this.options.args ?? [], {
-      cwd: this.options.cwd,
-      env: this.options.env,
-      stdio: ['pipe', 'pipe', 'pipe']
-    } as SpawnOptionsWithoutStdio)
+    const { command, args = [] } = this.options
+    const batch = process.platform === 'win32' && /\.(cmd|bat)$/i.test(command) ? windowsBatchSpawn(command, args) : null
+    let child: ChildProcessWithoutNullStreams
+    try {
+      child = spawnImpl(batch?.command ?? command, batch?.args ?? args, {
+        cwd: this.options.cwd,
+        env: this.options.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+        // The batch command line is already escaped; Node must not quote it again.
+        ...(batch ? { windowsVerbatimArguments: true } : {})
+      } as SpawnOptionsWithoutStdio)
+    } catch (err) {
+      // Some spawn failures are thrown rather than emitted (EINVAL, a bad cwd).
+      throw new JsonRpcProcessError(`failed to run ${command}: ${err instanceof Error ? err.message : String(err)}`)
+    }
     this.child = child
 
     let resolveExit!: () => void
@@ -200,10 +227,7 @@ export class JsonRpcStdioClient {
     child.stdin.on('error', (err) => this.log(`stdin error: ${err.message}`))
 
     child.on('error', (err: NodeJS.ErrnoException) => {
-      const reason =
-        err.code === 'ENOENT'
-          ? `executable not found: ${this.options.command}`
-          : `failed to run ${this.options.command}: ${err.message}`
+      const reason = err.code === 'ENOENT' ? `executable not found: ${this.options.command}` : `failed to run ${this.options.command}: ${err.message}`
       this.handleExit(new JsonRpcProcessError(reason))
       resolveExit()
     })

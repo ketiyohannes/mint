@@ -74,7 +74,7 @@ describe('teach skill (mint edition)', () => {
       () => {}
     )
     const [quiz, intake, reply] = runtime.requests.map((r) => r.system)
-    for (const system of [quiz, intake, reply]) expect(system).toContain('The learner\'s materials are the reference')
+    for (const system of [quiz, intake, reply]) expect(system).toContain("The learner's materials are the reference")
 
     expect(quiz).toContain('## Practice and feedback')
     expect(quiz).toContain('all options of a question have about the same length')
@@ -109,7 +109,16 @@ describe('teach skill (mint edition)', () => {
 
   it('lets the tutor in a lesson chat see the study box, including an unsent answer', async () => {
     const runtime = capturingRuntime()
-    const thread = { id: 't', classId: 'c1', title: '', anchor: { kind: 'general' }, sessionId: 's1', messages: [{ id: 'm', role: 'user', text: 'is my answer on track?', at: '' }], createdAt: '', updatedAt: '' } as never
+    const thread = {
+      id: 't',
+      classId: 'c1',
+      title: '',
+      anchor: { kind: 'general' },
+      sessionId: 's1',
+      messages: [{ id: 'm', role: 'user', text: 'is my answer on track?', at: '' }],
+      createdAt: '',
+      updatedAt: ''
+    } as never
     const session: Session = {
       id: 's1',
       classId: 'c1',
@@ -120,11 +129,22 @@ describe('teach skill (mint edition)', () => {
       brief: { win: 'Find eigenvalues by hand.', whyItMatters: 'PCA is built on them.', readings: [], questions: ['What does A do to an eigenvector?'] },
       prompts: { explain: 'Explain what an eigenvector is.', apply: 'Find the eigenvalues of [[2,0],[0,3]].' },
       attempts: [
-        { id: 'a1', kind: 'explain', prompt: '', answer: 'A vector that only gets scaled.', at: '', verdict: { result: 'pass', feedback: 'Right, and the scale is the eigenvalue.', misconceptions: [] } }
+        {
+          id: 'a1',
+          kind: 'explain',
+          prompt: '',
+          answer: 'A vector that only gets scaled.',
+          at: '',
+          verdict: { result: 'pass', feedback: 'Right, and the scale is the eigenvalue.', misconceptions: [] }
+        }
       ]
     }
     const topic = { id: 'eigen', title: 'Eigenvalues', objective: 'Compute eigenvalues of 2x2 matrices', prerequisites: [], sources: [] } as unknown as Topic
-    const text = await tutorReply({ runtime, ctx }, { thread, rung: 1, anchorContext: '', session, sessionTopic: topic, studyDraft: { kind: 'apply', text: 'The diagonal entries, so 2 and 3' } }, () => {})
+    const text = await tutorReply(
+      { runtime, ctx },
+      { thread, rung: 1, anchorContext: '', session, sessionTopic: topic, studyDraft: { kind: 'apply', text: 'The diagonal entries, so 2 and 3' } },
+      () => {}
+    )
     const { system, prompt } = runtime.requests[0]
 
     expect(system).toContain('you can see it')
@@ -160,7 +180,15 @@ describe('teach skill (mint edition)', () => {
       at: '2026-11-09T00:00:00.000Z',
       verdict: { result: 'partial', feedback: 'Say what the eigenvalue is.', misconceptions: ['eigenvalues are directions'] }
     }
-    const verdict = await judgeCheck({ runtime, ctx }, topic, 'explain', 'Explain eigenvalues.', 'And the stretch factor along that direction is the eigenvalue, so A times x equals lambda times x.', '', [first])
+    const verdict = await judgeCheck(
+      { runtime, ctx },
+      topic,
+      'explain',
+      'Explain eigenvalues.',
+      'And the stretch factor along that direction is the eigenvalue, so A times x equals lambda times x.',
+      '',
+      [first]
+    )
     const prompt = runtime.requests[0].prompt
     expect(prompt).toContain('Earlier tries at this check')
     expect(prompt).toContain('An eigenvector is a direction the matrix only stretches.')

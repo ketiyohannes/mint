@@ -107,7 +107,15 @@ describe('classes.start + the chat intake', () => {
       classId: eigenId,
       threadId: t1.id,
       messageId: q.id,
-      answer: { kind: 'questions', answers: { [goal.id]: [goal.options[0].label], [background.id]: [background.options[1].label, 'ignored second pick'], [style.id]: [style.options[1].label, style.options[2].label], bogus: ['x'] } }
+      answer: {
+        kind: 'questions',
+        answers: {
+          [goal.id]: [goal.options[0].label],
+          [background.id]: [background.options[1].label, 'ignored second pick'],
+          [style.id]: [style.options[1].label, style.options[2].label],
+          bogus: ['x']
+        }
+      }
     })
     const answered = t2.messages.find((m) => m.id === q.id)!.widget
     expect(answered).toMatchObject({ kind: 'questions', answers: { [goal.id]: [goal.options[0].label], [background.id]: [background.options[1].label] } })
@@ -149,7 +157,19 @@ describe('classes.start + the chat intake', () => {
       classId: eigenId,
       threadId: quiz.id,
       messageId: cm.id,
-      answer: { kind: 'code', code: 'def scale(v, k):\n    return [x * k for x in v]', result: { ok: true, output: [], tests: [{ name: 'test_basic', pass: true }, { name: 'test_negative', pass: true }] }, streamId: 'code1' }
+      answer: {
+        kind: 'code',
+        code: 'def scale(v, k):\n    return [x * k for x in v]',
+        result: {
+          ok: true,
+          output: [],
+          tests: [
+            { name: 'test_basic', pass: true },
+            { name: 'test_negative', pass: true }
+          ]
+        },
+        streamId: 'code1'
+      }
     })
     expect(reviewed.messages.find((m) => m.id === cm.id)!.widget).toMatchObject({ kind: 'code', submission: { passed: 2, total: 2 } })
     expect(reviewed.messages.at(-1)).toMatchObject({ role: 'tutor' })

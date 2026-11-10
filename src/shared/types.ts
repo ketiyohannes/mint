@@ -104,6 +104,9 @@ export interface Intake {
 
 export type ClassStage = 'intake' | 'active'
 
+/** Placeholder name of a class until the intake conversation names it. */
+export const UNNAMED_CLASS = 'New class'
+
 export interface ClassMeta {
   id: ID
   title: string

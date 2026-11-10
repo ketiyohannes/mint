@@ -41,13 +41,11 @@ export interface MintCore {
   dispose(): Promise<void>
 }
 
-export function createCore(
-  opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge; updates?: UpdateController } & KernelOptions
-): MintCore {
+export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge; updates?: UpdateController } & KernelOptions): MintCore {
   const repo = new ClassRepo(join(opts.dataDir, 'classes'))
   const settings = new SettingsStore(opts.dataDir, opts.cipher)
   void settings.forgetRetiredSecrets().catch(() => undefined)
-  const kernel = new Kernel(repo, settings, opts.emitter, { fetchImpl: opts.fetchImpl, youtube: opts.youtube, log: opts.log })
+  const kernel = new Kernel(repo, settings, opts.emitter, { fetchImpl: opts.fetchImpl, youtube: opts.youtube, log: opts.log, appVersion: opts.appVersion })
 
   const classes = new ClassService(kernel)
   const sources = new SourceService(kernel)
@@ -79,8 +77,7 @@ export function createCore(
         try {
           return await runtime.check()
         } finally {
-          const s = await settings.get()
-          if (s.provider !== provider) await runtime.dispose().catch(() => undefined)
+          await kernel.release(runtime)
         }
       },
       models: async (provider, refresh) => {
@@ -96,15 +93,17 @@ export function createCore(
           // Not installed or not signed in: the picker still offers the default and a custom id.
           return { models: cached ?? [], error: userMessage(err) }
         } finally {
-          const s = await settings.get()
-          if (s.provider !== provider) await runtime.dispose().catch(() => undefined)
+          await kernel.release(runtime)
         }
       },
       openDataDir: () => opts.host.openPath(opts.dataDir)
     },
     classes: {
       list: () => classes.list(),
-      get: (id) => classes.get(id),
+      get: async (id) => {
+        await sources.recoverInterrupted(id)
+        return classes.get(id)
+      },
       create: (input) => classes.create(input),
       start: (input) => setup.start(input ?? {}),
       update: (id, patch) => classes.update(id, patch),
@@ -113,7 +112,8 @@ export function createCore(
     },
     sources: {
       addFiles: async (classId, paths) => {
-        const picked = paths && paths.length ? paths : await opts.host.pickFiles()
+        const given = (Array.isArray(paths) ? paths : []).map(String).filter(Boolean).slice(0, 200)
+        const picked = given.length ? given : await opts.host.pickFiles()
         if (!picked.length) return { added: [], errors: [] }
         const out = await sources.addFiles(classId, picked)
         if (out.added.length) setup.planIfUnplanned(classId)

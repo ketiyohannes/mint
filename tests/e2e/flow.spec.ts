@@ -72,6 +72,16 @@ function materialsFolder(): string {
   return dir
 }
 
+/** Sends copies to a list on the page instead of the clipboard of whoever runs the test; returns a reader for the list. */
+async function captureClipboard(page: Page): Promise<() => Promise<string[]>> {
+  await page.evaluate(() => {
+    const w = window as unknown as { copied: string[] }
+    w.copied = []
+    navigator.clipboard.writeText = async (text) => void w.copied.push(text)
+  })
+  return () => page.evaluate(() => (window as unknown as { copied: string[] }).copied)
+}
+
 /** Type into the composer and send. */
 async function say(page: Page, text: string): Promise<void> {
   await page.getByTestId('ask-input').last().fill(text)
@@ -93,6 +103,11 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('app-version')).toHaveText(/^\d+\.\d+\.\d+/)
   await expect(page.getByTestId('update-status')).toContainText('off during tests')
   await expect(page.getByTestId('update-row')).toHaveCount(0)
+  // Every keyboard shortcut is listed, written the way this system writes keys.
+  await expect(page.getByTestId('shortcuts')).toContainText('New chat in the open class')
+  await expect(page.getByTestId('shortcuts')).toContainText(process.platform === 'darwin' ? '⌘N' : 'Ctrl+N')
+  await page.getByTestId('shortcuts').scrollIntoViewIfNeeded()
+  await shot(page, 'shortcuts')
 
   // --- Open a folder: a class, with the prompt in the middle ---------------------------
   await page.getByTestId('open-folder').click()
@@ -129,6 +144,20 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await say(page, 'Why does an eigenvector keep its direction?')
   await expect(page.getByTestId('tutor-message').last()).toContainText('full explanation', { timeout: 15_000 })
   await expect(page.getByTestId('more-help')).toHaveCount(0) // the help ladder is the Coach style's
+  // Copy gives the reply without the tutor's own markup for citations and offers.
+  const copied = await captureClipboard(page)
+  await page.getByTestId('copy-reply').last().click()
+  await expect(page.getByTestId('copy-reply').last()).toHaveAttribute('title', 'Copied')
+  expect((await copied()).at(-1)).toContain('full explanation')
+  expect((await copied()).at(-1)).not.toContain('[[')
+  // An unsent message survives a reload; Up in an empty box brings back the last one sent.
+  await page.getByTestId('ask-input').last().fill('half a thought')
+  await page.reload()
+  await expect(page.getByTestId('ask-input').last()).toHaveValue('half a thought')
+  await page.getByTestId('ask-input').last().fill('')
+  await page.getByTestId('ask-input').last().press('ArrowUp')
+  await expect(page.getByTestId('ask-input').last()).toHaveValue('Why does an eigenvector keep its direction?')
+  await page.getByTestId('ask-input').last().fill('')
   await selectText(page, '[data-testid=chat-body] [data-testid=tutor-message]', 'full explanation')
   await page.getByTestId('ask-followup').click()
   const side = page.getByTestId('ask-popover')
@@ -179,7 +208,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await page.keyboard.press('ControlOrMeta+A')
   // insertText, like a paste: the editor auto-closes brackets while typing.
   await page.keyboard.insertText('function scale(v, k) {\n  return v.map((x) => x * k)\n}\n')
-  await code.getByTestId('code-run').click()
+  await page.keyboard.press('ControlOrMeta+Enter') // runs the tests from the editor
   await expect(code.getByTestId('code-output')).toContainText('3/3 tests passing')
   await code.getByTestId('code-submit').click()
   await expect(page.getByTestId('tutor-message').last()).toContainText('All 3 tests pass', { timeout: 15_000 })
@@ -196,6 +225,10 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('ask-popover').getByTestId('tutor-message').first()).toBeVisible()
   await page.keyboard.press('Escape')
   await shot(page, 'diagram')
+  // Far up a long chat, a pill jumps back to the latest reply.
+  await page.getByTestId('chat-body').evaluate((el) => el.scrollTo({ top: 0 }))
+  await page.getByTestId('jump-latest').click()
+  await expect(page.getByTestId('jump-latest')).toHaveCount(0)
   await expectShellInPlace(page)
 
   // --- Reader: the original PDF in the Sources tab ----------------------------------------
@@ -210,6 +243,16 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await shot(page, 'pdf-dark')
   await page.getByTestId('pdf-dark').click()
   await expect(page.getByTestId('pdf-view')).not.toHaveClass(/dark/)
+  // The bar shows the page in view; typing a number goes there.
+  await expect(page.getByTestId('pdf-page')).toHaveText('1 / 2')
+  await page.getByTestId('pdf-page').click()
+  await page.getByTestId('pdf-page-input').fill('2')
+  await page.getByTestId('pdf-page-input').press('Enter')
+  await expect(page.getByTestId('pdf-page')).toHaveText('2 / 2')
+  await page.getByTestId('pdf-page').click()
+  await page.getByTestId('pdf-page-input').fill('1')
+  await page.getByTestId('pdf-page-input').press('Enter')
+  await expect(page.getByTestId('pdf-page')).toHaveText('1 / 2')
   // Zoom: buttons step it, the level resets to fit width, and Ctrl + scroll (a trackpad pinch) zooms the pages.
   const pageWidth = async () => (await page.locator('.pdf-page[data-page="1"]').boundingBox())!.width
   const fit = await pageWidth()
@@ -245,9 +288,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(pop.getByTestId('tutor-message').last()).toContainText('full explanation')
   await expect(pop.getByTestId('rung-bar')).toHaveCount(0)
   await pop.locator('.cite-chip').first().click()
-  await expect
-    .poll(async () => (await highlightCount(page, 'mint-flash')) + (await page.locator('.block.flash, mark.hl.flash-quote').count()))
-    .toBeGreaterThan(0)
+  await expect.poll(async () => (await highlightCount(page, 'mint-flash')) + (await page.locator('.block.flash, mark.hl.flash-quote').count())).toBeGreaterThan(0)
   await page.getByTestId('popover-minimize').click()
   await expect(page.getByTestId('pin-thread').first()).toBeVisible()
   await selectText(page, '[data-testid=pdf-view] .textLayer', 'The whole idea fits in one equation')
@@ -400,11 +441,17 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect.poll(async () => (await dock.getByTestId('check-answer').boundingBox())?.height ?? 999).toBeLessThanOrEqual(70)
   await expect.poll(async () => (await page.getByTestId('ask-input').first().boundingBox())?.height ?? 999).toBeLessThanOrEqual(160)
   expect(await dock.getByTestId('check-answer').evaluate((el) => getComputedStyle(el).resize)).toBe('none')
+  // The panel gives way to the chat, and the PDF refits its narrower column.
+  expect((await page.getByTestId('chat-pane').boundingBox())!.width).toBeGreaterThanOrEqual(420)
+  await expect.poll(async () => (await page.locator('.pdf-page[data-page="1"]').boundingBox())!.width).toBeLessThan((await page.getByTestId('panel').boundingBox())!.width)
   await shot(page, 'small-window-boxes')
   await page.getByTestId('ask-input').first().fill('')
   await page.setViewportSize({ width: 1440, height: 920 })
+  // After a first try the readings are one click away, and ⌘/Ctrl+Enter checks the answer.
+  await expect(dock.getByTestId('check-reading').first()).toBeVisible()
+  await shot(page, 'check-retry')
   await dock.getByTestId('check-answer').fill('Adding the reason: how much it stretches is the eigenvalue, so A x equals lambda x.')
-  await dock.getByTestId('check-submit').click()
+  await dock.getByTestId('check-answer').press('ControlOrMeta+Enter')
   await expect(dock.getByTestId('verdict')).toHaveCount(2)
   await expect(dock.getByTestId('verdict').last()).toContainText('Pass')
   await expect(dock.getByTestId('verdict').last()).toContainText('Building on your earlier try')
@@ -412,8 +459,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await dock.getByTestId('phase-next').click()
   await expect(dock.getByTestId('phase-apply')).toHaveClass(/active/)
 
-  const long =
-    'An eigenvector is a direction the matrix does not rotate: multiplying it by the matrix only scales it, and the scale factor is the eigenvalue, so A x equals lambda x for that vector.'
+  const long = 'An eigenvector is a direction the matrix does not rotate: multiplying it by the matrix only scales it, and the scale factor is the eigenvalue, so A x equals lambda x for that vector.'
   for (const next of ['distinguish', 'wrap']) {
     await dock.getByTestId('check-answer').fill(long)
     await dock.getByTestId('check-submit').click()
@@ -427,6 +473,9 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await dock.getByTestId('close-finished').click()
   await expect(dock).toHaveCount(0)
   await expect(page.getByTestId('tab-lessons')).toHaveAttribute('aria-selected', 'true')
+  // The plan counts what is mastered in each part.
+  await expect(page.getByTestId('milestone-progress').first()).toHaveText('1/3')
+  await shot(page, 'lessons')
 
   // --- Notes ---------------------------------------------------------------------------------
   // A plain notepad: past notes, and a rich editor for a new one. It saves as you type.
@@ -492,12 +541,43 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
 
   // --- Swap the chat and the panel; hide the panel --------------------------------------------
   await page.getByTestId('swap').click()
-  expect(await page.evaluate(() => document.querySelector('.workspace')!.firstElementChild!.classList.contains('side-panel'))).toBe(true)
+  await expect.poll(async () => (await box('panel')).x - (await box('chat-pane')).x).toBeLessThan(0)
   await page.getByTestId('toggle-panel').click()
   await expect(page.getByTestId('panel')).toHaveCount(0)
   await page.getByTestId('toggle-panel').click()
   await page.getByTestId('swap').click()
   await shot(page, 'notes')
+
+  // --- Keyboard: the frequent moves have shortcuts -----------------------------------------------
+  const chatTitleNow = await page.getByTestId('chat-title').innerText()
+  await page.keyboard.press('ControlOrMeta+n')
+  await expect(page.getByTestId('chat-hero')).toBeVisible()
+  await page.keyboard.press('Control+Tab')
+  await expect(page.getByTestId('chat-hero')).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+\\')
+  await expect(page.getByTestId('panel')).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+\\')
+  await expect(page.getByTestId('panel')).toBeVisible()
+  await page.keyboard.press('ControlOrMeta+,')
+  await expect(page.getByTestId('shortcuts')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('shortcuts')).toHaveCount(0)
+  await expect(page.getByTestId('chat-title')).toHaveText(chatTitleNow)
+  // "/" goes to the prompt box from anywhere and lists the tools.
+  await page.getByTestId('chat-body').click({ position: { x: 4, y: 4 } })
+  await page.keyboard.press('/')
+  await expect(page.getByTestId('slash-menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.getByTestId('ask-input').last().fill('')
+  // A double-click on the divider puts the panel back to its default width.
+  const divider = (await box('splitter'))!
+  await page.mouse.move(divider.x + divider.width / 2, divider.y + 300)
+  await page.mouse.down()
+  await page.mouse.move(divider.x - 120, divider.y + 300, { steps: 4 })
+  await page.mouse.up()
+  await expect.poll(async () => (await box('panel')).width).toBeGreaterThan(640)
+  await page.getByTestId('splitter').dblclick()
+  await expect.poll(async () => Math.round((await box('panel')).width)).toBe(560)
 
   // --- Focus timer: blocks and breaks in the learner's rhythm, kept across reloads ---------------
   const timer = page.getByTestId('focus-timer')

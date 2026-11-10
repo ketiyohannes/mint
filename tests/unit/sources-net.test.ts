@@ -18,28 +18,45 @@ function routes(table: Record<string, () => Response>): FetchFn & { calls: strin
   return Object.assign(impl, { calls, inits })
 }
 
-const redirect = (location: string, status = 302) => (): Response =>
-  new Response(null, { status, headers: { location } })
+const redirect =
+  (location: string, status = 302) =>
+  (): Response =>
+    new Response(null, { status, headers: { location } })
 
-const html = (body: string) => (): Response =>
-  new Response(body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })
+const html = (body: string) => (): Response => new Response(body, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })
 
 describe('isPrivateAddress', () => {
   it.each([
-    '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '169.254.169.254',
-    '100.64.0.1', '100.127.255.255', '0.0.0.0', '224.0.0.1', '255.255.255.255',
-    '::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1', '::ffff:127.0.0.1', '::ffff:7f00:1',
-    '::ffff:10.0.0.1', '64:ff9b::a00:1', '2002:c0a8:0101::1', 'ff02::1', 'fe80::1%en0'
+    '127.0.0.1',
+    '10.1.2.3',
+    '172.16.0.1',
+    '172.31.255.255',
+    '192.168.1.1',
+    '169.254.169.254',
+    '100.64.0.1',
+    '100.127.255.255',
+    '0.0.0.0',
+    '224.0.0.1',
+    '255.255.255.255',
+    '::1',
+    '::',
+    'fe80::1',
+    'fc00::1',
+    'fd12:3456::1',
+    '::ffff:127.0.0.1',
+    '::ffff:7f00:1',
+    '::ffff:10.0.0.1',
+    '64:ff9b::a00:1',
+    '2002:c0a8:0101::1',
+    'ff02::1',
+    'fe80::1%en0'
   ])('blocks %s', (ip) => {
     expect(isPrivateAddress(ip)).toBe(true)
   })
 
-  it.each(['8.8.8.8', '93.184.216.34', '172.32.0.1', '100.128.0.1', '2606:4700:4700::1111', '::ffff:8.8.8.8'])(
-    'allows %s',
-    (ip) => {
-      expect(isPrivateAddress(ip)).toBe(false)
-    }
-  )
+  it.each(['8.8.8.8', '93.184.216.34', '172.32.0.1', '100.128.0.1', '2606:4700:4700::1111', '::ffff:8.8.8.8'])('allows %s', (ip) => {
+    expect(isPrivateAddress(ip)).toBe(false)
+  })
 })
 
 describe('safeFetch', () => {
@@ -81,11 +98,7 @@ describe('safeFetch', () => {
     expect(result.finalUrl).toBe('https://www.example.org/end')
     expect(result.contentType).toBe('text/html; charset=utf-8')
     expect(new TextDecoder().decode(result.bytes)).toBe('<p>hi</p>')
-    expect(fetchImpl.calls).toEqual([
-      'https://example.com/start',
-      'https://example.com/middle',
-      'https://www.example.org/end'
-    ])
+    expect(fetchImpl.calls).toEqual(['https://example.com/start', 'https://example.com/middle', 'https://www.example.org/end'])
     for (const init of fetchImpl.inits) {
       expect(init.redirect).toBe('manual')
       expect((init.headers as Record<string, string>)['User-Agent']).toMatch(/^Mozilla\/5\.0/)
@@ -131,16 +144,13 @@ describe('safeFetch', () => {
           { headers: { 'content-type': 'application/pdf' } }
         )
     })
-    await expect(safeFetch('https://example.com/big', { fetchImpl, maxBytes: 4096 })).rejects.toThrow(
-      'Page is larger than 4 KB'
-    )
+    await expect(safeFetch('https://example.com/big', { fetchImpl, maxBytes: 4096 })).rejects.toThrow('Page is larger than 4 KB')
     expect(pulled).toBeLessThan(10) // aborted early, not read to the end
   })
 
   it('rejects early on an oversized Content-Length and uses a human message', async () => {
     const fetchImpl = routes({
-      'https://example.com/huge': () =>
-        new Response('x', { headers: { 'content-type': 'text/plain', 'content-length': String(30 * 1024 * 1024) } })
+      'https://example.com/huge': () => new Response('x', { headers: { 'content-type': 'text/plain', 'content-length': String(30 * 1024 * 1024) } })
     })
     await expect(safeFetch('https://example.com/huge', { fetchImpl })).rejects.toThrow('Page is larger than 25 MB')
   })
@@ -150,31 +160,28 @@ describe('safeFetch', () => {
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
       })) as FetchFn
-    await expect(safeFetch('https://slow.example.com/', { fetchImpl, timeoutMs: 30 })).rejects.toThrow(
-      'Timed out after 30 ms waiting for slow.example.com.'
-    )
+    await expect(safeFetch('https://slow.example.com/', { fetchImpl, timeoutMs: 30 })).rejects.toThrow('Timed out after 30 ms waiting for slow.example.com.')
   })
 
   it('reports HTTP errors and network failures clearly', async () => {
     const fetchImpl = routes({
       'https://example.com/missing': () => new Response('nope', { status: 404, statusText: 'Not Found' })
     })
-    await expect(safeFetch('https://example.com/missing', { fetchImpl })).rejects.toThrow(
-      'example.com answered HTTP 404 Not Found.'
-    )
+    await expect(safeFetch('https://example.com/missing', { fetchImpl })).rejects.toThrow('example.com answered HTTP 404 Not Found.')
     await expect(safeFetch('https://example.com/down', { fetchImpl })).rejects.toThrow(/Could not reach example\.com/)
   })
 
   it('resolves DNS when no fetchImpl is injected and blocks private answers', async () => {
     vi.resetModules()
     vi.doMock('node:dns/promises', () => ({
-      lookup: async () => [{ address: '93.184.216.34', family: 4 }, { address: '10.0.0.5', family: 4 }]
+      lookup: async () => [
+        { address: '93.184.216.34', family: 4 },
+        { address: '10.0.0.5', family: 4 }
+      ]
     }))
     try {
       const { safeFetch: guardedFetch } = await import('../../src/main/sources/net')
-      await expect(guardedFetch('https://rebind.example.com/')).rejects.toThrow(
-        'Blocked: rebind.example.com is a private address'
-      )
+      await expect(guardedFetch('https://rebind.example.com/')).rejects.toThrow('Blocked: rebind.example.com is a private address')
     } finally {
       vi.doUnmock('node:dns/promises')
       vi.resetModules()

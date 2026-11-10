@@ -41,6 +41,7 @@ import { api, errorMessage, timeAgo } from '../../lib/api'
 import { markdownToNoteHtml, renderMath } from '../../lib/markdown'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
+import { shortcutLabel, withMod } from '../../lib/shortcuts'
 import { MathNode } from './mathNode'
 
 /**
@@ -104,11 +105,7 @@ const NEW = '__new__'
 function Snippet({ text }: { text: string }): JSX.Element {
   if (!text) return <>Empty note</>
   const parts = text.split(MATH_MARK)
-  return (
-    <>
-      {parts.map((part, i) => (i % 2 ? <span key={i} dangerouslySetInnerHTML={{ __html: renderMath(part) }} /> : <span key={i}>{part}</span>))}
-    </>
-  )
+  return <>{parts.map((part, i) => (i % 2 ? <span key={i} dangerouslySetInnerHTML={{ __html: renderMath(part) }} /> : <span key={i}>{part}</span>))}</>
 }
 
 const MATH_MARK = '\u0000'
@@ -160,7 +157,16 @@ function NoteEditor({ classId, note, onClose }: { classId: string; note: NoteDoc
     content: initial,
     // A new note starts in the title; the body is focused on Enter (never stolen mid-typing).
     autofocus: false,
-    editorProps: { attributes: { class: 'note-doc', 'data-testid': 'note-editor', spellcheck: 'true' } },
+    editorProps: {
+      attributes: { class: 'note-doc', 'data-testid': 'note-editor', spellcheck: 'true' },
+      // A plain click on a link places the cursor; ⌘/Ctrl + click opens it in the browser.
+      handleClick: (_view, _pos, event) => {
+        const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null
+        if (!link || !(event.metaKey || event.ctrlKey) || !/^https?:\/\//i.test(link.href)) return false
+        void api.system.openExternal(link.href).catch((err) => toast(errorMessage(err), 'error'))
+        return true
+      }
+    },
     onUpdate: () => schedule()
   })
 
@@ -206,15 +212,19 @@ function NoteEditor({ classId, note, onClose }: { classId: string; note: NoteDoc
   const close = async () => {
     window.clearTimeout(timer.current)
     await save()
+    // Still unsaved (the save failed, and said so): leaving would drop the changes.
+    if (dirty.current && !window.confirm('This note could not be saved. Leave it and lose your last changes?')) return
+    dirty.current = false
     onClose()
   }
 
   const remove = async () => {
+    await queue.current
+    // Asked first: on "Cancel" the note is as it was, unsaved changes included.
+    if (idRef.current && !window.confirm('Delete this note?')) return
     window.clearTimeout(timer.current)
     dirty.current = false
-    await queue.current
     if (idRef.current) {
-      if (!window.confirm('Delete this note?')) return
       try {
         await api.notes.remove(classId, idRef.current)
       } catch (err) {
@@ -249,7 +259,8 @@ function NoteEditor({ classId, note, onClose }: { classId: string; note: NoteDoc
             schedule()
           }}
           onKeyDown={(e) => {
-            if ((e.key === 'Enter' || e.key === 'ArrowDown') && editor) {
+            // Enter that confirms an IME candidate stays in the title.
+            if ((e.key === 'Enter' || e.key === 'ArrowDown') && editor && !e.nativeEvent.isComposing) {
               e.preventDefault()
               // Focus synchronously (TipTap's focus command waits a frame, and fast typing would land in the title).
               editor.view.focus()
@@ -267,7 +278,14 @@ function NoteEditor({ classId, note, onClose }: { classId: string; note: NoteDoc
 }
 
 function firstLine(editor: Editor): string {
-  return editor.getText().split('\n').find((l) => l.trim())?.trim().slice(0, 80) || 'Untitled'
+  return (
+    editor
+      .getText()
+      .split('\n')
+      .find((l) => l.trim())
+      ?.trim()
+      .slice(0, 80) || 'Untitled'
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -307,9 +325,15 @@ function Toolbar({ editor }: { editor: Editor }): JSX.Element {
   const applyLink = () => {
     const raw = (linking ?? '').trim()
     setLinking(null)
-    if (!raw) return
+    if (!raw) return void editor.commands.focus()
     const href = /^(https?:|mailto:)/i.test(raw) ? raw : `https://${raw}`
-    c().extendMarkRange('link').setLink({ href }).run()
+    // Nothing selected: the address itself becomes the linked text (a link on no text would not show).
+    if (editor.state.selection.empty && !editor.isActive('link')) {
+      c()
+        .insertContent({ type: 'text', text: raw, marks: [{ type: 'link', attrs: { href } }] })
+        .unsetMark('link')
+        .run()
+    } else c().extendMarkRange('link').setLink({ href }).run()
   }
 
   return (
@@ -324,9 +348,9 @@ function Toolbar({ editor }: { editor: Editor }): JSX.Element {
         <Btn icon={TextHThreeIcon} label="Heading 3" on={s.h3} onClick={() => c().toggleHeading({ level: 3 }).run()} />
       </Group>
       <Group>
-        <Btn icon={TextBIcon} label="Bold (⌘B)" on={s.bold} onClick={() => c().toggleBold().run()} testId="fmt-bold" />
-        <Btn icon={TextItalicIcon} label="Italic (⌘I)" on={s.italic} onClick={() => c().toggleItalic().run()} />
-        <Btn icon={TextUnderlineIcon} label="Underline (⌘U)" on={s.underline} onClick={() => c().toggleUnderline().run()} />
+        <Btn icon={TextBIcon} label={`Bold (${shortcutLabel('bold')})`} on={s.bold} onClick={() => c().toggleBold().run()} testId="fmt-bold" />
+        <Btn icon={TextItalicIcon} label={`Italic (${shortcutLabel('italic')})`} on={s.italic} onClick={() => c().toggleItalic().run()} />
+        <Btn icon={TextUnderlineIcon} label={`Underline (${shortcutLabel('underline')})`} on={s.underline} onClick={() => c().toggleUnderline().run()} />
         <Btn icon={TextStrikethroughIcon} label="Strikethrough" on={s.strike} onClick={() => c().toggleStrike().run()} />
         <Btn icon={HighlighterIcon} label="Highlight" on={s.highlight} onClick={() => c().toggleHighlight().run()} />
         <Btn icon={CodeIcon} label="Inline code" on={s.code} onClick={() => c().toggleCode().run()} />
@@ -345,7 +369,8 @@ function Toolbar({ editor }: { editor: Editor }): JSX.Element {
         <Btn icon={MinusIcon} label="Divider" onClick={() => c().setHorizontalRule().run()} />
         <Btn
           icon={LinkSimpleIcon}
-          label={s.link ? 'Remove link' : 'Link'}
+          label={s.link ? 'Remove link' : `Link (${withMod('click')} opens one)`}
+          testId="fmt-link"
           on={s.link || linking !== null}
           onClick={() => (s.link ? c().extendMarkRange('link').unsetLink().run() : setLinking(linking === null ? '' : null))}
         />
@@ -364,7 +389,19 @@ function Toolbar({ editor }: { editor: Editor }): JSX.Element {
             applyLink()
           }}
         >
-          <input autoFocus value={linking} onChange={(e) => setLinking(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setLinking(null)} placeholder="Paste a link and press Enter" />
+          <input
+            autoFocus
+            value={linking}
+            onChange={(e) => setLinking(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              // Back to the note, where the cursor was.
+              setLinking(null)
+              editor.commands.focus()
+            }}
+            placeholder="Paste a link and press Enter"
+            data-testid="note-link-input"
+          />
         </form>
       )}
     </div>

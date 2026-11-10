@@ -2,6 +2,7 @@ import type { Anchor, Annotation, GlossaryTerm, NoteDoc } from '@shared/types'
 import { findTopic } from '@shared/curriculum'
 import { checkGlossaryTerm, draftReference, reviewNote } from '../jobs'
 import { newId, nowIso } from '../store/fsutil'
+import { validateSourceAnchor } from './anchors'
 import type { Kernel } from './kernel'
 import { userError } from './kernel'
 import { appendRecords } from './records'
@@ -18,9 +19,9 @@ export class NotebookService {
     const a: Annotation = {
       id: newId('ann'),
       classId,
-      anchor: { kind: 'source', sourceId: anchor.sourceId, sectionLabel: anchor.sectionLabel, ranges: anchor.ranges.slice(0, 50), quote: anchor.quote.slice(0, 2000) },
+      anchor: await validateSourceAnchor(this.k, classId, anchor),
       kind: kind === 'note' ? 'note' : 'highlight',
-      text: text?.slice(0, 8000),
+      text: text == null ? undefined : String(text).slice(0, 8000),
       createdAt: now,
       updatedAt: now
     }
@@ -29,9 +30,7 @@ export class NotebookService {
   }
 
   async updateAnnotation(classId: string, id: string, text: string): Promise<void> {
-    await this.k.repo.lock(classId, () =>
-      this.k.repo.update(classId, 'annotations', (list) => list.map((a) => (a.id === id ? { ...a, text: text.slice(0, 8000), updatedAt: nowIso() } : a)))
-    )
+    await this.k.repo.lock(classId, () => this.k.repo.update(classId, 'annotations', (list) => list.map((a) => (a.id === id ? { ...a, text: text.slice(0, 8000), updatedAt: nowIso() } : a))))
     this.k.changed(classId)
   }
 
@@ -43,7 +42,10 @@ export class NotebookService {
   // --- notes and reference sheets ----------------------------------------
 
   async saveNote(classId: string, input: Pick<NoteDoc, 'kind' | 'title' | 'body' | 'format'> & { id?: string }): Promise<NoteDoc> {
-    const title = String(input.title ?? '').trim().slice(0, 160) || 'Untitled'
+    const title =
+      String(input.title ?? '')
+        .trim()
+        .slice(0, 160) || 'Untitled'
     const body = String(input.body ?? '').slice(0, 400_000)
     const kind = input.kind === 'reference' ? 'reference' : 'note'
     const format = input.format === 'html' ? ('html' as const) : undefined
@@ -81,7 +83,16 @@ export class NotebookService {
     const topic = topicId ? (findTopic(ctx.curriculum, topicId) ?? null) : null
     const draft = await this.k.job(classId, 'Drafting a reference sheet', async () => draftReference({ runtime: await this.k.runtime(), ctx }, topic))
     const now = nowIso()
-    const note: NoteDoc = { id: newId('note'), classId, kind: 'reference', title: draft.title.trim().slice(0, 160) || 'Reference', body: draft.body, authoredBy: 'tutor-draft', createdAt: now, updatedAt: now }
+    const note: NoteDoc = {
+      id: newId('note'),
+      classId,
+      kind: 'reference',
+      title: draft.title.trim().slice(0, 160) || 'Reference',
+      body: draft.body,
+      authoredBy: 'tutor-draft',
+      createdAt: now,
+      updatedAt: now
+    }
     await this.k.repo.lock(classId, () => this.k.repo.update(classId, 'notes', (list) => [...list, note]))
     this.k.changed(classId)
     return note
@@ -127,7 +138,10 @@ export class NotebookService {
       id: newId('term'),
       term: name,
       definition: check.definition.trim() || def,
-      avoid: check.avoid.map((a) => a.trim()).filter(Boolean).slice(0, 6),
+      avoid: check.avoid
+        .map((a) => a.trim())
+        .filter(Boolean)
+        .slice(0, 6),
       sourceRef: anchor?.kind === 'source' ? { sourceId: anchor.sourceId, section: anchor.sectionLabel } : undefined,
       addedAt: now,
       updatedAt: now
@@ -146,7 +160,12 @@ export class NotebookService {
                 ...g,
                 term: patch.term?.trim().slice(0, 120) || g.term,
                 definition: patch.definition?.trim().slice(0, 1200) || g.definition,
-                avoid: patch.avoid ? patch.avoid.map((a) => a.trim()).filter(Boolean).slice(0, 6) : g.avoid,
+                avoid: patch.avoid
+                  ? patch.avoid
+                      .map((a) => a.trim())
+                      .filter(Boolean)
+                      .slice(0, 6)
+                  : g.avoid,
                 updatedAt: nowIso()
               }
             : g

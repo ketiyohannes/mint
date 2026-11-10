@@ -1,4 +1,5 @@
-import type { ModelOption,
+import type {
+  ModelOption,
   Anchor,
   ChatCommand,
   WidgetAnswer,

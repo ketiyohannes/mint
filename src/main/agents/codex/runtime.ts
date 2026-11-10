@@ -2,13 +2,7 @@ import type { ModelOption } from '@shared/types'
 import { accessSync, constants as fsConstants } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
-import {
-  AgentError,
-  type AgentRuntime,
-  type AgentTurnRequest,
-  type AgentTurnResult,
-  type ProviderCheck
-} from '../types'
+import { AgentError, type AgentRuntime, type AgentTurnRequest, type AgentTurnResult, type ProviderCheck } from '../types'
 import { JsonRpcError, JsonRpcProcessError, JsonRpcStdioClient, JsonRpcTimeoutError, type SpawnFn } from './jsonrpc'
 import {
   Method,
@@ -42,6 +36,8 @@ export interface CodexRuntimeOptions {
   codexPath?: string
   /** Model override. Empty/undefined uses the Codex default model. */
   model?: string
+  /** The running mint version, reported to the app-server as the client version. */
+  clientVersion?: string
   /** Injectable process spawner (tests run a fake app-server through it). */
   spawnImpl?: SpawnFn
   log?: (msg: string) => void
@@ -56,12 +52,7 @@ const LOGIN_HINT = 'Codex is not logged in. Run `codex login` in a terminal, the
 
 /** Locations checked after PATH. Electron apps launched from Finder get a minimal PATH. */
 function fallbackCodexLocations(): string[] {
-  return [
-    join(homedir(), '.local', 'bin', 'codex'),
-    '/opt/homebrew/bin/codex',
-    '/usr/local/bin/codex',
-    join(homedir(), '.npm-global', 'bin', 'codex')
-  ]
+  return [join(homedir(), '.local', 'bin', 'codex'), '/opt/homebrew/bin/codex', '/usr/local/bin/codex', join(homedir(), '.npm-global', 'bin', 'codex')]
 }
 
 function isExecutable(path: string): boolean {
@@ -223,9 +214,7 @@ export class CodexRuntime implements AgentRuntime {
       developerInstructions: developerInstructions(req),
       // The real server rejects `tools.web_search: null` (it must match
       // WebSearchToolConfigInput), so `tools` is only sent when web is on.
-      config: req.web
-        ? { web_search: 'live', tools: { web_search: { allowed_domains: req.web.allowedDomains } } }
-        : { web_search: 'disabled' }
+      config: req.web ? { web_search: 'live', tools: { web_search: { allowed_domains: req.web.allowedDomains } } } : { web_search: 'disabled' }
     }
     let threadId: string
     try {
@@ -255,13 +244,10 @@ export class CodexRuntime implements AgentRuntime {
       const response = await client.request<GetAccountResponse>(Method.accountRead, { refreshToken: false })
       const account = response.account
       if (!account) {
-        return response.requiresOpenaiAuth
-          ? { ok: false, message: LOGIN_HINT }
-          : { ok: true, message: 'Codex app-server ready (no login required)' }
+        return response.requiresOpenaiAuth ? { ok: false, message: LOGIN_HINT } : { ok: true, message: 'Codex app-server ready (no login required)' }
       }
       this.authVerified = true
-      const how =
-        account.type === 'chatgpt' ? 'ChatGPT login' : account.type === 'apiKey' ? 'API key' : account.type === 'amazonBedrock' ? 'Amazon Bedrock' : 'signed in'
+      const how = account.type === 'chatgpt' ? 'ChatGPT login' : account.type === 'apiKey' ? 'API key' : account.type === 'amazonBedrock' ? 'Amazon Bedrock' : 'signed in'
       return { ok: true, message: `Codex app-server ready (${how})` }
     } catch (err) {
       return { ok: false, message: toAgentError(err, 'startup').message }
@@ -486,10 +472,7 @@ export class CodexRuntime implements AgentRuntime {
   private async startClient(): Promise<JsonRpcStdioClient> {
     const codexPath = resolveCodexPath(this.options.codexPath)
     if (!codexPath) {
-      throw new AgentError(
-        'Codex CLI not found. Install it (https://github.com/openai/codex) or set its path in settings.',
-        'unavailable'
-      )
+      throw new AgentError('Codex CLI not found. Install it (https://github.com/openai/codex) or set its path in settings.', 'unavailable')
     }
 
     const client = new JsonRpcStdioClient({
@@ -505,10 +488,11 @@ export class CodexRuntime implements AgentRuntime {
     client.onExit((err) => this.handleClientExit(client, err))
 
     this.log(`codex: starting ${codexPath} app-server`)
-    client.start()
     try {
+      // Inside the try: spawn can also fail by throwing, not only through the exit handler.
+      client.start()
       const init: InitializeParams = {
-        clientInfo: { name: 'mint', title: 'mint', version: '0.1.0' },
+        clientInfo: { name: 'mint', title: 'mint', version: this.options.clientVersion || '0.0.0' },
         capabilities: { experimentalApi: true, requestAttestation: false }
       }
       await client.request(Method.initialize, init, { timeoutMs: 30_000 })

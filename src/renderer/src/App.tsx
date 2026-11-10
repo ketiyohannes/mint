@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { LAST_CLASS_KEY, useApp } from './state/app'
+import { LAST_CLASS_KEY, useApp, type Route } from './state/app'
 import { useClassBundle } from './state/useClass'
-import { IS_MAC, Sidebar, SIDEBAR_SHORTCUT } from './components/Sidebar'
+import { Sidebar } from './components/Sidebar'
+import { isTypingTarget, matchesShortcut, shortcutLabel } from './lib/shortcuts'
 import { Toasts } from './components/Toasts'
 import { SettingsView } from './views/SettingsView'
 import { Workspace } from './views/Workspace'
@@ -15,7 +16,7 @@ import { FocusHost } from './components/FocusTimer'
 const SIDEBAR_KEY = 'mint.sidebar'
 
 export function App(): JSX.Element {
-  const { route, go, classes, run, refreshClasses } = useApp()
+  const { route, go, classes, classesLoaded, run, refreshClasses } = useApp()
   const classId = route.name === 'class' ? route.classId : null
   const loaded = useClassBundle(classId)
   // Never hand the previous class's bundle to the next class while it loads.
@@ -26,17 +27,40 @@ export function App(): JSX.Element {
   // The sidebar folds away for more room, like a code editor's (⌘B / Ctrl+B).
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem(SIDEBAR_KEY) !== 'hidden')
   useEffect(() => localStorage.setItem(SIDEBAR_KEY, sidebarOpen ? 'shown' : 'hidden'), [sidebarOpen])
+  // Shortcuts that work anywhere in the window (lib/shortcuts.ts lists them all).
+  const nav = useRef({ route, classes })
+  nav.current = { route, classes }
+  /** Where Esc in Settings goes back to. */
+  const beforeSettings = useRef<Route | null>(null)
+  if (route.name !== 'settings') beforeSettings.current = route
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== 'b' || !(IS_MAC ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey) return
-      // Rich-text editors (notes) keep the key for bold.
-      if (e.target instanceof HTMLElement && e.target.isContentEditable) return
-      e.preventDefault()
-      setSidebarOpen((o) => !o)
+      // An editor that used the key (a code exercise's ⌘/, say) keeps it.
+      if (e.defaultPrevented) return
+      const { route, classes } = nav.current
+      const lastClass = () => classes.find((c) => c.id === localStorage.getItem(LAST_CLASS_KEY))?.id ?? classes[0]?.id
+      if (matchesShortcut(e, 'toggleSidebar')) {
+        // Rich-text editors (notes) keep the key for bold.
+        if (e.target instanceof HTMLElement && e.target.isContentEditable) return
+        e.preventDefault()
+        setSidebarOpen((o) => !o)
+      } else if (matchesShortcut(e, 'newChat')) {
+        const classId = route.name === 'class' ? route.classId : lastClass()
+        if (!classId) return
+        e.preventDefault()
+        go({ name: 'class', classId, chatId: null })
+      } else if (matchesShortcut(e, 'settings') || matchesShortcut(e, 'shortcuts')) {
+        e.preventDefault()
+        go(matchesShortcut(e, 'shortcuts') ? { name: 'settings', section: 'shortcuts' } : { name: 'settings' })
+      } else if (e.key === 'Escape' && !e.isComposing && route.name === 'settings' && !isTypingTarget(e.target)) {
+        const classId = lastClass()
+        e.preventDefault()
+        go(beforeSettings.current ?? (classId ? { name: 'class', classId } : { name: 'home' }))
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [go])
   // The window's own controls (drawn over the app on Windows) follow the theme.
   const dark = useDarkTheme()
   useEffect(() => void api.system.windowTheme(dark).catch(() => undefined), [dark])
@@ -87,6 +111,9 @@ export function App(): JSX.Element {
               <span className="spinner" />
             </div>
           )
+        ) : !classesLoaded || classes.length ? (
+          // Classes are still loading, or the last one is about to open: no welcome yet.
+          <div className="empty" />
         ) : (
           <div className="welcome">
             <div className="welcome-inner">
@@ -124,7 +151,7 @@ export function App(): JSX.Element {
         <button
           className={`icon-btn sidebar-toggle sidebar-reopen ${updateWaiting ? 'has-dot' : ''}`}
           onClick={() => setSidebarOpen(true)}
-          title={`Show the sidebar (${SIDEBAR_SHORTCUT})${updateWaiting ? ': an update is ready' : ''}`}
+          title={`Show the sidebar (${shortcutLabel('toggleSidebar')})${updateWaiting ? ': an update is ready' : ''}`}
           aria-label="Show the sidebar"
           data-testid="sidebar-expand"
         >

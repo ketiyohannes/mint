@@ -62,7 +62,10 @@ export class SessionService {
       win: brief.win.trim(),
       whyItMatters: brief.whyItMatters.trim(),
       readings: readings.length ? readings : topic.sources,
-      questions: brief.questions.map((q) => q.trim()).filter(Boolean).slice(0, 4)
+      questions: brief.questions
+        .map((q) => q.trim())
+        .filter(Boolean)
+        .slice(0, 4)
     }
     await this.k.repo.lock(classId, async () => {
       await this.save(classId, session)
@@ -169,7 +172,10 @@ export class SessionService {
                 id: newId('term'),
                 term: t.term.trim().slice(0, 120),
                 definition: t.definition.trim().slice(0, 600),
-                avoid: t.avoid.map((a) => a.trim()).filter(Boolean).slice(0, 6),
+                avoid: t.avoid
+                  .map((a) => a.trim())
+                  .filter(Boolean)
+                  .slice(0, 6),
                 addedAt: nowIso(),
                 updatedAt: nowIso()
               })

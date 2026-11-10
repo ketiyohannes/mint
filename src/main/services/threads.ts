@@ -4,6 +4,7 @@ import { findTopic } from '@shared/curriculum'
 import { tutorReply, type StudyDraft, type ThreadContext } from '../jobs'
 import { AgentError } from '../agents/types'
 import { newId, nowIso } from '../store/fsutil'
+import { cleanAnchor, validateSourceAnchor } from './anchors'
 import type { Kernel } from './kernel'
 import { userError, userMessage } from './kernel'
 
@@ -49,7 +50,9 @@ export class ThreadService {
 
   async create(input: AskInput & { anchor: Anchor; message: string; sessionId?: string }): Promise<Thread> {
     const { classId } = input
-    const message = input.message.trim().slice(0, 4000)
+    const message = String(input.message ?? '')
+      .trim()
+      .slice(0, 4000)
     if (!message) throw userError('Type your question first.')
     const anchor = await this.validateAnchor(classId, input.anchor)
 
@@ -86,7 +89,9 @@ export class ThreadService {
 
   async send(input: AskInput & { threadId: string; message: string }): Promise<Thread> {
     const { classId, threadId } = input
-    const message = input.message.trim().slice(0, 4000)
+    const message = String(input.message ?? '')
+      .trim()
+      .slice(0, 4000)
     if (!message) throw userError('Type your question first.')
     // Every new question starts again at the starting rung; escalation is per question.
     const start = await this.startRung(classId)
@@ -159,13 +164,7 @@ export class ThreadService {
    * Stream a tutor message produced by `produce` into a thread (cancellable via
    * `cancel(streamId)`); failures become an error message instead of throwing.
    */
-  async streamReply(
-    classId: string,
-    threadId: string,
-    streamId: string,
-    rung: Rung | undefined,
-    produce: (signal: AbortSignal, onDelta: (d: string) => void) => Promise<string>
-  ): Promise<Thread> {
+  async streamReply(classId: string, threadId: string, streamId: string, rung: Rung | undefined, produce: (signal: AbortSignal, onDelta: (d: string) => void) => Promise<string>): Promise<Thread> {
     this.k.emitter.stream({ streamId, threadId })
     let streamed = ''
     let text: string
@@ -213,9 +212,7 @@ export class ThreadService {
 
   /** Append messages to a thread (no tutor reply). */
   async append(classId: string, threadId: string, messages: NewMessage[], patch: Partial<Pick<Thread, 'sessionId'>> = {}): Promise<Thread> {
-    const updated = await this.k.repo.lock(classId, () =>
-      this.mutate(classId, threadId, (t) => ({ ...t, ...patch, messages: [...t.messages, ...messages.map(toMessage)], updatedAt: nowIso() }))
-    )
+    const updated = await this.k.repo.lock(classId, () => this.mutate(classId, threadId, (t) => ({ ...t, ...patch, messages: [...t.messages, ...messages.map(toMessage)], updatedAt: nowIso() })))
     this.k.changed(classId)
     return updated
   }
@@ -240,7 +237,8 @@ export class ThreadService {
     if (a.kind === 'source') {
       try {
         const doc = await this.k.repo.readSource(classId, a.sourceId)
-        const section = doc.sections.find((s) => s.label === a.sectionLabel) ?? doc.sections.find((s) => s.blocks.some((b) => b.id === a.ranges[0]?.blockId))
+        // Block ids are unique in a source; labels are not always (older imports may repeat a heading).
+        const section = doc.sections.find((s) => s.blocks.some((b) => b.id === a.ranges[0]?.blockId)) ?? doc.sections.find((s) => s.label === a.sectionLabel)
         if (section) {
           const first = section.blocks.findIndex((b) => b.id === a.ranges[0]?.blockId)
           const lastId = a.ranges[a.ranges.length - 1]?.blockId
@@ -274,23 +272,10 @@ export class ThreadService {
   }
 
   private async validateAnchor(classId: string, anchor: Anchor): Promise<Anchor> {
-    switch (anchor?.kind) {
-      case 'source': {
-        const doc = await this.k.repo.readSource(classId, anchor.sourceId)
-        const blockIds = new Set(doc.sections.flatMap((s) => s.blocks.map((b) => b.id)))
-        const ranges = (anchor.ranges ?? []).filter((r) => blockIds.has(r.blockId) && r.end > r.start).slice(0, 50)
-        if (!ranges.length) throw userError('That selection could not be located in the source.')
-        return { kind: 'source', sourceId: doc.id, sectionLabel: String(anchor.sectionLabel ?? ''), ranges, quote: String(anchor.quote ?? '').slice(0, 2000) }
-      }
-      case 'message':
-        return { kind: 'message', threadId: String(anchor.threadId), messageId: String(anchor.messageId), quote: String(anchor.quote ?? '').slice(0, 2000) }
-      case 'diagram':
-        return { kind: 'diagram', explorableId: String(anchor.explorableId), elementId: String(anchor.elementId), label: String(anchor.label ?? anchor.elementId) }
-      case 'general':
-        return { kind: 'general', context: anchor.context ? String(anchor.context).slice(0, 2000) : undefined }
-      default:
-        throw userError('Unknown anchor.')
-    }
+    if (anchor?.kind === 'source') return validateSourceAnchor(this.k, classId, anchor)
+    const clean = cleanAnchor(anchor)
+    if (!clean) throw userError('Unknown anchor.')
+    return clean
   }
 
   private async mutate(classId: string, threadId: string, fn: (t: Thread) => Thread): Promise<Thread> {

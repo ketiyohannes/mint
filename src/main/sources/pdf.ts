@@ -5,8 +5,7 @@ import type { ImportedSource } from './types'
 const NO_TEXT_MESSAGE = "This PDF has no selectable text (it may be a scan). Try an OCR'd copy."
 
 /** Producer-generated placeholder titles that say nothing about the document. */
-const MEANINGLESS_TITLE =
-  /^(untitled|unknown|none|null|document\d*|slide\s*\d*|presentation\d*|microsoft (word|powerpoint)\b.*|.*\.(pdf|docx?|pptx?|tex|indd|odt|rtf|txt))$/i
+const MEANINGLESS_TITLE = /^(untitled|unknown|none|null|document\d*|slide\s*\d*|presentation\d*|microsoft (word|powerpoint)\b.*|.*\.(pdf|docx?|pptx?|tex|indd|odt|rtf|txt))$/i
 
 function meaningfulTitle(raw: string | undefined): string | undefined {
   const title = raw?.replace(/\s+/g, ' ').trim()
@@ -28,7 +27,10 @@ function joinLine(paragraph: string, line: string): string {
 
 /** Typical full line length on a page: lines noticeably shorter likely end a paragraph. */
 function typicalLineLength(lines: string[]): number {
-  const lengths = lines.map((l) => l.length).filter((n) => n > 0).sort((a, b) => a - b)
+  const lengths = lines
+    .map((l) => l.length)
+    .filter((n) => n > 0)
+    .sort((a, b) => a - b)
   if (lengths.length < 3) return Infinity
   return lengths[Math.floor(lengths.length * 0.75)]
 }
@@ -70,17 +72,11 @@ export function pageTextToBlocks(pageText: string): RawBlock[] {
     }
 
     const bullet = line.match(BULLET)
-    const paragraphEnded =
-      previous !== '' &&
-      SENTENCE_END.test(previous) &&
-      STARTS_LIKE_SENTENCE.test(line) &&
-      previous.length < fullLine * 0.85
+    const paragraphEnded = previous !== '' && SENTENCE_END.test(previous) && STARTS_LIKE_SENTENCE.test(line) && previous.length < fullLine * 0.85
 
     if (bullet || paragraphEnded || !current) {
       flush()
-      current = bullet
-        ? { type: 'list-item', text: line.slice(bullet[0].length) }
-        : { type: 'paragraph', text: line }
+      current = bullet ? { type: 'list-item', text: line.slice(bullet[0].length) } : { type: 'paragraph', text: line }
     } else {
       current.text = joinLine(current.text, line)
     }

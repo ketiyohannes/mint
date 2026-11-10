@@ -7,8 +7,7 @@ const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 const MAX_REDIRECTS = 5
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
-const USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
 
 export interface FetchedResource {
   finalUrl: string
@@ -90,8 +89,7 @@ function isBlockedIPv6(ip: string): boolean {
   if (!g) return true // unparseable: fail closed
 
   const allZeroPrefix = (n: number): boolean => g.slice(0, n).every((x) => x === 0)
-  const embeddedV4 = (hi: number, lo: number): string =>
-    [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join('.')
+  const embeddedV4 = (hi: number, lo: number): string => [hi >> 8, hi & 0xff, lo >> 8, lo & 0xff].join('.')
 
   // ::, ::1
   if (allZeroPrefix(7) && (g[7] === 0 || g[7] === 1)) return true
@@ -120,7 +118,10 @@ export function isPrivateAddress(ip: string): boolean {
 }
 
 function bareHostname(url: URL): string {
-  return url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  return url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
 }
 
 function isPrivateHostname(host: string): boolean {
@@ -212,10 +213,7 @@ async function readCapped(res: Response, maxBytes: number): Promise<Uint8Array> 
  * handling (each hop re-validated), a timeout, and a streaming size cap.
  * DNS checks are skipped when `fetchImpl` is injected (tests).
  */
-export async function safeFetch(
-  url: string,
-  opts: FetchOptions & { accept?: string } = {}
-): Promise<FetchedResource> {
+export async function safeFetch(url: string, opts: FetchOptions & { accept?: string } = {}): Promise<FetchedResource> {
   const fetchImpl = opts.fetchImpl ?? fetch
   const resolveDns = !opts.fetchImpl
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS

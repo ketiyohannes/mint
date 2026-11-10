@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { Anchor, Annotation, ChatCommand, ClassBundle, Thread } from '@shared/types'
 import type { Directive } from '@shared/directives'
+import { findTopic } from '@shared/curriculum'
 import { useApp } from '../state/app'
 import { useSourceDoc } from '../state/useClass'
 import { api } from '../lib/api'
+import { clearClassDrafts } from '../lib/drafts'
+import { matchesShortcut, shortcutLabel } from '../lib/shortcuts'
 import type { SelectionAnchor } from '../lib/anchors'
 import { Icon, type IconName } from '../components/Icon'
 import { Activity } from '../components/Activity'
@@ -18,7 +21,8 @@ import { LessonsPanel } from './LessonsPanel'
 import { StudyTab } from './study/StudyTab'
 import { LessonDock } from './study/LessonDock'
 import { useDarkTheme } from '../lib/useDarkTheme'
-import { BrowserPanel } from './BrowserPanel'
+import { BrowserPanel, forgetBrowserPage } from './BrowserPanel'
+import { forgetPositions } from './study/position'
 import { NotesPanel } from './notes/NotesPanel'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 
@@ -57,11 +61,25 @@ const PANEL_TABS: { id: PanelTab; label: string; icon: IconName }[] = [
   { id: 'notes', label: 'Notes', icon: 'notebook' }
 ]
 
+/** Whether the panel is showing, and its tab. */
+const PANEL_KEY = 'mint.panel'
+
+function loadPanel(): { open: boolean; tab: PanelTab } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PANEL_KEY) ?? 'null') as { open?: unknown; tab?: PanelTab } | null
+    return { open: raw?.open !== false, tab: raw?.tab && PANEL_TAB_IDS.includes(raw.tab) ? raw.tab : 'sources' }
+  } catch {
+    return { open: true, tab: 'sources' }
+  }
+}
+
 const PANEL_W_KEY = 'mint.panelWidth'
 /** 'dark' or 'light' PDF pages; unset follows the app theme. */
 const PDF_PAGES_KEY = 'mint.pdfPages'
 const SWAP_KEY = 'mint.swapped'
 const DOCK_FOLDED_KEY = 'mint.lessonDock.folded'
+const DEFAULT_PANEL = 560
+// The narrowest each side gets. styles.css clamps the panel with the same two numbers (--panel-min, --chat-min).
 const MIN_PANEL = 340
 const MIN_CHAT = 420
 
@@ -72,7 +90,7 @@ const MIN_CHAT = 420
  * over whichever chat is showing (or sits in the panel's Study tab).
  */
 export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: string | null | undefined }): JSX.Element {
-  const { toast, run, studyFocus, go, classes, settings, setSettings } = useApp()
+  const { toast, run, go, classes, settings, setSettings } = useApp()
   /** The open lesson docks over the chat unless Settings puts it in the Study tab (otherwise there is no Study tab). */
   const docked = (settings?.lessonView ?? 'dock') === 'dock'
   const panelTabs = useMemo(() => (docked ? PANEL_TABS.filter((t) => t.id !== 'study') : PANEL_TABS), [docked])
@@ -95,6 +113,8 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const chatKey = useRef({ chatId, key: 0 })
   if (chatKey.current.chatId !== chatId) {
     if (!(chatId && chatId === adoptedChat.current)) chatKey.current.key += 1
+    // The adoption ends once the route leaves that chat: coming back to it later gets a fresh view.
+    if (chatId !== adoptedChat.current) adoptedChat.current = null
     chatKey.current.chatId = chatId
   }
   /**
@@ -105,18 +125,19 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const session = openLesson && !openLesson.endedAt ? openLesson : undefined
 
   // --- layout --------------------------------------------------------------------
-  const [panelTab, setPanelTab] = useState<PanelTab>('sources')
-  const [panelOpen, setPanelOpen] = useState(true)
+  const [panelTab, setPanelTab] = useState<PanelTab>(() => loadPanel().tab)
+  const [panelOpen, setPanelOpen] = useState(() => loadPanel().open)
+  useEffect(() => localStorage.setItem(PANEL_KEY, JSON.stringify({ open: panelOpen, tab: panelTab })), [panelOpen, panelTab])
   const [visited, setVisited] = useState<Set<PanelTab>>(() => {
     const restored = loadSplit().tab
-    return new Set<PanelTab>(restored ? ['sources', restored] : ['sources'])
+    return new Set<PanelTab>(['sources', loadPanel().tab, ...(restored ? [restored] : [])])
   })
   // Split view: a second tab beside (or below) the first, e.g. Notes next to the Browser.
   const [split, setSplit] = useState<SplitState>(loadSplit)
   const splitTab = split.tab === panelTab ? null : split.tab
   useEffect(() => localStorage.setItem(SPLIT_KEY, JSON.stringify(split)), [split])
   const [swapped, setSwapped] = useState(() => localStorage.getItem(SWAP_KEY) === '1')
-  const [panelW, setPanelW] = useState(() => Number(localStorage.getItem(PANEL_W_KEY)) || 560)
+  const [panelW, setPanelW] = useState(() => Number(localStorage.getItem(PANEL_W_KEY)) || DEFAULT_PANEL)
   useEffect(() => localStorage.setItem(SWAP_KEY, swapped ? '1' : '0'), [swapped])
   useEffect(() => localStorage.setItem(PANEL_W_KEY, String(Math.round(panelW))), [panelW])
 
@@ -159,13 +180,15 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   )
 
   // Lessons dock over the chat: the Study tab goes away, wherever it was showing.
+  // (Not before Settings load: a Study tab remembered from the last run must survive the start.)
+  const settingsLoaded = Boolean(settings)
   useEffect(() => {
-    if (!docked) return
+    if (!docked || !settingsLoaded) return
     if (panelTab === 'study') {
       setPanelTab(splitTab ?? 'lessons')
       if (splitTab) setSplit((s) => ({ ...s, tab: null }))
     } else if (split.tab === 'study') setSplit((s) => ({ ...s, tab: null }))
-  }, [docked, panelTab, splitTab, split.tab])
+  }, [docked, settingsLoaded, panelTab, splitTab, split.tab])
 
   const [dockFolded, setDockFolded] = useState(() => localStorage.getItem(DOCK_FOLDED_KEY) === '1')
   useEffect(() => localStorage.setItem(DOCK_FOLDED_KEY, dockFolded ? '1' : '0'), [dockFolded])
@@ -212,11 +235,13 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
-    const startW = panelW
-    const total = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect().width
+    const workspace = (e.currentTarget as HTMLElement).parentElement!
+    // Start from the width on screen: the remembered one may be wider than this window allows.
+    const startW = workspace.querySelector(':scope > .side-panel')?.getBoundingClientRect().width ?? panelW
+    const total = workspace.getBoundingClientRect().width
     const move = (ev: MouseEvent) => {
       const dx = ev.clientX - startX
-      setPanelW(Math.min(total - MIN_CHAT, Math.max(MIN_PANEL, swapped ? startW + dx : startW - dx)))
+      setPanelW(Math.max(MIN_PANEL, Math.min(total - MIN_CHAT - 1, swapped ? startW + dx : startW - dx)))
     }
     const up = () => {
       window.removeEventListener('mousemove', move)
@@ -230,7 +255,8 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
 
   // --- sources viewer -----------------------------------------------------------
   const [activeSourceId, setActiveSourceId] = useState<string | null>(() => bundle.sources[0]?.id ?? null)
-  const [focus, setFocus] = useState<ReaderFocus | null>(null)
+  /** A jump to a section or quote, for the source it was asked on only. */
+  const [focus, setFocus] = useState<(ReaderFocus & { sourceId: string }) | null>(null)
   const [textMode, setTextMode] = useState<Set<string>>(new Set())
   const activeMeta = bundle.sources.find((s) => s.id === activeSourceId)
   const { doc, error: docError } = useSourceDoc(classId, activeMeta ? activeSourceId : null, activeMeta ? `${activeMeta.wordCount}:${activeMeta.needsTranscript}` : undefined)
@@ -261,19 +287,10 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     (sourceId: string, section?: string, quote?: string) => {
       showPanel('sources')
       setActiveSourceId(sourceId)
-      setFocus({ section, quote, nonce: Date.now() })
+      setFocus({ sourceId, section, quote, nonce: Date.now() })
     },
     [showPanel]
   )
-
-  // Jumps requested from outside (notebook stickies).
-  const lastFocus = useRef(0)
-  useEffect(() => {
-    if (studyFocus && studyFocus.nonce !== lastFocus.current) {
-      lastFocus.current = studyFocus.nonce
-      if (bundle.sources.some((s) => s.id === studyFocus.sourceId)) openSource(studyFocus.sourceId, studyFocus.section, studyFocus.quote)
-    }
-  }, [studyFocus, bundle.sources, openSource])
 
   // A lesson that becomes the open one (started, or resumed from any chat)
   // comes into view, with its first reading open in the panel the first time.
@@ -300,7 +317,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       if (!splitTab) widenForSplit()
       setSplit((sp) => ({ ...sp, tab: 'sources' }))
       setActiveSourceId(r.sourceId)
-      setFocus({ section: r.section, nonce: Date.now() })
+      setFocus({ sourceId: r.sourceId, section: r.section, nonce: Date.now() })
     }
   }, [session, docked, openSource, splitTab, setPaneTab, widenForSplit])
 
@@ -314,6 +331,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     }
   }
   const [linkInput, setLinkInput] = useState<string | null>(null)
+  const [addingLink, setAddingLink] = useState(false)
 
   // --- chat tools ------------------------------------------------------------------
   const [commandRequest, setCommandRequest] = useState<{ command: ChatCommand; arg?: string; nonce: number } | null>(null)
@@ -326,11 +344,12 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const openLessonById = useCallback(
     (sessionId: string) => {
       const s = bundle.sessions.find((x) => x.id === sessionId)
-      if (!s || (s.endedAt && s.id !== bundle.meta.openLessonId)) return command('lesson', s?.topicId)
+      // A re-plan may have dropped that lesson's topic: then the next lesson starts instead.
+      if (!s || (s.endedAt && s.id !== bundle.meta.openLessonId)) return command('lesson', s && findTopic(bundle.curriculum, s.topicId) ? s.topicId : undefined)
       if (s.id === bundle.meta.openLessonId) return revealLesson()
       void run(() => api.sessions.open(classId, s.id))
     },
-    [bundle.sessions, bundle.meta.openLessonId, command, revealLesson, run, classId]
+    [bundle.sessions, bundle.curriculum, bundle.meta.openLessonId, command, revealLesson, run, classId]
   )
   const closeLesson = useCallback(() => void run(() => api.sessions.open(classId, null)), [run, classId])
   /** The Settings choice, from the dock or the Study tab. */
@@ -359,7 +378,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const askRef = useRef(ask)
   askRef.current = ask
   const [note, setNote] = useState<{ annotation: Annotation; pos: { x: number; y: number } } | null>(null)
-  const [term, setTerm] = useState<{ anchor: Extract<Anchor, { kind: 'source' }>; pos: { x: number; y: number } } | null>(null)
+  const [term, setTerm] = useState<{ key: number; anchor: Extract<Anchor, { kind: 'source' }>; pos: { x: number; y: number } } | null>(null)
   const [hidePins, setHidePins] = useState(false)
 
   // --- diagrams the tutor can point at -------------------------------------------------
@@ -466,9 +485,31 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const [dropping, setDropping] = useState(false)
   const chatTitle = thread?.title ?? 'New chat'
 
+  // Shortcuts of the open class: the panel, and stepping through the chats in the sidebar's order.
+  const keys = useRef({ chats, chatId })
+  keys.current = { chats, chatId }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if (matchesShortcut(e, 'togglePanel')) {
+        e.preventDefault()
+        return setPanelOpen((o) => !o)
+      }
+      const step = matchesShortcut(e, 'nextChat') ? 1 : matchesShortcut(e, 'previousChat') ? -1 : 0
+      const { chats, chatId } = keys.current
+      if (!step || !chats.length) return
+      e.preventDefault()
+      const at = chats.findIndex((t) => t.id === chatId)
+      const next = at < 0 ? (step > 0 ? 0 : chats.length - 1) : (at + step + chats.length) % chats.length
+      go({ name: 'class', classId, chatId: chats[next].id })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [classId, go])
+
   // --- render --------------------------------------------------------------------------
   const chatPane = (
-    <section className={`chat-pane ${docked && openLesson ? 'has-dock' : ''}`} data-testid="chat-pane">
+    <section key="chat" className={`chat-pane ${docked && openLesson ? 'has-dock' : ''}`} data-testid="chat-pane">
       <div className="pane-head">
         <div className="crumbs">
           <Icon name="folder" size={14} />
@@ -487,7 +528,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         <button
           className={`icon-btn ${panelOpen ? 'on' : ''}`}
           onClick={() => setPanelOpen((o) => !o)}
-          title={panelOpen ? 'Hide the panel' : 'Show the panel'}
+          title={`${panelOpen ? 'Hide the panel' : 'Show the panel'} (${shortcutLabel('togglePanel')})`}
           aria-label="Toggle panel"
           data-testid="toggle-panel"
         >
@@ -503,6 +544,9 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
               return true
             })
             if (!ok) return
+            clearClassDrafts(classId)
+            forgetPositions(classId)
+            forgetBrowserPage(classId)
             const nextClass = classes.find((c) => c.id !== classId)
             go(nextClass ? { name: 'class', classId: nextClass.id } : { name: 'home' })
           }}
@@ -537,7 +581,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   )
 
   const panel = (
-    <section className="side-panel" data-testid="panel">
+    <section key="panel" className="side-panel" data-testid="panel">
       <div className="pane-head">
         <div className="panel-tabs" role="tablist">
           {panelTabs.map((t) => (
@@ -570,10 +614,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         </button>
       </div>
 
-      <div
-        className={`panel-body ${splitTab ? `split split-${split.dir}` : ''}`}
-        style={splitTab ? ({ ['--split' as string]: String(split.ratio) } as React.CSSProperties) : undefined}
-      >
+      <div className={`panel-body ${splitTab ? `split split-${split.dir}` : ''}`} style={splitTab ? ({ ['--split' as string]: String(split.ratio) } as React.CSSProperties) : undefined}>
         {splitTab && (
           <>
             <div className="split-head" data-testid="split-head">
@@ -618,7 +659,11 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                 <button
                   key={s.id}
                   className={`source-chip ${s.id === activeSourceId ? 'on' : ''}`}
-                  onClick={() => setActiveSourceId(s.id)}
+                  onClick={() => {
+                    setActiveSourceId(s.id)
+                    // Picked by hand: an earlier jump to a citation is done with.
+                    setFocus(null)
+                  }}
                   title={s.title}
                   data-testid="source-tab"
                 >
@@ -660,8 +705,11 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                 onSubmit={async (e) => {
                   e.preventDefault()
                   const url = linkInput.trim()
-                  if (!url) return
+                  // One import per link: a second Enter while it loads must not add it twice.
+                  if (!url || addingLink) return
+                  setAddingLink(true)
                   const s = await run(() => api.sources.addUrl(classId, url))
+                  setAddingLink(false)
                   if (s) {
                     setLinkInput(null)
                     openSource(s.id)
@@ -673,11 +721,13 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                   autoFocus
                   placeholder="https://… (page, PDF, YouTube)"
                   value={linkInput}
+                  readOnly={addingLink}
                   onChange={(e) => setLinkInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Escape' && setLinkInput(null)}
+                  onKeyDown={(e) => e.key === 'Escape' && !addingLink && setLinkInput(null)}
                   onBlur={() => !linkInput.trim() && setLinkInput(null)}
                   data-testid="source-link-input"
                 />
+                {addingLink && <span className="spinner tiny" data-testid="source-link-busy" />}
               </form>
             ) : (
               <>
@@ -692,6 +742,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                     className="icon-btn"
                     title="Remove this source from the class"
                     aria-label={`Remove ${activeMeta.title}`}
+                    data-testid="remove-source"
                     onClick={() => {
                       if (window.confirm(`Remove "${activeMeta.title}" from this class?`)) void run(() => api.sources.remove(classId, activeMeta.id))
                     }}
@@ -716,7 +767,11 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
               if (!e.dataTransfer.files.length) return
               e.preventDefault()
               setDropping(false)
-              void addMaterials(Array.from(e.dataTransfer.files).map((f) => window.mintHost.pathForFile(f)).filter(Boolean))
+              void addMaterials(
+                Array.from(e.dataTransfer.files)
+                  .map((f) => window.mintHost.pathForFile(f))
+                  .filter(Boolean)
+              )
             }}
           >
             {!activeMeta ? (
@@ -733,7 +788,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                 doc={doc}
                 annotations={bundle.annotations}
                 threads={bundle.threads}
-                focus={focus}
+                focus={focus && focus.sourceId === doc.id ? focus : null}
                 hidePins={hidePins}
                 openThreadId={ask?.threadId ?? null}
                 onSelection={onSelection}
@@ -748,7 +803,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
                 doc={doc}
                 annotations={bundle.annotations}
                 threads={bundle.threads}
-                focus={focus}
+                focus={focus && focus.sourceId === doc.id ? focus : null}
                 hidePins={hidePins}
                 openThreadId={ask?.threadId ?? null}
                 onSelection={onSelection}
@@ -790,12 +845,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         {slot('lessons') && (
           <div className={pageClass('lessons', 'scroll')} data-testid="page-lessons">
             <ErrorBoundary label="lessons">
-            <LessonsPanel
-              bundle={bundle}
-              onStart={(topicId) => command('lesson', topicId)}
-              onResume={openLessonById}
-              openSource={(sid, sec) => openSource(sid, sec)}
-            />
+              <LessonsPanel bundle={bundle} onStart={(topicId) => command('lesson', topicId)} onResume={openLessonById} openSource={(sid, sec) => openSource(sid, sec)} />
             </ErrorBoundary>
           </div>
         )}
@@ -811,10 +861,30 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
 
   return (
     <StudyCtx.Provider value={studyApi}>
-      <div className={`workspace ${swapped ? 'swapped' : ''} ${panelOpen ? '' : 'no-panel'}`} style={{ ['--panel-w' as string]: `${panelW}px` }}>
-        {swapped && panelOpen ? panel : chatPane}
-        {panelOpen && <div className="splitter" onMouseDown={startResize} role="separator" aria-orientation="vertical" aria-label="Resize" />}
-        {panelOpen && (swapped ? chatPane : panel)}
+      {/*
+        The chat always comes first in the document and the panel last; `swapped` trades their
+        places in CSS. Moving them in the document would remount both (the browser would reload,
+        the reader would lose its place, a streaming reply would be cut off).
+      */}
+      <div
+        className={`workspace ${swapped ? 'swapped' : ''} ${panelOpen ? '' : 'no-panel'}`}
+        style={{ ['--panel-w' as string]: `${panelW}px`, ['--panel-min' as string]: `${MIN_PANEL}px`, ['--chat-min' as string]: `${MIN_CHAT}px` }}
+      >
+        {chatPane}
+        {panelOpen && (
+          <div
+            key="splitter"
+            className="splitter"
+            onMouseDown={startResize}
+            onDoubleClick={() => setPanelW(DEFAULT_PANEL)}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize"
+            title="Drag to resize, double-click to reset"
+            data-testid="splitter"
+          />
+        )}
+        {panelOpen && panel}
       </div>
 
       {selection && !ask && (
@@ -829,11 +899,14 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           onNote={async () => {
             const anchor = sourceAnchor(selection)
             const rect = selection.rect
+            const known = new Set(bundle.annotations.map((a) => a.id))
             clearSelection()
-            await run(() => api.annotations.create(classId, anchor, 'note', ''))
-            // Open the new note for writing once it exists.
-            const fresh = await api.classes.get(classId)
-            const created = [...fresh.annotations].reverse().find((a) => a.kind === 'note' && a.anchor.quote === anchor.quote)
+            // Open the new note for writing once it exists (and only the new one: an older note on the same words stays shut).
+            const fresh = await run(async () => {
+              await api.annotations.create(classId, anchor, 'note', '')
+              return api.classes.get(classId)
+            })
+            const created = fresh && [...fresh.annotations].reverse().find((a) => a.kind === 'note' && !known.has(a.id) && a.anchor.quote === anchor.quote)
             if (created) setNote({ annotation: created, pos: placeNear(rect) })
           }}
           onHighlight={() => {
@@ -848,7 +921,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           }}
           onTerm={() => {
             const anchor = sourceAnchor(selection)
-            setTerm({ anchor, pos: placeNear(selection.rect) })
+            setTerm({ key: Date.now(), anchor, pos: placeNear(selection.rect) })
             clearSelection()
           }}
           onSearch={() => {
@@ -877,8 +950,8 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           }}
         />
       )}
-      {note && <NotePopover annotation={note.annotation} pos={note.pos} onMove={(pos) => setNote((n) => (n ? { ...n, pos } : n))} onClose={() => setNote(null)} />}
-      {term && <TermPopover anchor={term.anchor} pos={term.pos} onMove={(pos) => setTerm((t) => (t ? { ...t, pos } : t))} onClose={() => setTerm(null)} />}
+      {note && <NotePopover key={note.annotation.id} annotation={note.annotation} pos={note.pos} onMove={(pos) => setNote((n) => (n ? { ...n, pos } : n))} onClose={() => setNote(null)} />}
+      {term && <TermPopover key={term.key} anchor={term.anchor} pos={term.pos} onMove={(pos) => setTerm((t) => (t ? { ...t, pos } : t))} onClose={() => setTerm(null)} />}
     </StudyCtx.Provider>
   )
 }
@@ -912,7 +985,12 @@ function ClassMenu({ title, onRename, onDelete }: { title: string; onRename: (ti
     if (!open) return
     setName(title)
     const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      // Back to the button that opened the menu.
+      ref.current?.querySelector('button')?.focus()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
     return () => {

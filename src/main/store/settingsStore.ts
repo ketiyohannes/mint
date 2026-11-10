@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { USER_ERROR_PREFIX } from '@shared/api'
 import type { SecretName, Settings, SettingsView } from '@shared/types'
 import { DEFAULT_FOCUS, sanitizeFocus } from '@shared/focus'
 import { readJson, writeJson } from './fsutil'
@@ -61,6 +62,12 @@ interface SecretsFile {
 
 export class SettingsStore {
   private cache: Settings | null = null
+  /** Decrypted secrets (null: none saved), so a turn does not read and decrypt the file again. */
+  private secrets = new Map<SecretName, string | null>()
+  /** Bumped by every secrets write, so a read that raced one is not cached. */
+  private secretsVersion = 0
+  /** Tail of the write queue: settings and secrets are written one at a time, in call order. */
+  private writes: Promise<unknown> = Promise.resolve()
 
   constructor(
     private readonly dataDir: string,
@@ -88,40 +95,62 @@ export class SettingsStore {
     return { ...settings, hasAnthropicKey: Boolean(secrets.anthropic), dataDir: this.dataDir }
   }
 
-  async update(patch: Partial<Settings>): Promise<Settings> {
-    const next = sanitize({ ...(await this.get()), ...patch })
-    this.cache = next
-    await writeJson(this.settingsPath, next)
-    return next
+  /** Run a read-modify-write after the ones already queued (two overlapping writes could otherwise land out of order). */
+  private queue<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.writes.then(work, work)
+    this.writes = run.catch(() => undefined)
+    return run
   }
 
-  async setSecret(name: SecretName, value: string | null): Promise<void> {
-    const secrets = await readJson<SecretsFile>(this.secretsPath, {})
-    if (value && value.trim()) {
-      if (!this.cipher.available()) throw new Error('mint:Secure storage is not available on this system, so keys cannot be saved.')
-      secrets[name] = this.cipher.encrypt(value.trim())
-    } else {
-      delete secrets[name]
-    }
-    await writeJson(this.secretsPath, secrets)
+  update(patch: Partial<Settings>): Promise<Settings> {
+    return this.queue(async () => {
+      const next = sanitize({ ...(await this.get()), ...patch })
+      await writeJson(this.settingsPath, next)
+      this.cache = next
+      return next
+    })
+  }
+
+  setSecret(name: SecretName, value: string | null): Promise<void> {
+    return this.queue(async () => {
+      const plain = typeof value === 'string' && value.trim() ? value.trim() : null
+      const secrets = await readJson<SecretsFile>(this.secretsPath, {})
+      if (plain) {
+        if (!this.cipher.available()) throw new Error(`${USER_ERROR_PREFIX}Secure storage is not available on this system, so keys cannot be saved.`)
+        secrets[name] = this.cipher.encrypt(plain)
+      } else {
+        delete secrets[name]
+      }
+      await writeJson(this.secretsPath, secrets)
+      this.secretsVersion++
+      this.secrets.set(name, plain)
+    })
   }
 
   /** Drop keys for features mint no longer has (the OpenAI key used by the old voice tutor). */
-  async forgetRetiredSecrets(): Promise<void> {
-    const secrets = await readJson<Record<string, string>>(this.secretsPath, {})
-    const keep = Object.fromEntries(Object.entries(secrets).filter(([name]) => SECRET_NAMES.includes(name as SecretName)))
-    if (Object.keys(keep).length !== Object.keys(secrets).length) await writeJson(this.secretsPath, keep)
+  forgetRetiredSecrets(): Promise<void> {
+    return this.queue(async () => {
+      const secrets = await readJson<Record<string, string>>(this.secretsPath, {})
+      const keep = Object.fromEntries(Object.entries(secrets).filter(([name]) => SECRET_NAMES.includes(name as SecretName)))
+      if (Object.keys(keep).length !== Object.keys(secrets).length) await writeJson(this.secretsPath, keep)
+    })
   }
 
   async getSecret(name: SecretName): Promise<string | null> {
-    const secrets = await readJson<SecretsFile>(this.secretsPath, {})
-    const stored = secrets[name]
-    if (!stored) return null
-    try {
-      return this.cipher.decrypt(stored)
-    } catch {
-      return null
+    if (this.secrets.has(name)) return this.secrets.get(name) ?? null
+    const version = this.secretsVersion
+    const stored = (await readJson<SecretsFile>(this.secretsPath, {}))[name]
+    let plain: string | null = null
+    if (stored) {
+      try {
+        plain = this.cipher.decrypt(stored)
+      } catch {
+        // The keychain may only be locked for now: answer "no key" without remembering it.
+        return null
+      }
     }
+    if (version === this.secretsVersion) this.secrets.set(name, plain)
+    return plain
   }
 }
 
@@ -147,7 +176,13 @@ function sanitize(input: Settings): Settings {
 }
 
 export function normalizeDomain(input: string): string {
-  let d = String(input ?? '').trim().toLowerCase()
-  d = d.replace(/^[a-z]+:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '').replace(/:\d+$/, '')
+  let d = String(input ?? '')
+    .trim()
+    .toLowerCase()
+  d = d
+    .replace(/^[a-z]+:\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/^www\./, '')
+    .replace(/:\d+$/, '')
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) ? d : ''
 }

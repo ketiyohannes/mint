@@ -28,7 +28,15 @@ export function parseDirective(type: string, body: string): Directive | null {
     const [sourceId, section = '', ...quoteParts] = body.split('|')
     const id = sourceId?.trim()
     if (!id) return null
-    return { type: 'cite', sourceId: id, section: section.trim(), quote: quoteParts.join('|').trim().replace(/^["“]|["”]$/g, '') }
+    return {
+      type: 'cite',
+      sourceId: id,
+      section: section.trim(),
+      quote: quoteParts
+        .join('|')
+        .trim()
+        .replace(/^["“]|["”]$/g, '')
+    }
   }
   if (type === 'highlight') {
     const elementId = body.trim()

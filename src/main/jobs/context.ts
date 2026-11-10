@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import type { ClassMeta, Curriculum, GlossaryTerm, IndependenceState, LearningRecord, SourceDoc, SourceMeta, Topic, TopicProgress } from '@shared/types'
+import type { ClassMeta, Curriculum, GlossaryTerm, IndependenceState, LearningRecord, SourceMeta, Topic, TopicProgress } from '@shared/types'
 import { allTopics } from '@shared/curriculum'
 
 export interface SourceOutline {
@@ -76,14 +76,4 @@ export function describeTopic(ctx: ClassContext, topic: Topic): string {
   ]
     .filter(Boolean)
     .join('\n')
-}
-
-/** Text of one section, trimmed, for prompts and demo answers. */
-export function sectionText(doc: SourceDoc, label: string, maxChars = 6000): string {
-  const section = doc.sections.find((s) => s.label === label) ?? doc.sections[0]
-  if (!section) return ''
-  return section.blocks
-    .map((b) => b.text)
-    .join('\n')
-    .slice(0, maxChars)
 }

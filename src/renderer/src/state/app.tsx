@@ -2,22 +2,16 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ClassSummary, ProgressEvent, SettingsView } from '@shared/types'
 import { api, errorMessage } from '../lib/api'
 
-/** `chatId: null` is a new chat (the centered prompt); omitted means "the latest chat". */
-export type Route = { name: 'home' } | { name: 'settings' } | { name: 'class'; classId: string; chatId?: string | null }
+/**
+ * `chatId: null` is a new chat (the centered prompt); omitted means "the latest chat".
+ * Settings can open scrolled to one of its sections.
+ */
+export type Route = { name: 'home' } | { name: 'settings'; section?: 'shortcuts' } | { name: 'class'; classId: string; chatId?: string | null }
 
 export interface Toast {
   id: number
   kind: 'info' | 'error'
   text: string
-}
-
-export interface StudyFocus {
-  /** Open this source, jump to section/quote. */
-  sourceId: string
-  section?: string
-  quote?: string
-  /** Bump to re-trigger the same jump. */
-  nonce: number
 }
 
 interface AppState {
@@ -26,6 +20,8 @@ interface AppState {
   settings: SettingsView | null
   setSettings(s: SettingsView): void
   classes: ClassSummary[]
+  /** False until the first list of classes has arrived (so "no classes" is not shown too early). */
+  classesLoaded: boolean
   refreshClasses(): Promise<void>
   toasts: Toast[]
   toast(text: string, kind?: Toast['kind']): void
@@ -33,11 +29,11 @@ interface AppState {
   jobs: ProgressEvent[]
   /** Run an action, reporting errors as toasts. Returns undefined on failure. */
   run<T>(fn: () => Promise<T>, okMessage?: string): Promise<T | undefined>
-  studyFocus: StudyFocus | null
-  focusSource(classId: string, focus: Omit<StudyFocus, 'nonce'>): void
 }
 
 export const LAST_CLASS_KEY = 'mint.lastClass'
+/** The theme last shown ('light' or 'dark'), so the next start paints it before Settings load. */
+export const THEME_KEY = 'mint.theme'
 
 const Ctx = createContext<AppState | null>(null)
 
@@ -51,9 +47,9 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
   const [route, setRoute] = useState<Route>({ name: 'home' })
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [classes, setClasses] = useState<ClassSummary[]>([])
+  const [classesLoaded, setClassesLoaded] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [jobs, setJobs] = useState<ProgressEvent[]>([])
-  const [studyFocus, setStudyFocus] = useState<StudyFocus | null>(null)
   const toastId = useRef(0)
 
   const dismiss = useCallback((id: number) => setToasts((t) => t.filter((x) => x.id !== id)), [])
@@ -72,6 +68,8 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
       setClasses((await api.classes.list()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
     } catch (err) {
       toast(errorMessage(err), 'error')
+    } finally {
+      setClassesLoaded(true)
     }
   }, [toast])
 
@@ -106,13 +104,19 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
     }
   }, [refreshClasses, toast])
 
-  // Theme
+  // Theme. Until Settings load, the theme main.tsx painted (the last one shown) stays.
   useEffect(() => {
-    const pref = settings?.theme ?? 'light'
+    const pref = settings?.theme
+    if (!pref) return
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = () => {
       const dark = pref === 'dark' || (pref === 'system' && media.matches)
       document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      try {
+        localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light')
+      } catch {
+        // The next start paints light first.
+      }
     }
     apply()
     media.addEventListener('change', apply)
@@ -124,17 +128,9 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
     if (r.name === 'class') localStorage.setItem(LAST_CLASS_KEY, r.classId)
   }, [])
 
-  const focusSource = useCallback(
-    (classId: string, focus: Omit<StudyFocus, 'nonce'>) => {
-      setStudyFocus({ ...focus, nonce: Date.now() })
-      setRoute((r) => (r.name === 'class' && r.classId === classId ? r : { name: 'class', classId, chatId: null }))
-    },
-    []
-  )
-
   const value = useMemo<AppState>(
-    () => ({ route, go, settings, setSettings, classes, refreshClasses, toasts, toast, dismiss, jobs, run, studyFocus, focusSource }),
-    [route, go, settings, classes, refreshClasses, toasts, toast, dismiss, jobs, run, studyFocus, focusSource]
+    () => ({ route, go, settings, setSettings, classes, classesLoaded, refreshClasses, toasts, toast, dismiss, jobs, run }),
+    [route, go, settings, classes, classesLoaded, refreshClasses, toasts, toast, dismiss, jobs, run]
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

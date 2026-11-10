@@ -35,7 +35,8 @@ export function StudyTab({ bundle, session, onOpenReading, onResume, onStartNext
             <Icon name="expand" size={13} /> Show over the chat
           </button>
         </div>
-        <SessionPanel session={session} onOpenReading={onOpenReading} onDone={onDone} onClose={onClose} />
+        {/* Keyed by lesson, so an answer written in one never shows up in the next. */}
+        <SessionPanel key={session.id} session={session} onOpenReading={onOpenReading} onDone={onDone} onClose={onClose} />
       </div>
     )
   }
@@ -56,7 +57,9 @@ export function StudyTab({ bundle, session, onOpenReading, onResume, onStartNext
               <Icon name="lesson" size={15} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <RichText text={findTopic(bundle.curriculum, s.topicId)?.title ?? 'Lesson'} inline />
-                <div className="small muted">{s.type === 'review' ? 'Review' : 'Lesson'} · {s.phase === 'wrap' ? 'wrapping up' : s.phase}</div>
+                <div className="small muted">
+                  {s.type === 'review' ? 'Review' : 'Lesson'} · {s.phase === 'wrap' ? 'wrapping up' : s.phase}
+                </div>
               </div>
               <Icon name="arrow" size={14} />
             </button>
@@ -65,8 +68,17 @@ export function StudyTab({ bundle, session, onOpenReading, onResume, onStartNext
       )}
       {next && (
         <div>
-          <button className="btn primary" onClick={onStartNext} data-testid="study-start">
-            <Icon name="play" size={11} /> Start the next lesson: <RichText text={next.title} inline />
+          {/* A long title wraps inside the button instead of running out of the panel. */}
+          <button
+            className="btn primary"
+            style={{ height: 'auto', minHeight: 34, maxWidth: '100%', padding: '6px 14px', whiteSpace: 'normal', textAlign: 'left' }}
+            onClick={onStartNext}
+            data-testid="study-start"
+          >
+            <Icon name="play" size={11} />
+            <span>
+              Start the next lesson: <RichText text={next.title} inline />
+            </span>
           </button>
         </div>
       )}

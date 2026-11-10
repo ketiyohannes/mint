@@ -65,11 +65,7 @@ export async function importFile(path: string): Promise<ImportedSource> {
     case 'txt':
       return withOriginal(importPlainText(decode(bytes), fileName), bytes, ext)
     default: // html, htm
-      return withOriginal(
-        importHtml(decode(bytes, sniffHtmlCharset(bytes)), undefined, fileName.replace(/\.[^.]+$/, '')),
-        bytes,
-        ext
-      )
+      return withOriginal(importHtml(decode(bytes, sniffHtmlCharset(bytes)), undefined, fileName.replace(/\.[^.]+$/, '')), bytes, ext)
   }
 }
 
@@ -91,27 +87,26 @@ function fileNameFromUrl(url: string, ext: string): string {
  * Imports a URL: YouTube videos via their transcript, everything else via a
  * guarded fetch dispatched on content type (PDF, HTML, markdown, plain text).
  */
-export async function importUrl(
-  url: string,
-  opts: FetchOptions & { innertube?: YouTubeClient } = {}
-): Promise<ImportedSource> {
+export async function importUrl(url: string, opts: FetchOptions & { innertube?: YouTubeClient } = {}): Promise<ImportedSource> {
   const { innertube, ...fetchOptions } = opts
-  if (parseYouTubeId(url)) return importYouTube(url, { innertube })
+  if (parseYouTubeId(url)) return importYouTube(url, { innertube, fetchImpl: fetchOptions.fetchImpl })
 
   const { finalUrl, contentType, bytes } = await safeFetch(url, fetchOptions)
   const domain = domainOf(finalUrl)
-  const [mime = '', ...params] = contentType.toLowerCase().split(';').map((p) => p.trim())
-  const charset = params.find((p) => p.startsWith('charset='))?.slice('charset='.length).replace(/"/g, '')
+  const [mime = '', ...params] = contentType
+    .toLowerCase()
+    .split(';')
+    .map((p) => p.trim())
+  const charset = params
+    .find((p) => p.startsWith('charset='))
+    ?.slice('charset='.length)
+    .replace(/"/g, '')
   const head = new TextDecoder('latin1').decode(bytes.subarray(0, 512)).trimStart()
   const path = new URL(finalUrl).pathname.toLowerCase()
 
   const looksLikePdf = mime === 'application/pdf' || head.startsWith('%PDF-')
-  const looksLikeHtml =
-    mime === 'text/html' ||
-    mime === 'application/xhtml+xml' ||
-    ((mime === '' || mime === 'application/octet-stream') && /^(<!doctype html|<html)/i.test(head))
-  const looksLikeMarkdown =
-    mime === 'text/markdown' || mime === 'text/x-markdown' || (mime === 'text/plain' && /\.(md|markdown)$/.test(path))
+  const looksLikeHtml = mime === 'text/html' || mime === 'application/xhtml+xml' || ((mime === '' || mime === 'application/octet-stream') && /^(<!doctype html|<html)/i.test(head))
+  const looksLikeMarkdown = mime === 'text/markdown' || mime === 'text/x-markdown' || (mime === 'text/plain' && /\.(md|markdown)$/.test(path))
 
   if (looksLikePdf) {
     const source = await importPdf(bytes, fileNameFromUrl(finalUrl, 'pdf'))
@@ -128,7 +123,5 @@ export async function importUrl(
     const source = importPlainText(decode(bytes, charset), fileNameFromUrl(finalUrl, 'txt'))
     return { ...source, url: finalUrl, domain }
   }
-  throw new Error(
-    `mint can't import ${mime || 'this kind of content'} from ${domain}. Supported links: web pages, PDFs, plain text, and YouTube videos.`
-  )
+  throw new Error(`mint can't import ${mime || 'this kind of content'} from ${domain}. Supported links: web pages, PDFs, plain text, and YouTube videos.`)
 }

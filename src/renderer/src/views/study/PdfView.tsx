@@ -7,6 +7,7 @@ import { quoteToRanges, rangeForQuote, type SelectionAnchor } from '../../lib/an
 import { api, errorMessage } from '../../lib/api'
 import { Icon } from '../../components/Icon'
 import type { ReaderFocus } from './Reader'
+import { positionKey, readingPosition, rememberPosition, takeJump } from './position'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -129,10 +130,14 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
     }
   }, [])
 
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+
   /** Zoom to `next`, keeping the content under `at` (a screen point; default the view's center) in place. */
   const zoomTo = useCallback((next: number, at?: { x: number; y: number }) => {
     const el = scrollRef.current
-    if (!el) return
+    // Already there (a pinch at the limit): no anchor is left behind for a later resize to jump to.
+    if (!el || clampZoom(next) === zoomRef.current) return
     const rect = el.getBoundingClientRect()
     const px = at ? at.x - rect.left : el.clientWidth / 2
     const py = at ? at.y - rect.top : el.clientHeight / 2
@@ -155,15 +160,15 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
   }, [width])
 
   // Pinch on a trackpad (or Ctrl/⌘ + scroll) zooms the pages, not the app.
-  const zoomRef = useRef(zoom)
-  zoomRef.current = zoom
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
-      zoomTo(zoomRef.current * Math.exp(-e.deltaY * 0.01), { x: e.clientX, y: e.clientY })
+      // A pinch sends small steps; one notch of a mouse wheel sends a hundred, which is held to a gentle step.
+      const step = Math.max(-30, Math.min(30, e.deltaY))
+      zoomTo(zoomRef.current * Math.exp(-step * 0.01), { x: e.clientX, y: e.clientY })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -200,7 +205,10 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
       const pageEl = pageEls.current.get(page)
       const r = range.getClientRects()[0]
       if (!pageEl || !r) return
-      nextPins.push({ page, top: r.top - pageEl.getBoundingClientRect().top, kind, id })
+      let top = r.top - pageEl.getBoundingClientRect().top
+      // Two pins on one line would sit on top of each other: the later one moves down.
+      while (nextPins.some((p) => p.page === page && Math.abs(p.top - top) < 24)) top += 24
+      nextPins.push({ page, top, kind, id })
     }
     for (const a of annotations) {
       if (a.anchor.sourceId !== doc.id) continue
@@ -217,7 +225,8 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
       const root = page !== null ? textRoots.current.get(page) : undefined
       const range = root ? rangeForQuote(root, t.anchor.quote) : null
       if (!range || page === null) continue
-      sets['mint-thread'].push(range)
+      // Hiding the stickies hides the lines under their passages too, as in the text view.
+      if (!hidePins) sets['mint-thread'].push(range)
       if (t.pinned || t.id === openThreadId) place(page, range, 'q', t.id)
     }
     if (flash?.quote) {
@@ -227,11 +236,20 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
     }
     for (const name of HIGHLIGHTS) CSS.highlights.set(name, new Highlight(...sets[name]))
     setPins(nextPins)
-  }, [annotations, threads, doc.id, ready, width, flash, openThreadId])
+  }, [annotations, threads, doc.id, ready, width, flash, openThreadId, hidePins])
 
-  // Jump to a cited page (and quote).
+  // Jump to a cited page (and quote); otherwise open where the learner left this document.
+  const posKey = positionKey(doc.classId, doc.id, 'pdf')
+  const jumped = useRef(0)
   useEffect(() => {
-    if (!focus || !pdf) return
+    if (!pdf) return
+    // A jump is made once: the host hands the last request to every source it shows next.
+    if (!focus || !takeJump(focus.nonce, jumped)) {
+      const saved = readingPosition(posKey)
+      const at = saved && 'page' in saved ? pageEls.current.get(saved.page) : undefined
+      if (saved && 'page' in saved && at && scrollRef.current) scrollRef.current.scrollTop = at.offsetTop + saved.frac * at.offsetHeight
+      return
+    }
     let page = pageOf(focus.section)
     if (page === null && focus.quote) {
       for (const [n, s] of sectionByPage) {
@@ -251,14 +269,16 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.nonce, pdf])
 
-  // Once the cited page's text is ready, center the quote.
+  // Once the cited page's text is ready, center the quote (once: later pages loading must not pull the view back).
+  const centered = useRef(0)
   useEffect(() => {
-    if (!flash?.quote || !ready.has(flash.page)) return
+    if (!flash?.quote || centered.current === flash.nonce || !ready.has(flash.page)) return
     const root = textRoots.current.get(flash.page)
     const range = root ? rangeForQuote(root, flash.quote) : null
     const box = range?.getBoundingClientRect()
     const scroller = scrollRef.current
     if (box && scroller) {
+      centered.current = flash.nonce
       const s = scroller.getBoundingClientRect()
       scroller.scrollBy({ top: box.top - s.top - s.height / 3, behavior: 'smooth' })
     }
@@ -301,8 +321,66 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
     [onSelection]
   )
 
-  function handleMouseUp() {
-    setTimeout(() => report(readSelection()), 0)
+  // The selection is read on any mouse release (a drag often ends outside the pages), and a release
+  // that leaves nothing selected here (a click elsewhere, another tab) takes the toolbar away.
+  useEffect(() => {
+    const onUp = (e: MouseEvent) => {
+      // A press on the selection's own toolbar, or in a popover, is not a new selection.
+      if (e.target instanceof Element && e.target.closest('.sel-toolbar, .popover')) return
+      // Text still selected in a tab that is no longer showing has no toolbar either.
+      setTimeout(() => report(scrollRef.current?.closest('.panel-page.inactive') ? null : readSelection()), 0)
+    }
+    document.addEventListener('mouseup', onUp)
+    return () => document.removeEventListener('mouseup', onUp)
+  }, [readSelection, report])
+
+  // Leaving (another source, the text view) takes the toolbar along.
+  const onSelectionRef = useRef(onSelection)
+  onSelectionRef.current = onSelection
+  useEffect(() => () => onSelectionRef.current(null), [])
+
+  // The page in view (for the page box), and the place to come back to.
+  const [current, setCurrent] = useState(1)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !pdf) return
+    let frame = 0
+    /** The first page whose bottom edge is below `y`. */
+    const pageAt = (y: number) => {
+      let lo = 1
+      let hi = pdf.numPages
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        const page = pageEls.current.get(mid)
+        if (page && page.offsetTop + page.offsetHeight > y) hi = mid
+        else lo = mid + 1
+      }
+      return lo
+    }
+    const track = () => {
+      frame = 0
+      setCurrent(pageAt(el.scrollTop + el.clientHeight / 2))
+      const top = pageAt(el.scrollTop)
+      const page = pageEls.current.get(top)
+      if (page) rememberPosition(posKey, { page: top, frac: Math.max(0, (el.scrollTop - page.offsetTop) / page.offsetHeight) })
+    }
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(track)
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [pdf, posKey])
+
+  /** The page box becomes a field: type a page and press Enter. */
+  const [pageDraft, setPageDraft] = useState<string | null>(null)
+  const goToPage = (n: number) => {
+    setPageDraft(null)
+    if (!pdf || !Number.isFinite(n)) return
+    const page = pageEls.current.get(Math.min(pdf.numPages, Math.max(1, Math.round(n))))
+    if (page) scrollRef.current?.scrollTo({ top: page.offsetTop - 12 })
   }
 
   // Scrolling keeps the toolbar with the selected text; it goes away once the text leaves the view.
@@ -339,39 +417,73 @@ export const PdfView = memo(function PdfView(props: Props): JSX.Element {
 
   return (
     <div className="pdf-frame">
-    <div className={`pdf-scroll ${dark ? 'dark' : ''}`} ref={scrollRef} onMouseUp={handleMouseUp} data-testid="pdf-view">
-      {error ? (
-        <div className="empty">
-          <p>This PDF could not be displayed: {error}</p>
-          <button className="btn" onClick={onUnavailable}>
-            Show as text
-          </button>
-        </div>
-      ) : !pdf || !width ? (
-        <div className="empty">
-          <span className="spinner" />
-        </div>
-      ) : (
-        <div className="pdf-pages">
-        {[...Array(pdf.numPages)].map((_, i) => (
-          <PdfPage
-            key={i + 1}
-            pdf={pdf}
-            n={i + 1}
-            width={width}
-            ratio={ratio}
-            scrollRoot={scrollRef}
-            onTextReady={onTextReady}
-            register={(el) => (el ? pageEls.current.set(i + 1, el) : pageEls.current.delete(i + 1))}
-            pins={hidePins ? [] : pins.filter((p) => p.page === i + 1)}
-            onPin={openPin}
-          />
-        ))}
-        </div>
-      )}
-    </div>
+      <div className={`pdf-scroll ${dark ? 'dark' : ''}`} ref={scrollRef} data-testid="pdf-view">
+        {error ? (
+          <div className="empty">
+            <p>This PDF could not be displayed: {error}</p>
+            <button className="btn" onClick={onUnavailable}>
+              Show as text
+            </button>
+          </div>
+        ) : !pdf || !width ? (
+          <div className="empty">
+            <span className="spinner" />
+          </div>
+        ) : (
+          <div className="pdf-pages">
+            {[...Array(pdf.numPages)].map((_, i) => (
+              <PdfPage
+                key={i + 1}
+                pdf={pdf}
+                n={i + 1}
+                width={width}
+                ratio={ratio}
+                scrollRoot={scrollRef}
+                onTextReady={onTextReady}
+                register={(el) => (el ? pageEls.current.set(i + 1, el) : pageEls.current.delete(i + 1))}
+                pins={hidePins ? [] : pins.filter((p) => p.page === i + 1)}
+                onPin={openPin}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       {pdf && !error && (
-        <div className="pdf-zoom" role="group" aria-label="Zoom">
+        <div className="pdf-zoom" role="group" aria-label="Page and zoom">
+          {pageDraft === null ? (
+            <button
+              className="pdf-zoom-level pdf-page-now"
+              onClick={() => setPageDraft(String(current))}
+              title="Go to a page"
+              aria-label={`Page ${current} of ${pdf.numPages}. Go to a page`}
+              data-testid="pdf-page"
+            >
+              {current} / {pdf.numPages}
+            </button>
+          ) : (
+            <form
+              className="pdf-goto"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (pageDraft) goToPage(Number(pageDraft))
+                else setPageDraft(null)
+              }}
+            >
+              <input
+                autoFocus
+                inputMode="numeric"
+                value={pageDraft}
+                onChange={(e) => setPageDraft(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                onFocus={(e) => e.currentTarget.select()}
+                onBlur={() => setPageDraft(null)}
+                onKeyDown={(e) => e.key === 'Escape' && setPageDraft(null)}
+                aria-label="Go to page"
+                data-testid="pdf-page-input"
+              />
+              / {pdf.numPages}
+            </form>
+          )}
+          <i className="pdf-zoom-sep" aria-hidden="true" />
           <button className="icon-btn" onClick={() => zoomStep(-1)} disabled={zoom <= MIN_ZOOM + 0.001} title="Zoom out" aria-label="Zoom out" data-testid="pdf-zoom-out">
             <Icon name="minus" size={13} />
           </button>
@@ -440,7 +552,12 @@ const PdfPage = memo(function PdfPage({ pdf, n, width, ratio, scrollRoot, onText
 
   // The canvas: drawn at the settled width (sharp at any zoom).
   useEffect(() => {
-    if (!near) return
+    if (!near) {
+      // Far from the view: give the bitmap back, or a long book keeps every page it has shown.
+      const canvas = canvasRef.current
+      if (canvas) canvas.width = canvas.height = 0
+      return
+    }
     let cancelled = false
     let task: RenderTask | null = null
     void (async () => {

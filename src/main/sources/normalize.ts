@@ -133,16 +133,21 @@ function normalizeBlock(raw: RawBlock): Omit<SourceBlock, 'id'>[] {
 /**
  * Canonicalizes importer output: assigns ids (`s{i}`, `s{i}b{j}`), cleans
  * whitespace, splits overlong paragraphs, and drops empty blocks and sections.
- * Ids are assigned after dropping, so they are always contiguous.
+ * Ids are assigned after dropping, so they are always contiguous. Labels are
+ * what citations point at, so a repeated one gets a number: "Exercises (2)".
  */
 export function normalizeSections(sections: RawSection[]): SourceSection[] {
   const out: SourceSection[] = []
+  const taken = new Set<string>()
   for (const raw of sections) {
     const blocks = raw.blocks.flatMap(normalizeBlock)
     if (blocks.length === 0) continue
 
     const i = out.length
-    const label = collapseWhitespace(raw.label) || `Section ${i + 1}`
+    const heading = collapseWhitespace(raw.label) || `Section ${i + 1}`
+    let label = heading
+    for (let n = 2; taken.has(label); n++) label = `${heading} (${n})`
+    taken.add(label)
     const section: SourceSection = {
       id: `s${i}`,
       label,
@@ -199,9 +204,7 @@ function renderBlock(block: SourceBlock): string {
       return `${fence}\n${block.text}\n${fence}\n${ref}`
     }
     case 'cue':
-      return isFiniteNumber(block.t)
-        ? `[${formatTimestamp(block.t)}] ${block.text}  ${ref}`
-        : `${block.text}  ${ref}`
+      return isFiniteNumber(block.t) ? `[${formatTimestamp(block.t)}] ${block.text}  ${ref}` : `${block.text}  ${ref}`
     case 'paragraph':
       return `${block.text}  ${ref}`
   }
@@ -212,22 +215,13 @@ function renderBlock(block: SourceBlock): string {
  * block ends with `^blockId` so agents can cite exact blocks, and each block
  * sits on its own line so a Grep hit always carries its id.
  */
-export function toAgentMarkdown(doc: {
-  id: string
-  title: string
-  kind: string
-  url?: string
-  sections: SourceSection[]
-}): string {
+export function toAgentMarkdown(doc: { id: string; title: string; kind: string; url?: string; sections: SourceSection[] }): string {
   const meta = [`source-id: ${doc.id}`, `kind: ${doc.kind}`]
   if (doc.url) meta.push(`url: ${doc.url}`)
 
   const parts = [`# ${collapseWhitespace(doc.title)}\n${meta.join(' · ')}`]
   for (const section of doc.sections) {
-    const heading =
-      section.title && section.title !== section.label
-        ? `## [${section.label}] ${section.title}`
-        : `## [${section.label}]`
+    const heading = section.title && section.title !== section.label ? `## [${section.label}] ${section.title}` : `## [${section.label}]`
     parts.push([heading, ...section.blocks.map(renderBlock)].join('\n'))
   }
   return `${parts.join('\n\n')}\n`

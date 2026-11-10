@@ -5,9 +5,11 @@ import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
 import { access, constants, mkdir, rm, writeFile } from 'node:fs/promises'
-import { once } from 'node:events'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as WebReadableStream } from 'node:stream/web'
 import { promisify } from 'node:util'
 import type { UpdateState, UpdateStatus } from '@shared/types'
 import type { UpdateController } from './app'
@@ -19,6 +21,8 @@ const run = promisify(execFile)
 const RELEASES = { owner: 'ketiyohannes', repo: 'mint' } as const
 const FIRST_CHECK_MS = 15_000
 const CHECK_EVERY_MS = 4 * 60 * 60 * 1000
+/** macOS download: give up when no data arrives for this long. */
+const DOWNLOAD_STALL_MS = 60_000
 
 /**
  * Puts the new app bundle in place once mint has exited, then relaunches it.
@@ -107,6 +111,8 @@ export class Updater implements UpdateController {
   private staged: string | null = null
   private macPlan: MacPlan | null = null
   private swapping = false
+  /** A check is in flight (a background one does not show as the `checking` state). */
+  private checking = false
   private timers: NodeJS.Timeout[] = []
   private readonly updater: AppUpdater | null
 
@@ -135,7 +141,7 @@ export class Updater implements UpdateController {
   start(): void {
     if (!this.updater) return
     const quietCheck = () => {
-      if (['idle', 'current', 'error', 'available'].includes(this.state.status)) void this.check()
+      if (['idle', 'current', 'error', 'available'].includes(this.state.status)) void this.runCheck(true)
     }
     this.timers.push(setTimeout(quietCheck, FIRST_CHECK_MS), setInterval(quietCheck, CHECK_EVERY_MS))
   }
@@ -147,12 +153,23 @@ export class Updater implements UpdateController {
 
   status = async (): Promise<UpdateStatus> => this.snapshot()
 
-  check = async (): Promise<UpdateStatus> => {
+  check = (): Promise<UpdateStatus> => this.runCheck(false)
+
+  /**
+   * `background`: the timer's own check. While an update is on offer it runs
+   * out of sight, and a failure (offline, GitHub down) leaves that offer up
+   * instead of replacing it with an error.
+   */
+  private async runCheck(background: boolean): Promise<UpdateStatus> {
     const u = this.updater
-    if (!u || this.state.status === 'checking' || this.state.status === 'downloading' || this.state.status === 'ready') return this.snapshot()
-    this.set({ status: 'checking' })
+    if (!u || this.checking || this.state.status === 'checking' || this.state.status === 'downloading' || this.state.status === 'ready') return this.snapshot()
+    const offered = background && this.state.status === 'available' ? this.state : null
+    this.checking = true
+    if (!offered) this.set({ status: 'checking' })
     try {
       const result = await u.checkForUpdates()
+      // The learner started the download while this ran: that owns the state now.
+      if (offered && this.state !== offered) return this.snapshot()
       if (!result?.isUpdateAvailable) {
         this.info = null
         this.set({ status: 'current', checkedAt: new Date().toISOString() })
@@ -162,7 +179,10 @@ export class Updater implements UpdateController {
         this.set({ status: 'available', version, notes: releaseNotes(result.updateInfo) })
       }
     } catch (err) {
-      this.fail(err)
+      if (offered) this.opts.log(`update: background check failed: ${err instanceof Error ? err.message : String(err)}`)
+      else this.fail(err)
+    } finally {
+      this.checking = false
     }
     return this.snapshot()
   }
@@ -196,8 +216,13 @@ export class Updater implements UpdateController {
         this.swapMac(true)
         app.quit()
       } else {
-        if (process.env.APPIMAGE === LINUX_APPIMAGE) void this.prepareLinuxAppImage().then(() => this.updater?.quitAndInstall(true, true))
-        else this.updater?.quitAndInstall(true, true)
+        if (process.env.APPIMAGE === LINUX_APPIMAGE) {
+          // If the AppImage cannot be put in place, say so and stay open rather than quit into nothing.
+          void this.prepareLinuxAppImage().then(
+            () => this.updater?.quitAndInstall(true, true),
+            (err) => this.fail(err)
+          )
+        } else this.updater?.quitAndInstall(true, true)
       }
     })
   }
@@ -264,27 +289,43 @@ export class Updater implements UpdateController {
       : this.opts.feedUrl
         ? new URL(file.url, this.opts.feedUrl.replace(/\/?$/, '/')).toString()
         : `https://github.com/${RELEASES.owner}/${RELEASES.repo}/releases/download/v${info.version}/${encodeURIComponent(file.url)}`
-    const res = await net.fetch(url)
-    if (!res.ok || !res.body) throw new Error(`Download failed (HTTP ${res.status}).`)
-    const total = Number(res.headers.get('content-length')) || file.size || 0
+    // A connection that goes quiet is dropped, so the download fails instead of sitting at a percentage forever.
+    const stalled = new AbortController()
+    let stallTimer = setTimeout(() => stalled.abort(), DOWNLOAD_STALL_MS)
+    const alive = (): void => {
+      clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => stalled.abort(), DOWNLOAD_STALL_MS)
+    }
 
     const zip = join(dir, 'update.zip')
-    const out = createWriteStream(zip)
     const hash = createHash('sha512')
-    const reader = res.body.getReader()
-    let received = 0
     try {
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        hash.update(value)
-        received += value.byteLength
-        if (!out.write(value)) await once(out, 'drain')
+      const res = await net.fetch(url, { signal: stalled.signal })
+      if (!res.ok || !res.body) throw new Error(`Download failed (HTTP ${res.status}).`)
+      const total = Number(res.headers.get('content-length')) || file.size || 0
+      let received = 0
+      const progress = (bytes: number): void => {
+        received += bytes
         if (total) this.progress((received / total) * 100)
       }
+      // pipeline ends every stream on the first error (a full disk, a dropped connection) and rejects with it.
+      await pipeline(
+        Readable.fromWeb(res.body as unknown as WebReadableStream<Uint8Array>),
+        async function* (chunks: AsyncIterable<Uint8Array>) {
+          for await (const chunk of chunks) {
+            alive()
+            hash.update(chunk)
+            progress(chunk.byteLength)
+            yield chunk
+          }
+        },
+        createWriteStream(zip)
+      )
+    } catch (err) {
+      if (stalled.signal.aborted) throw new Error('The download stopped receiving data. Check your connection and try again.')
+      throw err
     } finally {
-      out.end()
-      await once(out, 'close')
+      clearTimeout(stallTimer)
     }
     if (hash.digest('base64') !== file.sha512) throw new Error('The download did not match the release checksum.')
 

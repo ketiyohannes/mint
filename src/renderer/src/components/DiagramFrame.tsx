@@ -146,14 +146,7 @@ export function DiagramFrame(props: DiagramFrameProps): React.JSX.Element {
 
   return (
     <div className={['diagram-frame', className].filter(Boolean).join(' ')}>
-      <iframe
-        ref={iframeRef}
-        className="diagram-frame__iframe"
-        src={DIAGRAM_SANDBOX_URL}
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-        title={spec.title || 'Interactive diagram'}
-      />
+      <iframe ref={iframeRef} className="diagram-frame__iframe" src={DIAGRAM_SANDBOX_URL} sandbox="allow-scripts" referrerPolicy="no-referrer" title={spec.title || 'Interactive diagram'} />
     </div>
   )
 }

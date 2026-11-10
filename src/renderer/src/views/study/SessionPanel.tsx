@@ -1,12 +1,13 @@
 import { useEffect, useState, type JSX } from 'react'
 import { CHECK_KINDS, type CheckKind, type Phase, type Session } from '@shared/types'
 import { findTopic } from '@shared/curriculum'
-import { api } from '../../lib/api'
+import { api, errorMessage } from '../../lib/api'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
 import { RichText } from '../../components/RichText'
 import { useStudy } from './context'
-import { clearCheckDraft, setCheckDraft } from './drafts'
+import { clearSessionDrafts, hideCheckDraft, savedDraft, setCheckDraft } from './drafts'
+import { shortcutLabel } from '../../lib/shortcuts'
 
 export const PHASE_LABEL: Record<Phase, string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
 export const ORDER: Phase[] = ['brief', 'read', 'explain', 'apply', 'distinguish', 'wrap']
@@ -46,22 +47,25 @@ export function SessionPanel({ session, onOpenReading, onDone, onClose, bare = f
     setBusy(null)
   }, [session.phase])
 
+  // A lesson that has ended has no answers left to finish.
+  useEffect(() => {
+    if (session.endedAt) clearSessionDrafts(session.id)
+  }, [session.id, session.endedAt])
+
   const next = ORDER[idx + 1]
   return (
     <div className="stack" data-testid="session-panel">
       {!bare && (
         <div>
           <div className="small muted">{session.type === 'review' ? 'Review session' : 'Study session'}</div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>
-            {topic?.title ?? 'Topic'}
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{topic?.title ?? 'Topic'}</div>
         </div>
       )}
-      <div className="phase-steps" role="list">
+      <div className="phase-steps" role="group" aria-label="Lesson steps">
         {ORDER.map((p, i) => (
           <button
             key={p}
-            role="listitem"
+            aria-current={p === session.phase ? 'step' : undefined}
             className={`phase-step ${p === session.phase ? 'active' : i < idx ? 'done' : ''}`}
             disabled={busy !== null || Boolean(session.endedAt) || (p === 'wrap' && !session.attempts.length)}
             onClick={() => p !== session.phase && void go(p)}
@@ -88,7 +92,7 @@ export function SessionPanel({ session, onOpenReading, onDone, onClose, bare = f
       ) : session.phase === 'wrap' ? (
         <WrapCard session={session} onDone={onDone} />
       ) : (
-        <CheckCard key={session.phase} session={session} kind={session.phase as CheckKind} />
+        <CheckCard key={session.phase} session={session} kind={session.phase as CheckKind} onOpenReading={onOpenReading} />
       )}
 
       {!session.endedAt && next && session.phase !== 'wrap' && (
@@ -103,7 +107,12 @@ export function SessionPanel({ session, onOpenReading, onDone, onClose, bare = f
             className="btn ghost sm"
             onClick={async () => {
               if (!window.confirm('End this session now? Checks you passed are kept.')) return
-              await run(() => api.sessions.abandon(study.classId, session.id))
+              const ended = await run(async () => {
+                await api.sessions.abandon(study.classId, session.id)
+                return true
+              })
+              if (!ended) return
+              clearSessionDrafts(session.id)
               onDone()
             }}
           >
@@ -151,23 +160,30 @@ function BriefCard({ session, onOpenReading }: { session: Session; onOpenReading
           </li>
         ))}
       </ol>
-      {session.phase === 'read' && <p className="hint" style={{ marginBottom: 0 }}>Stuck? Select any passage and press Ask. You can always ask for more help, one step at a time.</p>}
+      {session.phase === 'read' && (
+        <p className="hint" style={{ marginBottom: 0 }}>
+          Stuck? Select any passage and press Side chat. You can always ask for more help, one step at a time.
+        </p>
+      )}
     </div>
   )
 }
 
-function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JSX.Element {
+function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: CheckKind; onOpenReading: (sourceId: string, section: string) => void }): JSX.Element {
   const { toast } = useApp()
   const study = useStudy()
-  const [answer, setAnswer] = useState('')
+  // An answer started earlier (before another step, a closed dock, another class) is still here.
+  const [answer, setAnswer] = useState(() => savedDraft(session.id, kind))
   const [busy, setBusy] = useState(false)
-  // Every tutor in the class sees what is being written here.
+  // Every tutor in the class sees what is being written here, while it is on screen.
   useEffect(() => setCheckDraft(session.id, kind, answer), [session.id, kind, answer])
-  useEffect(() => () => clearCheckDraft(session.id, kind), [session.id, kind])
+  useEffect(() => () => hideCheckDraft(session.id, kind), [session.id, kind])
   const prompt = session.prompts[kind]
   const attempts = session.attempts.filter((a) => a.kind === kind)
   const last = attempts[attempts.length - 1]
   const passed = attempts.some((a) => a.verdict?.result === 'pass')
+  // Explain is from memory: its readings show only once a first try sends you back to them.
+  const readings = kind !== 'explain' || attempts.length > 0 ? (session.brief?.readings ?? []) : []
 
   async function submit() {
     setBusy(true)
@@ -176,7 +192,7 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
       // Not passed yet: the answer stays, to revise or add to; the judge sees the earlier tries.
       if (next.attempts.at(-1)?.verdict?.result === 'pass') setAnswer('')
     } catch (err) {
-      toast(err instanceof Error ? err.message.replace(/^.*mint:/, '') : String(err), 'error')
+      toast(errorMessage(err), 'error')
     } finally {
       setBusy(false)
     }
@@ -191,6 +207,16 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
           {passed && <span className="badge green">passed</span>}
         </div>
         <RichText text={prompt} testId="check-prompt" />
+        {readings.length > 0 && (
+          <div className="row wrap small muted" style={{ marginTop: 10, gap: 6 }} data-testid="check-readings">
+            Re-read:
+            {readings.map((r, i) => (
+              <button key={i} className="cite-chip" onClick={() => onOpenReading(r.sourceId, r.section)} title={study.sourceTitle(r.sourceId)} data-testid="check-reading">
+                ↗ {r.section || study.sourceTitle(r.sourceId) || 'source'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {attempts.map((a) => (
         <div key={a.id} className="stack" style={{ gap: 6 }}>
@@ -200,7 +226,7 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
           {a.verdict && (
             <div className={`verdict ${a.verdict.result}`} data-testid="verdict">
               <div className="row" style={{ marginBottom: 4 }}>
-                <b style={{ textTransform: 'capitalize' }}>{a.verdict.result === 'pass' ? 'Pass' : a.verdict.result === 'partial' ? 'Almost' : 'Not yet'}</b>
+                <b>{a.verdict.result === 'pass' ? 'Pass' : a.verdict.result === 'partial' ? 'Almost' : 'Not yet'}</b>
               </div>
               <RichText text={a.verdict.feedback} />
               {a.verdict.misconceptions.length > 0 && (
@@ -219,13 +245,18 @@ function CheckCard({ session, kind }: { session: Session; kind: CheckKind }): JS
             placeholder={last ? 'Try again, after re-reading the passage it pointed you to. Your earlier tries count…' : 'Your answer…'}
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.nativeEvent.isComposing) return
+              e.preventDefault()
+              if (!busy && answer.trim()) void submit()
+            }}
             data-testid="check-answer"
           />
           <div className="row">
-            <button className="btn primary" disabled={busy || !answer.trim()} onClick={submit} data-testid="check-submit">
+            <button className="btn primary" disabled={busy || !answer.trim()} onClick={submit} title={`Check my answer (${shortcutLabel('checkAnswer')})`} data-testid="check-submit">
               {busy ? <span className="spinner" /> : <Icon name="check" />} Check my answer
             </button>
-            <span className="hint">"I don't know" is a fine answer.</span>
+            <span className="hint">{shortcutLabel('checkAnswer')} to check. "I don't know" is a fine answer.</span>
           </div>
         </div>
       )}
@@ -240,10 +271,13 @@ function WrapCard({ session, onDone }: { session: Session; onDone: () => void })
   const [records, setRecords] = useState<Set<number>>(() => new Set(w?.records.map((_, i) => i)))
   const [terms, setTerms] = useState<Set<number>>(() => new Set(w?.terms.map((_, i) => i)))
   const [busy, setBusy] = useState(false)
+  // Only when the wrap-up itself arrives or changes: every reload of the class hands over a new
+  // object, and resetting on that would tick again what the learner just unticked.
   useEffect(() => {
     setRecords(new Set(w?.records.map((_, i) => i)))
     setTerms(new Set(w?.terms.map((_, i) => i)))
-  }, [w])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id, w?.records.length, w?.terms.length])
   if (!w) return <div className="muted small">Wrapping up…</div>
   const toggle = (set: Set<number>, i: number) => {
     const n = new Set(set)

@@ -39,13 +39,7 @@ export function QuizWidget({ title, questions, choices, onSubmit }: Props): JSX.
               const mine = shown[i] === j
               const state = graded ? (j === q.answer ? 'right' : mine ? 'wrong' : '') : mine ? 'on' : ''
               return (
-                <button
-                  key={j}
-                  className={`quiz-option ${state}`}
-                  disabled={graded || !onSubmit}
-                  onClick={() => setPicked((p) => p.map((c, k) => (k === i ? j : c)))}
-                  data-testid="quiz-option"
-                >
+                <button key={j} className={`quiz-option ${state}`} disabled={graded || !onSubmit} onClick={() => setPicked((p) => p.map((c, k) => (k === i ? j : c)))} data-testid="quiz-option">
                   <span className="qw-key">{String.fromCharCode(65 + j)}</span>
                   <RichText text={o} inline />
                 </button>
@@ -54,15 +48,16 @@ export function QuizWidget({ title, questions, choices, onSubmit }: Props): JSX.
           </div>
           {graded && (
             <div className={`quiz-expl ${choices![i] === q.answer ? 'right' : 'wrong'}`}>
-              <b>{choices![i] === q.answer ? 'Right.' : choices![i] < 0 ? 'Skipped.' : 'Not quite.'}</b>{' '}
-              <RichText text={q.explanation} inline />
+              <b>{choices![i] === q.answer ? 'Right.' : choices![i] < 0 ? 'Skipped.' : 'Not quite.'}</b> <RichText text={q.explanation} inline />
             </div>
           )}
         </div>
       ))}
       {!graded && (
         <div className="widget-foot">
-          <span className="muted small">{picked.filter((c) => c >= 0).length}/{questions.length} answered</span>
+          <span className="muted small">
+            {picked.filter((c) => c >= 0).length}/{questions.length} answered
+          </span>
           <span className="spacer" />
           <button className="btn sm primary" disabled={!onSubmit || !complete} onClick={() => onSubmit?.(picked)} data-testid="quiz-submit">
             {!onSubmit ? <span className="spinner tiny" /> : null} Check answers

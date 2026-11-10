@@ -196,7 +196,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     process.exit(2)
   }
   if (message.method && message.id !== undefined) handleRequest(message)
-  else if (message.method) return // notifications such as "initialized"
+  else if (message.method)
+    return // notifications such as "initialized"
   else pendingClientResponses.get(message.id)?.(message)
 })
 process.stdin.on('end', () => process.exit(0))

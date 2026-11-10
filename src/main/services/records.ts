@@ -3,12 +3,7 @@ import { newId, nowIso, slugify } from '../store/fsutil'
 import type { Kernel } from './kernel'
 
 /** Append learning records with /teach numbering (call under the class lock). */
-export async function appendRecords(
-  k: Kernel,
-  classId: string,
-  proposals: RecordProposal[],
-  extra: { sessionId?: string; topicId?: string } = {}
-): Promise<LearningRecord[]> {
+export async function appendRecords(k: Kernel, classId: string, proposals: RecordProposal[], extra: { sessionId?: string; topicId?: string } = {}): Promise<LearningRecord[]> {
   if (!proposals.length) return []
   const created: LearningRecord[] = []
   await k.repo.update(classId, 'records', (list) => {

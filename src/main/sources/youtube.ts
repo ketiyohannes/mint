@@ -1,8 +1,7 @@
 import { formatTimestamp, normalizeSections, type RawBlock, type RawSection } from './normalize'
 import type { ImportedSource } from './types'
 
-export const NO_TRANSCRIPT_MESSAGE =
-  'No transcript is available for this video yet. Paste one from the Library to read along.'
+export const NO_TRANSCRIPT_MESSAGE = 'No transcript is available for this video yet. Paste one from the Library to read along.'
 
 /** Sections close once they reach this length at a sentence end... */
 const SECTION_MIN_SECONDS = 60
@@ -10,18 +9,23 @@ const SECTION_MIN_SECONDS = 60
 const SECTION_MAX_SECONDS = 90
 /** Untimed transcripts are chunked into cues of roughly this many words. */
 const CUE_WORDS = 120
+/** How long one call to YouTube may take before the import gives up on it. */
+const YOUTUBE_TIMEOUT_MS = 30_000
+
+/** Rejects when `work` has not settled in time: youtubei.js has no timeout of its own, and a stalled call would leave the import running forever. */
+export function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${what} took longer than ${Math.round(ms / 1000)} s`)), ms)
+    work.then(resolve, reject).finally(() => clearTimeout(timer))
+  })
+}
 
 // ---------------------------------------------------------------------------
 // URL parsing
 // ---------------------------------------------------------------------------
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/
-const YOUTUBE_HOSTS = new Set([
-  'youtube.com',
-  'm.youtube.com',
-  'music.youtube.com',
-  'youtube-nocookie.com'
-])
+const YOUTUBE_HOSTS = new Set(['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com'])
 
 /** Extracts the 11-character video id from any common YouTube link form. */
 export function parseYouTubeId(url: string): string | null {
@@ -65,9 +69,7 @@ function groupCues(cues: Cue[]): RawSection[] {
 
   for (const cue of cues) {
     const elapsed = current ? cue.t - (current.t ?? 0) : 0
-    const shouldBreak =
-      elapsed >= SECTION_MAX_SECONDS ||
-      (elapsed >= SECTION_MIN_SECONDS && /[.!?]["')\]]*$/.test(previousText.trim()))
+    const shouldBreak = elapsed >= SECTION_MAX_SECONDS || (elapsed >= SECTION_MIN_SECONDS && /[.!?]["')\]]*$/.test(previousText.trim()))
     if (!current || shouldBreak) {
       current = { label: formatTimestamp(cue.t), t: cue.t, blocks: [] }
       sections.push(current)
@@ -86,8 +88,7 @@ function groupCues(cues: Cue[]): RawSection[] {
  * A leading timestamp: `0:05`, `00:01:23`, `[12:30]`, `(1:02:03)`, `12:30 -`,
  * and SRT/VTT cue timings (`00:00:01,000 --> 00:00:04,000`).
  */
-const TIMESTAMP_LINE =
-  /^\s*[[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})(?:[.,]\d{1,3})?[\])]?(?:\s*-->\s*[\d:.,]+)?\s*(?:[-–—:|]\s*)?(.*)$/
+const TIMESTAMP_LINE = /^\s*[[(]?((?:\d{1,2}:)?\d{1,2}:\d{2})(?:[.,]\d{1,3})?[\])]?(?:\s*-->\s*[\d:.,]+)?\s*(?:[-–—:|]\s*)?(.*)$/
 
 function timestampToSeconds(stamp: string): number {
   return stamp.split(':').reduce((total, part) => total * 60 + Number(part), 0)
@@ -204,9 +205,9 @@ function getDefaultClient(): Promise<YouTubeClient> {
   return defaultClient
 }
 
-async function fetchTranscript(info: YouTubeVideoInfo): Promise<Cue[]> {
+async function fetchTranscript(info: YouTubeVideoInfo, timeoutMs: number): Promise<Cue[]> {
   try {
-    const result = await info.getTranscript()
+    const result = await withTimeout(info.getTranscript(), timeoutMs, 'Reading the transcript')
     const segments = Array.from(result.transcript.content?.body?.initial_segments ?? [])
     return segments
       .filter((s) => s.type === 'TranscriptSegment')
@@ -237,7 +238,10 @@ function decodeEntities(text: string): string {
  */
 export function parseTimedText(xml: string): Cue[] {
   const cues: Cue[] = []
-  const strip = (inner: string) => decodeEntities(decodeEntities(inner.replace(/<[^>]+>/g, ''))).replace(/\s+/g, ' ').trim()
+  const strip = (inner: string) =>
+    decodeEntities(decodeEntities(inner.replace(/<[^>]+>/g, '')))
+      .replace(/\s+/g, ' ')
+      .trim()
   for (const m of xml.matchAll(/<p\b[^>]*\bt="(\d+)"[^>]*>([\s\S]*?)<\/p>/g)) {
     const text = strip(m[2])
     if (text) cues.push({ t: Number(m[1]) / 1000, text })
@@ -260,16 +264,16 @@ function pickTrack(tracks: YouTubeCaptionTrack[]): YouTubeCaptionTrack | undefin
  * Fallback when the transcript panel is unavailable: read the caption track
  * listed by a mobile client's player response and fetch its timedtext.
  */
-async function fetchCaptionTrack(client: YouTubeClient, videoId: string, fetchImpl: typeof fetch): Promise<Cue[]> {
+async function fetchCaptionTrack(client: YouTubeClient, videoId: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<Cue[]> {
   if (!client.getBasicInfo) return []
   for (const c of ['ANDROID', 'IOS'] as const) {
     try {
-      const info = await client.getBasicInfo(videoId, { client: c })
+      const info = await withTimeout(client.getBasicInfo(videoId, { client: c }), timeoutMs, 'Reading the captions')
       const track = pickTrack(info.captions?.caption_tracks ?? [])
       if (!track?.base_url) continue
       const url = new URL(track.base_url)
       if (!/(^|\.)youtube\.com$/.test(url.hostname)) continue // only YouTube's own timedtext endpoint
-      const res = await fetchImpl(url.href, { signal: AbortSignal.timeout(20_000) })
+      const res = await fetchImpl(url.href, { signal: AbortSignal.timeout(Math.min(20_000, timeoutMs)) })
       if (!res.ok) continue
       const cues = parseTimedText(await res.text())
       if (cues.length) return cues
@@ -284,18 +288,16 @@ async function fetchCaptionTrack(client: YouTubeClient, videoId: string, fetchIm
  * Imports a YouTube video's transcript. Throws when the video itself cannot
  * be loaded; a missing transcript yields a placeholder with `needsTranscript`.
  */
-export async function importYouTube(
-  url: string,
-  opts: { innertube?: YouTubeClient; fetchImpl?: typeof fetch } = {}
-): Promise<ImportedSource> {
+export async function importYouTube(url: string, opts: { innertube?: YouTubeClient; fetchImpl?: typeof fetch; timeoutMs?: number } = {}): Promise<ImportedSource> {
   const videoId = parseYouTubeId(url)
   if (!videoId) throw new Error('This does not look like a YouTube video link.')
+  const timeoutMs = opts.timeoutMs ?? YOUTUBE_TIMEOUT_MS
 
   let info: YouTubeVideoInfo
   let client: YouTubeClient
   try {
-    client = opts.innertube ?? (await getDefaultClient())
-    info = await client.getInfo(videoId)
+    client = opts.innertube ?? (await withTimeout(getDefaultClient(), timeoutMs, 'Connecting to YouTube'))
+    info = await withTimeout(client.getInfo(videoId), timeoutMs, 'Loading the video')
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     throw new Error(`Could not load this YouTube video (${reason}).`)
@@ -303,8 +305,8 @@ export async function importYouTube(
 
   const title = info.basic_info.title?.trim() || `YouTube video ${videoId}`
   const author = (info.basic_info.author ?? info.basic_info.channel?.name ?? '').trim()
-  let cues = await fetchTranscript(info)
-  if (cues.length === 0) cues = await fetchCaptionTrack(client, videoId, opts.fetchImpl ?? fetch)
+  let cues = await fetchTranscript(info, timeoutMs)
+  if (cues.length === 0) cues = await fetchCaptionTrack(client, videoId, opts.fetchImpl ?? fetch, timeoutMs)
 
   const base = {
     kind: 'youtube' as const,
@@ -318,9 +320,7 @@ export async function importYouTube(
   if (cues.length === 0) {
     return {
       ...base,
-      sections: normalizeSections([
-        { label: '00:00', t: 0, blocks: [{ type: 'paragraph', text: NO_TRANSCRIPT_MESSAGE }] }
-      ]),
+      sections: normalizeSections([{ label: '00:00', t: 0, blocks: [{ type: 'paragraph', text: NO_TRANSCRIPT_MESSAGE }] }]),
       needsTranscript: true
     }
   }

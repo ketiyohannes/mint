@@ -4,7 +4,7 @@ import { findTopic } from '@shared/curriculum'
 import { Icon } from '../../components/Icon'
 import { RichText } from '../../components/RichText'
 import { ErrorBoundary } from '../../components/ErrorBoundary'
-import { IS_MAC } from '../../components/Sidebar'
+import { matchesShortcut, shortcutLabel } from '../../lib/shortcuts'
 import { useStudy } from './context'
 import { useHasDraft } from './drafts'
 import { ORDER, PHASE_LABEL, SessionPanel } from './SessionPanel'
@@ -24,12 +24,13 @@ const PANE_HEAD = 52
 /** A floating lesson keeps this far inside the chat pane. */
 const EDGE = 8
 const FLOAT_WIDTH = 480
-const MIN_WIDTH = 320
+/** Narrower than this, the bar's buttons no longer fit and Close is cut off. */
+const MIN_WIDTH = 400
 /** Dropping the lesson this close to the top docks it again. */
 const SNAP = 28
 /** The pointer moves this far before a press on the bar becomes a drag. */
 const DRAG_SLOP = 4
-export const DOCK_SHORTCUT = IS_MAC ? '⌘L' : 'Ctrl+L'
+export const DOCK_SHORTCUT = shortcutLabel('foldLesson')
 
 /** Where a floating lesson sits, in pixels from the chat pane's top left. */
 interface Place {
@@ -149,7 +150,7 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== 'l' || !(IS_MAC ? e.metaKey : e.ctrlKey) || e.shiftKey || e.altKey) return
+      if (!matchesShortcut(e, 'foldLesson')) return
       e.preventDefault()
       onFold(!folded)
     }
@@ -305,13 +306,7 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
           >
             <Icon name="caret" size={14} />
           </button>
-          <button
-            className="icon-btn"
-            onClick={onClose}
-            title={session.endedAt ? 'Close' : 'Close (the lesson stays in progress)'}
-            aria-label="Close the lesson"
-            data-testid="lesson-dock-close"
-          >
+          <button className="icon-btn" onClick={onClose} title={session.endedAt ? 'Close' : 'Close (the lesson stays in progress)'} aria-label="Close the lesson" data-testid="lesson-dock-close">
             <Icon name="x" size={13} />
           </button>
           {folded && (

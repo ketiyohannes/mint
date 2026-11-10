@@ -1,9 +1,9 @@
 import electron from 'electron'
-import type { BrowserWindow as BrowserWindowType } from 'electron'
+import type { BrowserWindow as BrowserWindowType, OpenDialogOptions, WebContents } from 'electron'
 import { join, delimiter, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
-import { API_GROUPS, EVENT_CHANNELS } from '@shared/api'
+import { API_GROUPS, EVENT_CHANNELS, USER_ERROR_PREFIX } from '@shared/api'
 import { createCore, type MintCore } from './app'
 import type { SecretCipher } from './store/settingsStore'
 import { AgentError } from './agents/types'
@@ -12,16 +12,26 @@ import { createFixtureFetch } from './testing/fixtureFetch'
 import { Updater } from './updater'
 
 // Electron's ESM loader only exposes a default export for 'electron'.
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = electron
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, session, shell } = electron
 
 const isE2E = process.env.MINT_E2E === '1'
 const here = dirname(fileURLToPath(import.meta.url))
 
 // Must run before the app is ready.
 registerDiagramScheme()
-if (process.env.MINT_USER_DATA) app.setPath('userData', process.env.MINT_USER_DATA)
 
-if (!isE2E && !app.requestSingleInstanceLock()) app.quit()
+/**
+ * A development copy (`npm run dev`) keeps its own profile beside the installed
+ * app's, so the two neither share data nor compete for the single-instance
+ * lock. MINT_DEV_PROFILE=0 uses the installed app's profile instead.
+ */
+const isDevProfile = !app.isPackaged && !isE2E && !process.env.MINT_USER_DATA && process.env.MINT_DEV_PROFILE !== '0'
+if (process.env.MINT_USER_DATA) app.setPath('userData', process.env.MINT_USER_DATA)
+else if (isDevProfile) app.setPath('userData', join(app.getPath('appData'), 'mint-dev'))
+
+// A second copy hands over to the first and sets nothing up: it would be working on the same data.
+const hasInstanceLock = isE2E || app.requestSingleInstanceLock()
+if (!hasInstanceLock) app.quit()
 
 let mainWindow: BrowserWindowType | null = null
 let core: MintCore | null = null
@@ -55,11 +65,11 @@ function send(channel: string, payload: unknown): void {
 
 /** Map any thrown value to an Error whose message the renderer can show. */
 function toIpcError(err: unknown): Error {
-  if (err instanceof AgentError) return new Error(`mint:${err.message}`)
+  if (err instanceof AgentError) return new Error(`${USER_ERROR_PREFIX}${err.message}`)
   const msg = err instanceof Error ? err.message : String(err)
-  if (msg.startsWith('mint:')) return new Error(msg)
+  if (msg.startsWith(USER_ERROR_PREFIX)) return new Error(msg)
   console.error('[mint] unexpected error:', err)
-  return new Error(`mint:Something went wrong: ${msg.slice(0, 300)}`)
+  return new Error(`${USER_ERROR_PREFIX}Something went wrong: ${msg.slice(0, 300)}`)
 }
 
 function registerIpc(c: MintCore): void {
@@ -89,19 +99,21 @@ const WINDOW_CONTROLS = {
   dark: { color: '#111111', symbolColor: '#e7e7e5' },
   height: 51
 }
+/** Whether the interface is dark. The window is painted in the theme's background until the page has drawn itself, so a dark theme never flashes white. */
+let darkWindow = false
 
 function createWindow(): void {
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 1040,
     minHeight: 680,
     show: false,
-    title: 'mint',
-    backgroundColor: '#fbfaf6',
+    title: isDevProfile ? 'mint (dev)' : 'mint',
+    backgroundColor: (darkWindow ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light).color,
     titleBarStyle: isMac ? 'hiddenInset' : isWindows ? 'hidden' : 'default',
     trafficLightPosition: { x: 16, y: 18 },
-    ...(isWindows ? { titleBarOverlay: { ...WINDOW_CONTROLS.light, height: WINDOW_CONTROLS.height } } : {}),
+    ...(isWindows ? { titleBarOverlay: { ...(darkWindow ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light), height: WINDOW_CONTROLS.height } } : {}),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
       sandbox: true,
@@ -112,11 +124,26 @@ function createWindow(): void {
       spellcheck: true
     }
   })
+  mainWindow = win
+  // macOS keeps running without its window; nothing may reach for a destroyed one.
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
+  // The page's own <title> would replace the development marker.
+  if (isDevProfile) win.on('page-title-updated', (event) => event.preventDefault())
 
   // No File/Edit/View menu bar on Windows and Linux (editing shortcuts still work in the page).
-  if (!isMac) mainWindow.removeMenu()
+  if (!isMac) win.removeMenu()
 
-  const contents = mainWindow.webContents
+  const contents = win.webContents
+  // From source there is no menu to open the developer tools from on Windows and Linux: F12 does it everywhere.
+  if (!app.isPackaged && !isE2E) {
+    contents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || input.key !== 'F12') return
+      event.preventDefault()
+      contents.toggleDevTools()
+    })
+  }
   restrictDiagramFrameNavigation(contents)
   // The app never navigates away from itself; external links open in the browser.
   contents.on('will-navigate', (event, url) => {
@@ -138,12 +165,12 @@ function createWindow(): void {
     if (params.src && !/^https?:\/\//i.test(params.src) && params.src !== 'about:blank') event.preventDefault()
   })
 
-  mainWindow.once('ready-to-show', () => {
-    if (!isE2E || process.env.MINT_E2E_SHOW === '1') mainWindow?.show()
+  win.once('ready-to-show', () => {
+    if (!isE2E || process.env.MINT_E2E_SHOW === '1') win.show()
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else void mainWindow.loadFile(join(here, '../renderer/index.html'))
+  const loaded = process.env.ELECTRON_RENDERER_URL ? win.loadURL(process.env.ELECTRON_RENDERER_URL) : win.loadFile(join(here, '../renderer/index.html'))
+  loaded.catch((err) => console.error('[mint] could not load the window:', err))
 }
 
 const BROWSER_PARTITION = 'persist:mint-browser'
@@ -165,18 +192,28 @@ function configureBrowser(): void {
   })
 }
 
+/**
+ * The app's own session needs no device permissions (camera, microphone,
+ * location…) and gets only the two it uses: full screen, for the embedded
+ * video player, and writing text to the clipboard ("Copy reply"), which only
+ * mint's own page may do, not a frame inside it (the video, a diagram sandbox).
+ */
+function appPermission(contents: WebContents | null, permission: string, isMainFrame: boolean | undefined): boolean {
+  if (permission === 'fullscreen') return true
+  return permission === 'clipboard-sanitized-write' && isMainFrame === true && contents !== null && contents === mainWindow?.webContents
+}
+
 function configureSession(): void {
   const ses = session.defaultSession
-  // The app needs no device or browser permissions (camera, microphone, location…).
-  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
-  ses.setPermissionCheckHandler(() => false)
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => callback(appPermission(wc, permission, details.isMainFrame)))
+  ses.setPermissionCheckHandler((wc, permission, _origin, details) => appPermission(wc, permission, details.isMainFrame))
   // YouTube's embedded player refuses to play without a referrer; app pages have none.
   ses.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*', 'https://www.youtube.com/*'] }, (details, callback) => {
     callback({ requestHeaders: { ...details.requestHeaders, Referer: 'https://mint.local/' } })
   })
 }
 
-app.whenReady().then(async () => {
+function start(): void {
   // Packaged: <resources>/resources. Dev and tests: <repo>/resources (out/main is two levels down).
   handleDiagramProtocol(app.isPackaged ? diagramResourcesDir() : join(here, '../../resources'))
   configureSession()
@@ -196,6 +233,7 @@ app.whenReady().then(async () => {
     cipher: cipher(),
     fetchImpl: fixtures ? createFixtureFetch(fixtures) : undefined,
     updates: updater,
+    appVersion: app.getVersion(),
     log: (m) => console.log(`[mint] ${m}`),
     emitter: {
       stream: (e) => send(EVENT_CHANNELS.stream, e),
@@ -205,7 +243,10 @@ app.whenReady().then(async () => {
     host: {
       platform: process.platform,
       setWindowTheme: (dark) => {
-        if (isWindows) mainWindow?.setTitleBarOverlay({ ...(dark ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light), height: WINDOW_CONTROLS.height })
+        darkWindow = dark
+        const colors = dark ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light
+        mainWindow?.setBackgroundColor(colors.color)
+        if (isWindows) mainWindow?.setTitleBarOverlay({ ...colors, height: WINDOW_CONTROLS.height })
       },
       openExternal: (url) => shell.openExternal(url),
       openPath: async (p) => {
@@ -213,38 +254,79 @@ app.whenReady().then(async () => {
       },
       pickFiles: async (pick) => {
         if (isE2E) return (process.env.MINT_E2E_PICK ?? '').split(delimiter).filter(Boolean)
-        const res = await dialog.showOpenDialog(mainWindow!, {
+        const options: OpenDialogOptions = {
           title: 'Add your materials',
           buttonLabel: 'Add',
           properties: pick?.folders ? ['openFile', 'openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'],
           filters: [{ name: 'Readable files', extensions: ['pdf', 'md', 'markdown', 'txt', 'html', 'htm', 'docx'] }]
-        })
+        }
+        const res = await (mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options))
         return res.canceled ? [] : res.filePaths
       }
     }
   })
   registerIpc(core)
-  createWindow()
-  updater.start()
+  // The saved theme decides the window's first colour; without it (a first run, an unreadable file) the system's does.
+  void core.handlers.settings
+    .get()
+    .then(
+      (s) => s.theme,
+      () => 'system' as const
+    )
+    .then((theme) => {
+      darkWindow = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors)
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      updater?.start()
+    })
+    .catch(failStart)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}
+
+/** Otherwise a failed start (a data folder mint may not write, say) leaves a running app with no window and no word why. */
+function failStart(err: unknown): void {
+  console.error('[mint] could not start:', err)
+  if (!isE2E) dialog.showErrorBox('mint could not start', err instanceof Error ? err.message : String(err))
+  app.exit(1)
+}
+
+app.whenReady().then(() => {
+  // Electron still reports ready to a copy that lost the lock and is on its way out.
+  if (!hasInstanceLock) return
+  try {
+    start()
+  } catch (err) {
+    failStart(err)
+  }
 })
 
 app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
+  if (!mainWindow) {
+    // macOS, window closed: launching mint again brings one back.
+    if (core) createWindow()
+    return
   }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' || isE2E) app.quit()
 })
 
-app.on('before-quit', () => {
-  void core?.dispose()
+/** Quitting waits this long at most for the core to wind down. */
+const QUIT_GRACE_MS = 3000
+let coreDisposed = false
+
+// The core finishes first (exports still pending are written, the agent process is stopped), then the quit goes ahead.
+app.on('before-quit', (event) => {
+  if (coreDisposed || !core) return
+  coreDisposed = true
+  event.preventDefault()
+  const done = core.dispose().catch(() => undefined)
+  void Promise.race([done, new Promise((resolve) => setTimeout(resolve, QUIT_GRACE_MS))]).then(() => app.quit())
 })
 
 app.on('will-quit', () => {

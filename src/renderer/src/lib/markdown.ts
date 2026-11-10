@@ -12,6 +12,44 @@ export interface RenderedMarkdown {
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
+export interface MathItem {
+  tex: string
+  display: boolean
+}
+
+/** Fenced blocks (closed or still streaming) and inline code spans. */
+const CODE = /(`{3,}|~{3,})[\s\S]*?(?:\1|$)|(`+)(?!`)[^\n]+?(?<!`)\2(?!`)/g
+
+/**
+ * Swap formulas for inert @@Mn@@ tokens, collecting them in `math`. Code is
+ * left as written: `$x^2$` in a code span, or "${a}${b}" in a fenced block, is
+ * text. Escaped dollars and prices ("$5 and $10") are left alone too.
+ */
+export function extractMath(text: string, math: MathItem[]): string {
+  const token = (tex: string, display: boolean) => {
+    math.push({ tex, display })
+    return `@@M${math.length - 1}@@`
+  }
+  // Display math first, then inline math.
+  const swap = (part: string) =>
+    part
+      .replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex: string) => token(tex, true))
+      .replace(/(^|[^\\$])\$([^\s$](?:[^$\n]*?[^\s$])?)\$(?!\d)/g, (_m, pre: string, tex: string) => `${pre}${token(tex, false)}`)
+      .replace(/\\\[([\s\S]+?)\\\]/g, (_m, tex: string) => token(tex, true))
+      .replace(/\\\(([\s\S]+?)\\\)/g, (_m, tex: string) => token(tex, false))
+  let out = ''
+  let last = 0
+  for (const m of text.matchAll(CODE)) {
+    const at = m.index ?? 0
+    out += swap(text.slice(last, at)) + m[0]
+    last = at + m[0].length
+  }
+  return out + swap(text.slice(last))
+}
+
+/** Added after each code block; RichText copies the block when it is pressed. */
+const COPY_BUTTON = '<button type="button" class="code-copy" title="Copy code" aria-label="Copy code" data-testid="code-copy">Copy</button>'
+
 /**
  * Render tutor markdown safely:
  *  1. directives and math are swapped for inert tokens,
@@ -21,7 +59,7 @@ const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', 
  */
 export function renderMarkdown(text: string, labelForSource?: (sourceId: string) => string | undefined, opts: { inline?: boolean } = {}): RenderedMarkdown {
   const directives: Directive[] = []
-  const math: { tex: string; display: boolean }[] = []
+  const math: MathItem[] = []
   const arrays: string[] = []
 
   // ```array blocks (JSON, 1-D or 2-D) become cell grids. Pulled out before
@@ -41,27 +79,14 @@ export function renderMarkdown(text: string, labelForSource?: (sourceId: string)
     })
     .join('')
 
-  // Display math first, then inline math. Escaped dollars are left alone.
-  prepared = prepared.replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex: string) => {
-    math.push({ tex, display: true })
-    return `@@M${math.length - 1}@@`
-  })
-  prepared = prepared.replace(/(^|[^\\$])\$([^\s$](?:[^$\n]*?[^\s$])?)\$(?!\d)/g, (_m, pre: string, tex: string) => {
-    math.push({ tex, display: false })
-    return `${pre}@@M${math.length - 1}@@`
-  })
-  prepared = prepared.replace(/\\\[([\s\S]+?)\\\]/g, (_m, tex: string) => {
-    math.push({ tex, display: true })
-    return `@@M${math.length - 1}@@`
-  })
-  prepared = prepared.replace(/\\\(([\s\S]+?)\\\)/g, (_m, tex: string) => {
-    math.push({ tex, display: false })
-    return `@@M${math.length - 1}@@`
-  })
+  prepared = extractMath(prepared, math)
 
   // Inline text (option labels, titles) renders without paragraph wrappers.
   const raw = (opts.inline ? marked.parseInline(prepared, { async: false }) : marked.parse(prepared, { async: false })) as string
-  let html: string = String(DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'iframe'], FORBID_ATTR: ['style'] }))
+  // No class, id or data-* from the model: with them its HTML could dress up as the app's own controls
+  // (chips, KaTeX, arrays and copy buttons are added after this, so they keep theirs).
+  let html: string = String(DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'iframe'], FORBID_ATTR: ['style', 'class', 'id'], ALLOW_DATA_ATTR: false }))
+  if (!opts.inline) html = html.replace(/<pre>[\s\S]*?<\/pre>/g, (pre) => `<div class="code-block">${pre}${COPY_BUTTON}</div>`)
 
   html = html.replace(/@@M(\d+)@@/g, (_m, i: string) => {
     const item = math[Number(i)]
@@ -129,9 +154,10 @@ function renderArray(body: string): string | null {
  * sanitized, and the editor only keeps what its schema knows anyway.
  */
 export function markdownToNoteHtml(md: string): string {
-  const mathSpan = (tex: string, display: boolean) => `<span data-math="" data-latex="${escapeHtml(tex.trim())}" data-display="${display}"></span>`
-  const withMath = md
-    .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex: string) => mathSpan(tex, true))
-    .replace(/(^|[^\\$])\$([^$\n]+?)\$/g, (_, lead: string, tex: string) => `${lead}${mathSpan(tex, false)}`)
-  return DOMPurify.sanitize(marked.parse(withMath, { async: false }) as string)
+  const math: MathItem[] = []
+  const html = String(DOMPurify.sanitize(marked.parse(extractMath(md, math), { async: false }) as string))
+  return html.replace(/@@M(\d+)@@/g, (_m, i: string) => {
+    const item = math[Number(i)]
+    return item ? `<span data-math="" data-latex="${escapeHtml(item.tex.trim())}" data-display="${item.display}"></span>` : ''
+  })
 }

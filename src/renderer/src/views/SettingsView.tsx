@@ -1,18 +1,29 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { ProviderId, SecretName, Settings, TutorStyle } from '@shared/types'
 import { useApp } from '../state/app'
 import { api, timeAgo } from '../lib/api'
 import { useUpdates } from '../lib/useUpdates'
 import { Icon } from '../components/Icon'
 import { ModelSelect } from '../components/ModelPicker'
-import { DOCK_SHORTCUT } from './study/LessonDock'
+import { SHORTCUT_GROUPS, shortcutLabel } from '../lib/shortcuts'
 
 export function SettingsView(): JSX.Element {
-  const { settings, setSettings, run } = useApp()
+  const { settings, setSettings, run, route } = useApp()
   const [testing, setTesting] = useState<ProviderId | null>(null)
   const [test, setTest] = useState<{ provider: ProviderId; ok: boolean; message: string } | null>(null)
   const [anthropicKey, setAnthropicKey] = useState('')
   const [domain, setDomain] = useState('')
+
+  // Opened on the shortcuts list: bring it to the top. Scrolls the page itself (scrollIntoView would move the app shell too).
+  const pageRef = useRef<HTMLDivElement>(null)
+  const shortcutsRef = useRef<HTMLHeadingElement>(null)
+  const loaded = Boolean(settings)
+  useEffect(() => {
+    const page = pageRef.current
+    const heading = shortcutsRef.current
+    if (!loaded || route.name !== 'settings' || route.section !== 'shortcuts' || !page || !heading) return
+    page.scrollTo({ top: heading.getBoundingClientRect().top - page.getBoundingClientRect().top + page.scrollTop - 16 })
+  }, [route, loaded])
 
   if (!settings) return <div className="page-inner empty">Loading…</div>
 
@@ -36,9 +47,17 @@ export function SettingsView(): JSX.Element {
     }
   }
 
-  const providers: { id: ProviderId; title: string; desc: string }[] = [
+  const providers: { id: ProviderId; title: string; desc: ReactNode }[] = [
     { id: 'claude', title: 'Claude Agent SDK', desc: 'Uses your Claude login or an Anthropic API key.' },
-    { id: 'codex', title: 'Codex app-server', desc: 'Uses your local `codex` CLI and its login.' },
+    {
+      id: 'codex',
+      title: 'Codex app-server',
+      desc: (
+        <>
+          Uses your local <code>codex</code> CLI and its login.
+        </>
+      )
+    },
     { id: 'demo', title: 'Demo (offline)', desc: 'Scripted answers to explore the app. Not a model.' }
   ]
   const tutorStyles: { id: TutorStyle; title: string; desc: string }[] = [
@@ -53,7 +72,7 @@ export function SettingsView(): JSX.Element {
           <b>Settings</b>
         </div>
       </div>
-      <div className="page">
+      <div className="page" ref={pageRef}>
         <div className="page-inner page-narrow">
           <h1 className="page-title">Settings</h1>
 
@@ -83,7 +102,14 @@ export function SettingsView(): JSX.Element {
               <div className="field" style={{ marginBottom: 0 }}>
                 <label htmlFor="ak">Anthropic API key (optional)</label>
                 <div className="row">
-                  <input id="ak" className="input" type="password" placeholder={settings.hasAnthropicKey ? '•••••••• saved' : 'sk-ant-…'} value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value)} />
+                  <input
+                    id="ak"
+                    className="input"
+                    type="password"
+                    placeholder={settings.hasAnthropicKey ? '•••••••• saved' : 'sk-ant-…'}
+                    value={anthropicKey}
+                    onChange={(e) => setAnthropicKey(e.target.value)}
+                  />
                   <button className="btn" disabled={!anthropicKey.trim()} onClick={() => saveKey('anthropic', anthropicKey)}>
                     Save
                   </button>
@@ -100,7 +126,9 @@ export function SettingsView(): JSX.Element {
           {settings.provider === 'codex' && (
             <div className="card" style={{ marginTop: 14 }}>
               <ModelSelect provider="codex" />
-              <span className="hint">Requires the `codex` CLI to be installed and logged in (`codex login`).</span>
+              <span className="hint">
+                Requires the <code>codex</code> CLI to be installed and logged in (<code>codex login</code>).
+              </span>
             </div>
           )}
 
@@ -153,9 +181,15 @@ export function SettingsView(): JSX.Element {
             <div className="row">
               <span style={{ width: 120 }}>Theme</span>
               <div className="tabs">
-                {(['light', 'dark', 'system'] as const).map((t) => (
-                  <button key={t} className={`tab ${settings.theme === t ? 'active' : ''}`} onClick={() => void update({ theme: t })}>
-                    {t}
+                {(
+                  [
+                    ['light', 'Light'],
+                    ['dark', 'Dark'],
+                    ['system', 'System']
+                  ] as const
+                ).map(([t, label]) => (
+                  <button key={t} className={`tab ${settings.theme === t ? 'active' : ''}`} onClick={() => void update({ theme: t })} data-testid={`theme-${t}`}>
+                    {label}
                   </button>
                 ))}
               </div>
@@ -184,7 +218,7 @@ export function SettingsView(): JSX.Element {
             </div>
             <span className="hint">
               {settings.lessonView === 'dock'
-                ? `The open lesson’s brief, reading and checks float at the top of whichever chat you’re in. Drag its bar to move it anywhere over the chat, and fold it to one line with ${DOCK_SHORTCUT}.`
+                ? `The open lesson’s brief, reading and checks float at the top of whichever chat you’re in. Drag its bar to move it anywhere over the chat, and fold it to one line with ${shortcutLabel('foldLesson')}.`
                 : 'The open lesson’s brief, reading and checks show in the Study tab beside whichever chat you’re in.'}
             </span>
             <div className="row">
@@ -197,6 +231,23 @@ export function SettingsView(): JSX.Element {
               </button>
             </div>
             <span className="hint">Every class is a plain folder: MISSION.md, CURRICULUM.md, GLOSSARY.md, learning-records/, notes/ and your sources. It is yours.</span>
+          </div>
+
+          <h2 className="section-title" ref={shortcutsRef}>
+            Keyboard shortcuts
+          </h2>
+          <div className="card shortcuts" data-testid="shortcuts">
+            {SHORTCUT_GROUPS.map((group) => (
+              <div key={group.title} className="shortcut-group">
+                <div className="dlabel">{group.title}</div>
+                {group.rows.map((row) => (
+                  <div key={row.label} className="shortcut-row">
+                    <span>{row.label}</span>
+                    <span className="kbd">{row.keys}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
 
           <UpdatesCard />

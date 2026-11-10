@@ -111,16 +111,6 @@ export function applyReviewOutcome(p: TopicProgress, allPassed: boolean, now = n
 // New learners start at a hint (a full explanation is one deliberate click away);
 // as independence grows the tutor starts lower on the ladder.
 const LEVEL_DEFAULT_RUNG: Record<IndependenceLevel, Rung> = { 0: 3, 1: 2, 2: 1, 3: 1 }
-const LEVEL_NAMES: Record<IndependenceLevel, string> = {
-  0: 'Guided',
-  1: 'Supported',
-  2: 'Coached',
-  3: 'Independent'
-}
-
-export function levelName(level: IndependenceLevel): string {
-  return LEVEL_NAMES[level]
-}
 
 /**
  * Score in [0,1]. Each of the last 20 questions is judged against the rung it

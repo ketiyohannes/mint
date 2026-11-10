@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import {
   ArrowCircleUpIcon,
   ArrowClockwiseIcon,
+  ArrowDownIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   ArrowsLeftRightIcon,
@@ -9,15 +10,11 @@ import {
   ArrowsOutSimpleIcon,
   ArrowUpIcon,
   BookOpenIcon,
-  BooksIcon,
   CaretDownIcon,
-  ChartLineUpIcon,
   ChatCircleIcon,
   ChatCircleTextIcon,
   CheckIcon,
-  ClockIcon,
   CodeIcon,
-  CompassIcon,
   CopyIcon,
   CubeIcon,
   DotsThreeIcon,
@@ -33,7 +30,6 @@ import {
   GlobeSimpleIcon,
   GraduationCapIcon,
   HighlighterIcon,
-  HouseIcon,
   LifebuoyIcon,
   LinkSimpleIcon,
   ListChecksIcon,
@@ -50,7 +46,6 @@ import {
   PlusIcon,
   PushPinIcon,
   QuotesIcon,
-  QuestionIcon,
   ShieldCheckIcon,
   SidebarIcon,
   SidebarSimpleIcon,
@@ -58,7 +53,6 @@ import {
   SparkleIcon,
   SquareSplitHorizontalIcon,
   SquareSplitVerticalIcon,
-  StarIcon,
   StopIcon,
   SunIcon,
   TargetIcon,
@@ -73,14 +67,11 @@ import {
 
 /** mint's icon names, drawn with Phosphor (regular weight). */
 const ICONS = {
-  home: HouseIcon,
   plus: PlusIcon,
   settings: GearSixIcon,
   path: PathIcon,
   book: BookOpenIcon,
-  library: BooksIcon,
   notebook: NotebookIcon,
-  chart: ChartLineUpIcon,
   ask: ChatCircleTextIcon,
   note: NotePencilIcon,
   highlight: HighlighterIcon,
@@ -106,21 +97,19 @@ const ICONS = {
   sparkle: SparkleIcon,
   eye: EyeIcon,
   eyeOff: EyeSlashIcon,
-  star: StarIcon,
   refresh: ArrowClockwiseIcon,
   update: ArrowCircleUpIcon,
-  help: QuestionIcon,
   folder: FolderSimpleIcon,
   folderOpen: FolderOpenIcon,
   more: DotsThreeIcon,
   arrowUp: ArrowUpIcon,
+  arrowDown: ArrowDownIcon,
   swap: ArrowsLeftRightIcon,
   sidebar: SidebarSimpleIcon,
   sidebarLeft: SidebarIcon,
   folderPlus: FolderSimplePlusIcon,
   compose: PencilSimpleLineIcon,
   chat: ChatCircleIcon,
-  clock: ClockIcon,
   timer: TimerIcon,
   pause: PauseIcon,
   skip: SkipForwardIcon,
@@ -137,7 +126,6 @@ const ICONS = {
   lifebuoy: LifebuoyIcon,
   caret: CaretDownIcon,
   search: MagnifyingGlassIcon,
-  compass: CompassIcon,
   quote: QuotesIcon,
   splitH: SquareSplitHorizontalIcon,
   splitV: SquareSplitVerticalIcon
@@ -148,7 +136,9 @@ export type IconName = keyof typeof ICONS
 /** Icons that read better solid (state indicators rather than actions). */
 const FILLED = new Set<IconName>(['stop', 'play'])
 
-export function Icon({ name, size = 16, className }: { name: IconName; size?: number; className?: string; strokeWidth?: number }): JSX.Element {
+/** A `strokeWidth` above 2 draws the heavier (bold) glyph, for small marks such as a check inside a dot. */
+export function Icon({ name, size = 16, className, strokeWidth }: { name: IconName; size?: number; className?: string; strokeWidth?: number }): JSX.Element {
   const Glyph = ICONS[name]
-  return <Glyph size={size} weight={FILLED.has(name) ? 'fill' : 'regular'} className={className} aria-hidden="true" focusable="false" />
+  const weight = FILLED.has(name) ? 'fill' : strokeWidth !== undefined && strokeWidth > 2 ? 'bold' : 'regular'
+  return <Glyph size={size} weight={weight} className={className} aria-hidden="true" focusable="false" />
 }

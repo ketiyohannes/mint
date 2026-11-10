@@ -7,13 +7,7 @@
  * diff these definitions against it.
  */
 
-export type JsonValue =
-  | number
-  | string
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue | undefined }
+export type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string]: JsonValue | undefined }
 
 // ---------------------------------------------------------------------------
 // initialize
@@ -49,10 +43,7 @@ export interface InitializeResponse {
 
 export type PlanType = string
 
-export type Account =
-  | { type: 'apiKey' }
-  | { type: 'chatgpt'; email: string | null; planType: PlanType }
-  | { type: 'amazonBedrock'; usesCodexManagedCredentials: boolean }
+export type Account = { type: 'apiKey' } | { type: 'chatgpt'; email: string | null; planType: PlanType } | { type: 'amazonBedrock'; usesCodexManagedCredentials: boolean }
 
 export interface GetAccountParams {
   refreshToken?: boolean

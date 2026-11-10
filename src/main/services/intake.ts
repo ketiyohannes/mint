@@ -13,7 +13,10 @@ export class IntakeService {
     const ctx = await this.k.context(classId)
     if (!ctx.sources.length) throw userError('Add at least one source first, so the diagnostic can be about your materials.')
     const out = await this.k.job(classId, 'Writing a short diagnostic', async () => diagnosticQuestions({ runtime: await this.k.runtime(), ctx }))
-    const questions = out.questions.map((q) => q.trim()).filter(Boolean).slice(0, 5)
+    const questions = out.questions
+      .map((q) => q.trim())
+      .filter(Boolean)
+      .slice(0, 5)
     if (!questions.length) throw userError('The tutor could not write diagnostic questions. Try again.')
     await this.k.repo.lock(classId, () => this.k.repo.write(classId, 'diagnostic', { questions, answers: questions.map(() => '') }))
     this.k.changed(classId)
@@ -50,9 +53,7 @@ export class IntakeService {
     if (!ctx.sources.length) throw userError('Add at least one source before planning.')
     const diag = await this.k.repo.read(classId, 'diagnostic')
     const why = reason?.trim() || (ctx.curriculum ? 'Revise the plan based on recent evidence.' : 'Create the first plan from the intake.')
-    const raw = await this.k.job(classId, ctx.curriculum ? 'Revising your curriculum' : 'Planning your curriculum', async () =>
-      planCurriculum({ runtime: await this.k.runtime(), ctx }, diag, why)
-    )
+    const raw = await this.k.job(classId, ctx.curriculum ? 'Revising your curriculum' : 'Planning your curriculum', async () => planCurriculum({ runtime: await this.k.runtime(), ctx }, diag, why))
     const { curriculum, repairs } = validateCurriculum(
       { ...raw, milestones: raw.milestones.map((m) => ({ ...m, topics: m.topics.map((t) => ({ ...t, sources: t.sources.map((s) => ({ ...s, note: s.note || undefined })) })) })) },
       ctx.sources,

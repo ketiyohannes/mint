@@ -118,7 +118,13 @@ describe.skipIf(provider !== 'claude' && provider !== 'codex')(`live harness: ${
 
   it('builds a diagram that follows the sketch contract', async () => {
     const e = await core.handlers.diagrams.create(classId, 'Show how a 2x2 matrix moves a vector, and that eigenvectors only stretch')
-    console.log('diagram:', e.spec.engine, e.spec.title, e.spec.elements.map((x) => x.id), e.spec.params)
+    console.log(
+      'diagram:',
+      e.spec.engine,
+      e.spec.title,
+      e.spec.elements.map((x) => x.id),
+      e.spec.params
+    )
     expect(e.spec.code).toMatch(/mint\.(region|object)\(/)
     expect(e.spec.elements.length).toBeGreaterThan(1)
   }, 600_000)

@@ -22,6 +22,7 @@ export function QuestionsWidget({ questions, answers, skipped, onSubmit, onSkip 
   const [other, setOther] = useState<Record<string, string>>({})
   const [otherOpen, setOtherOpen] = useState<Record<string, boolean>>({})
   const rootRef = useRef<HTMLDivElement>(null)
+  const otherRef = useRef<HTMLInputElement>(null)
   const done = Boolean(answers || skipped)
 
   useEffect(() => {
@@ -66,7 +67,8 @@ export function QuestionsWidget({ questions, answers, skipped, onSubmit, onSkip 
   }
 
   const submit = () => {
-    if (sending) return
+    // Like the Submit button: never send an empty set of answers.
+    if (sending || !questions.some((x) => answered(x.id))) return
     const out: Record<string, string[]> = {}
     for (const x of questions) if (answered(x.id)) out[x.id] = valueFor(x.id)
     onSubmit?.(out)
@@ -78,14 +80,23 @@ export function QuestionsWidget({ questions, answers, skipped, onSubmit, onSkip 
       ref={rootRef}
       tabIndex={-1}
       onKeyDown={(e) => {
-        if ((e.target as HTMLElement).tagName === 'INPUT') return
+        const target = e.target as HTMLElement
+        if (target.tagName === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return
         const n = Number(e.key)
         if (n >= 1 && n <= q.options.length) {
           e.preventDefault()
           toggle(q.options[n - 1].label)
+        } else if (n === q.options.length + 1) {
+          // The number shown beside "Other".
+          e.preventDefault()
+          otherRef.current?.focus()
         } else if (e.key === 'ArrowRight' && !last) setIndex(index + 1)
         else if (e.key === 'ArrowLeft' && index > 0) setIndex(index - 1)
-        else if (e.key === 'Enter' && last) submit()
+        else if (e.key === 'Enter' && last && !(target.tagName === 'BUTTON' && !target.classList.contains('qw-option'))) {
+          // Enter on an option submits what is picked instead of toggling it; Skip, Submit and the tabs keep their own Enter.
+          e.preventDefault()
+          submit()
+        }
       }}
       data-testid="questions"
     >
@@ -102,14 +113,7 @@ export function QuestionsWidget({ questions, answers, skipped, onSubmit, onSkip 
         {q.options.map((o, i) => {
           const on = chosen.includes(o.label)
           return (
-            <button
-              key={o.label}
-              className={`qw-option ${on ? 'on' : ''}`}
-              role={q.multiSelect ? 'checkbox' : 'radio'}
-              aria-checked={on}
-              onClick={() => toggle(o.label)}
-              data-testid="question-option"
-            >
+            <button key={o.label} className={`qw-option ${on ? 'on' : ''}`} role={q.multiSelect ? 'checkbox' : 'radio'} aria-checked={on} onClick={() => toggle(o.label)} data-testid="question-option">
               <span className="qw-key">{q.multiSelect ? (on ? '■' : '□') : i + 1}</span>
               <span className="qw-label">
                 <RichText text={o.label} inline />
@@ -121,6 +125,7 @@ export function QuestionsWidget({ questions, answers, skipped, onSubmit, onSkip 
         <div className={`qw-option other ${otherOpen[q.id] ? 'on' : ''}`}>
           <span className="qw-key">{q.multiSelect ? (otherOpen[q.id] ? '■' : '□') : q.options.length + 1}</span>
           <input
+            ref={otherRef}
             className="qw-other"
             placeholder="Other: type your own answer"
             value={otherText}
@@ -130,7 +135,7 @@ export function QuestionsWidget({ questions, answers, skipped, onSubmit, onSkip 
             }}
             onChange={(e) => setOther((o) => ({ ...o, [q.id]: e.target.value }))}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 if (last) submit()
                 else setIndex(index + 1)
@@ -145,7 +150,9 @@ export function QuestionsWidget({ questions, answers, skipped, onSubmit, onSkip 
           Skip
         </button>
         <span className="spacer" />
-        <span className="muted small">{q.multiSelect ? 'Pick any' : 'Pick one'} · {index + 1}/{questions.length}</span>
+        <span className="muted small">
+          {q.multiSelect ? 'Pick any' : 'Pick one'} · {index + 1}/{questions.length}
+        </span>
         {last ? (
           <button className="btn sm primary" disabled={sending || !questions.some((x) => answered(x.id))} onClick={submit} data-testid="questions-submit">
             {sending ? <span className="spinner tiny" /> : null} Submit

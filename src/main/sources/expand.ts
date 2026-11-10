@@ -30,7 +30,8 @@ export async function expandPaths(paths: string[]): Promise<{ files: string[]; t
   }
 
   async function walk(dir: string, depth: number): Promise<void> {
-    if (depth > MAX_DEPTH || out.length >= MAX_FILES) return
+    // At the limit the walk goes on until it meets one more file, so `truncated` is only set when something was left out.
+    if (depth > MAX_DEPTH || truncated) return
     let entries
     try {
       entries = await readdir(dir, { withFileTypes: true })
@@ -70,5 +71,8 @@ export async function titleFromPaths(paths: string[]): Promise<string> {
   } catch {
     // Fall through to the file name.
   }
-  return basename(first).replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim()
+  return basename(first)
+    .replace(/\.[^.]+$/, '')
+    .replace(/[_-]+/g, ' ')
+    .trim()
 }

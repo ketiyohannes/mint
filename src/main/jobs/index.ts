@@ -9,18 +9,15 @@ import type {
   Diagnostic,
   DiagramSpec,
   Explorable,
-  GlossaryProposal,
   NoteDoc,
-  RecordProposal,
   Rung,
   Session,
-  SourceDoc,
   Thread,
   Topic,
   Verdict
 } from '@shared/types'
 import type { AgentRuntime } from '../agents/types'
-import { describeClass, describeTopic, sectionText, type ClassContext } from './context'
+import { describeClass, describeTopic, type ClassContext } from './context'
 import { tutor } from './format'
 import { runStructured, runText } from './run'
 import {
@@ -211,7 +208,10 @@ export async function checkPrompt(env: JobEnv, topic: Topic, brief: Brief | unde
  */
 export function judgeCheck(env: JobEnv, topic: Topic, kind: CheckKind, prompt: string, answer: string, rubricHint: string, earlier: CheckAttempt[] = []): Promise<Verdict> {
   const tries = earlier
-    .map((a, i) => `Try ${i + 1}:\n${a.answer}\nYour verdict: ${a.verdict?.result ?? 'n/a'}${a.verdict ? `\nYour feedback: ${a.verdict.feedback}` : ''}${a.verdict?.misconceptions.length ? `\nMisconceptions you named: ${a.verdict.misconceptions.join('; ')}` : ''}`)
+    .map(
+      (a, i) =>
+        `Try ${i + 1}:\n${a.answer}\nYour verdict: ${a.verdict?.result ?? 'n/a'}${a.verdict ? `\nYour feedback: ${a.verdict.feedback}` : ''}${a.verdict?.misconceptions.length ? `\nMisconceptions you named: ${a.verdict.misconceptions.join('; ')}` : ''}`
+    )
     .join('\n\n')
   return runStructured(env.runtime, {
     ...base(env),
@@ -247,7 +247,10 @@ Check the relevant passages, then judge.`,
 
 export function wrapSession(env: JobEnv, topic: Topic, session: Session) {
   const transcript = session.attempts
-    .map((a) => `[${a.kind}] Prompt: ${a.prompt}\nAnswer: ${a.answer}\nVerdict: ${a.verdict?.result ?? 'n/a'}${a.verdict?.misconceptions.length ? ` (misconceptions: ${a.verdict.misconceptions.join('; ')})` : ''}`)
+    .map(
+      (a) =>
+        `[${a.kind}] Prompt: ${a.prompt}\nAnswer: ${a.answer}\nVerdict: ${a.verdict?.result ?? 'n/a'}${a.verdict?.misconceptions.length ? ` (misconceptions: ${a.verdict.misconceptions.join('; ')})` : ''}`
+    )
     .join('\n\n')
   return runStructured(env.runtime, {
     ...base(env),
@@ -304,7 +307,7 @@ export interface ThreadContext {
   anchorContext: string
   explorable?: Explorable
   sessionTopic?: Topic
-  /** The lesson this thread belongs to: what the learner sees in its study box. */
+  /** The class's open lesson, whichever chat it started in: what the learner sees in its study box. */
   session?: Session
   /** An answer the learner is writing in the study box but has not submitted. */
   studyDraft?: StudyDraft
@@ -388,8 +391,7 @@ Point at parts while you talk: put [[highlight:<elementId>]] right where you men
 
 ${thread.anchor.kind === 'general' ? MAIN_CHAT_RULES : 'You are answering in a small Ask popover next to what the learner is reading.'} ${RUNG_RULES[rung]}
 If the materials do not cover the question, say so in one sentence, then teach it anyway from general knowledge, labeled "outside your materials".${diagramRules}${t.session ? `\n${STUDY_BOX_RULES}` : ''}`,
-    prompt: `${describeClass(env.ctx)}
-${t.sessionTopic && !t.session ? `\nCurrent study topic: ${t.sessionTopic.title} (${t.sessionTopic.objective})` : ''}${studyBox}
+    prompt: `${describeClass(env.ctx)}${studyBox}
 
 ${anchor}
 
@@ -608,6 +610,3 @@ Your job now: review the learner's own note or reference sheet. Do not rewrite i
     demo: () => demo.noteReview(note)
   })
 }
-
-export type { RecordProposal, GlossaryProposal, SourceDoc }
-export { sectionText }

@@ -1,11 +1,10 @@
-import type { ChatCommand, ChoiceQuestion, CodeLanguage, CodeRunResult, QuizQuestion, Thread, ThreadMessage, WidgetAnswer } from '@shared/types'
+import { UNNAMED_CLASS, type ChatCommand, type ChoiceQuestion, type CodeLanguage, type CodeRunResult, type QuizQuestion, type Thread, type ThreadMessage, type WidgetAnswer } from '@shared/types'
 import { allTopics, findTopic } from '@shared/curriculum'
 import { intakeQuestions, makeExercise, makeQuiz, reviewCode, type StudyDraft } from '../jobs'
 import type { ClassService } from './classes'
 import type { DiagramService } from './diagrams'
 import type { SessionService } from './sessions'
 import type { SetupService } from './setup'
-import { UNNAMED_CLASS } from './setup'
 import type { SourceService } from './sources'
 import type { ThreadService } from './threads'
 import type { Kernel } from './kernel'
@@ -23,7 +22,11 @@ export interface ChatSendInput {
 }
 
 const COMMANDS: ChatCommand[] = ['quiz', 'code', 'diagram', 'lesson', 'plan']
-const clip = (s: string, n: number) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, n)
+const clip = (s: string, n: number) =>
+  String(s ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, n)
 
 /**
  * The class chat: the learner's main conversation with the tutor.
@@ -50,7 +53,9 @@ export class ChatService {
 
   async send(input: ChatSendInput): Promise<Thread> {
     const { classId } = input
-    const message = String(input.message ?? '').trim().slice(0, 4000)
+    const message = String(input.message ?? '')
+      .trim()
+      .slice(0, 4000)
     if (!message) throw userError('Type (or say) your message first.')
     const meta = await this.k.repo.requireMeta(classId)
     if (input.threadId) await this.requireChat(classId, input.threadId)
@@ -181,7 +186,11 @@ export class ChatService {
       ? await this.threads.append(classId, input.threadId, [{ role: 'user', text: message }])
       : await this.threads.createChat(classId, message, [{ role: 'user', text: message }])
     try {
-      const ctx = await this.k.context(classId)
+      // Materials picked when the class was created may still be importing; the questions are about them.
+      const ctx = await this.threads.track(input.streamId, async () => {
+        await this.setup.imported(classId)
+        return this.k.context(classId)
+      })
       const out = await this.threads.track(input.streamId, (signal) =>
         this.k.job(classId, 'Reading your materials', async () => intakeQuestions({ runtime: await this.k.runtime(), ctx, signal }, message))
       )
@@ -191,9 +200,7 @@ export class ChatService {
       return this.threads.append(classId, thread.id, [{ role: 'tutor', text: clip(out.intro, 600), widget: { kind: 'questions', questions } }])
     } catch (err) {
       if (isStopped(err)) return this.threads.append(classId, thread.id, [{ role: 'tutor', text: '_Stopped._ Send another message when you are ready.' }])
-      return this.threads.append(classId, thread.id, [
-        { role: 'tutor', text: `Sorry, I could not get started: ${userMessage(err)}\n\nSend another message to try again.`, error: true }
-      ])
+      return this.threads.append(classId, thread.id, [{ role: 'tutor', text: `Sorry, I could not get started: ${userMessage(err)}\n\nSend another message to try again.`, error: true }])
     }
   }
 
@@ -222,6 +229,7 @@ export class ChatService {
     if (note) await this.threads.append(classId, threadId, [{ role: 'user', text: note }])
 
     await this.recordIntake(classId, thread, questions, answers, note)
+    await this.setup.imported(classId)
     const hasSources = (await this.k.repo.read(classId, 'sources')).length > 0
     const out = await this.threads.append(classId, threadId, [
       {
@@ -257,7 +265,8 @@ export class ChatService {
         questions: questions.map((q) => q.question),
         answers: questions.map((q) => (answers[q.id] ?? []).join(', ')),
         result: {
-          summary: lines.length || note ? `From the intake chat: ${[...lines, note].filter(Boolean).join(' ')}`.slice(0, 1000) : 'Intake skipped. The plan starts from the foundations and adapts as you go.',
+          summary:
+            lines.length || note ? `From the intake chat: ${[...lines, note].filter(Boolean).join(' ')}`.slice(0, 1000) : 'Intake skipped. The plan starts from the foundations and adapts as you go.',
           startingLevel: background && answers[background.id] ? answers[background.id].join(', ') : 'unknown',
           records: []
         }
@@ -279,8 +288,7 @@ export class ChatService {
   private async announcePlan(classId: string): Promise<void> {
     const all = await this.k.repo.read(classId, 'threads')
     const target =
-      all.find((t) => t.messages.some((m) => m.widget?.kind === 'questions')) ??
-      [...all].filter((t) => t.anchor.kind === 'general').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+      all.find((t) => t.messages.some((m) => m.widget?.kind === 'questions')) ?? [...all].filter((t) => t.anchor.kind === 'general').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
     if (target) await this.appendPlan(classId, target.id, 'Your plan is ready.')
   }
 
@@ -306,9 +314,10 @@ export class ChatService {
     if (!ctx.curriculum) throw userError('There is no plan yet. Answer the intake questions first.')
     const topics = allTopics(ctx.curriculum)
     const wanted = arg.toLowerCase()
-    const topic =
-      (arg && (findTopic(ctx.curriculum, arg) ?? topics.find((t) => t.title.toLowerCase() === wanted) ?? topics.find((t) => t.title.toLowerCase().includes(wanted)))) ||
-      (ctx.curriculum && (await this.nextTopic(classId)))
+    // A named lesson is that lesson or an error; only a bare /lesson means "the next one".
+    const topic = arg
+      ? (findTopic(ctx.curriculum, arg) ?? topics.find((t) => t.title.toLowerCase() === wanted) ?? topics.find((t) => t.title.toLowerCase().includes(wanted)))
+      : await this.nextTopic(classId)
     if (!topic) throw userError(arg ? `No lesson matches "${arg}".` : 'Every lesson is done. Review one from the Lessons tab, or extend the plan.')
     const type = ctx.progress[topic.id]?.status === 'mastered' ? 'review' : 'learn'
     const session = await this.sessions.start(classId, topic.id, type, signal)

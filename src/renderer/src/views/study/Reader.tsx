@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { Annotation, SourceBlock, SourceDoc, Thread } from '@shared/types'
 import { findQuote, segmentText, selectionToAnchor, type Mark, type SelectionAnchor } from '../../lib/anchors'
 import { api } from '../../lib/api'
 import { useApp } from '../../state/app'
+import { isFreshJump, positionKey, readingPosition, rememberPosition, takeJump } from './position'
 
 export interface ReaderFocus {
   section?: string
@@ -31,7 +32,11 @@ const fmt = (t: number) => {
 }
 
 function normLabel(s: string): string {
-  return s.toLowerCase().replace(/^(page|pp?\.?)\s*/, 'p ').replace(/[^a-z0-9:]+/g, ' ').trim()
+  return s
+    .toLowerCase()
+    .replace(/^(page|pp?\.?)\s*/, 'p ')
+    .replace(/[^a-z0-9:]+/g, ' ')
+    .trim()
 }
 
 /** The interactive reader: highlights, Ask threads and sticky notes live in the margin. */
@@ -75,18 +80,40 @@ export const Reader = memo(function Reader(props: Props): JSX.Element {
     return { marksByBlock: marks, pinsByBlock: pins }
   }, [annotations, threads, doc.id, flash, openThreadId])
 
+  // Open where the learner left this source, unless a citation is about to jump somewhere.
+  const posKey = positionKey(doc.classId, doc.id, 'text')
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current
+    const saved = readingPosition(posKey)
+    if (!scroller || !saved || !('block' in saved) || (focus && isFreshJump(focus.nonce))) return
+    const el = containerRef.current?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(saved.block)}"]`)
+    if (el) scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - saved.offset
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Jump to a section / quote when asked (citations, brief readings, path links).
+  const jumped = useRef(0)
   useEffect(() => {
     if (!focus) return
     const root = containerRef.current
     if (!root) return
+    // Once per request: the host hands the last one to every source it shows next.
+    if (!takeJump(focus.nonce, jumped)) return
     let section = focus.section ? doc.sections.find((s) => s.label === focus.section) : undefined
     if (!section && focus.section) {
       const want = normLabel(focus.section)
       section = doc.sections.find((s) => normLabel(s.label) === want) ?? doc.sections.find((s) => normLabel(s.label).includes(want) || want.includes(normLabel(s.label)))
     }
     const pool = (section ? [section] : doc.sections).flatMap((s) => s.blocks)
-    const hit = focus.quote ? (findQuote(pool, focus.quote) ?? (section ? findQuote(doc.sections.flatMap((s) => s.blocks), focus.quote) : null)) : null
+    const hit = focus.quote
+      ? (findQuote(pool, focus.quote) ??
+        (section
+          ? findQuote(
+              doc.sections.flatMap((s) => s.blocks),
+              focus.quote
+            )
+          : null))
+      : null
     const targetId = hit?.blockId ?? section?.blocks[0]?.id
     const el = targetId ? root.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(targetId)}"]`) : section ? root.querySelector<HTMLElement>(`[data-section-id="${section.id}"]`) : null
     if (!el) return
@@ -102,13 +129,14 @@ export const Reader = memo(function Reader(props: Props): JSX.Element {
       void el.offsetWidth
       el.classList.add('flash')
     })
+    // A cited moment of a video plays from there, whether or not its words were found.
+    const block = blockIndex.get(targetId ?? '')
+    if (block?.t !== undefined) seek(block.t)
     if (hit) {
       setFlash(hit)
       const t = setTimeout(() => setFlash(null), 2600)
       return () => clearTimeout(t)
     }
-    const block = blockIndex.get(targetId ?? '')
-    if (block?.t !== undefined) seek(block.t)
     return undefined
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.nonce, doc.id])
@@ -131,26 +159,62 @@ export const Reader = memo(function Reader(props: Props): JSX.Element {
     [threads, annotations, onOpenThread, onOpenNote]
   )
 
-  function handleMouseUp() {
-    // Let the browser finalize the selection first.
-    setTimeout(() => {
-      const root = containerRef.current
-      if (!root) return
-      onSelection(selectionToAnchor(root, (id) => blockIndex.get(id)?.text))
-    }, 0)
-  }
+  // The selection is read on any mouse release (a drag often ends outside the text), and a release
+  // that leaves nothing selected here (a click elsewhere, another tab) takes the toolbar away.
+  useEffect(() => {
+    const onUp = (e: MouseEvent) => {
+      // A press on the selection's own toolbar, or in a popover, is not a new selection.
+      if (e.target instanceof Element && e.target.closest('.sel-toolbar, .popover')) return
+      // Let the browser finalize the selection first.
+      setTimeout(() => {
+        const root = containerRef.current
+        // Text still selected in a tab that is no longer showing has no toolbar either.
+        if (root) onSelection(root.closest('.panel-page.inactive') ? null : selectionToAnchor(root, (id) => blockIndex.get(id)?.text))
+      }, 0)
+    }
+    document.addEventListener('mouseup', onUp)
+    return () => document.removeEventListener('mouseup', onUp)
+  }, [onSelection, blockIndex])
 
+  // Leaving (another source, the page view) takes the toolbar along.
+  const onSelectionRef = useRef(onSelection)
+  onSelectionRef.current = onSelection
+  useEffect(() => () => onSelectionRef.current(null), [])
+
+  // Scrolling puts the toolbar away, and remembers the block at the top of the view.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const onScroll = () => onSelection(null)
+    let frame = 0
+    let blocks: HTMLElement[] | null = null
+    const remember = () => {
+      frame = 0
+      blocks ??= Array.from(containerRef.current?.querySelectorAll<HTMLElement>('[data-block-id]') ?? [])
+      if (!blocks.length) return
+      const top = el.getBoundingClientRect().top
+      let lo = 0
+      let hi = blocks.length - 1
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (blocks[mid].getBoundingClientRect().bottom > top) hi = mid
+        else lo = mid + 1
+      }
+      rememberPosition(posKey, { block: blocks[lo].dataset.blockId!, offset: Math.round(blocks[lo].getBoundingClientRect().top - top) })
+    }
+    const onScroll = () => {
+      onSelection(null)
+      if (!frame) frame = requestAnimationFrame(remember)
+    }
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [onSelection])
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [onSelection, posKey, doc.sections])
 
   return (
     <div className={`reader ${hidePins ? 'reader-hidden-pins' : ''}`} ref={scrollRef} data-testid="reader">
-      <div className="reader-doc" ref={containerRef} onMouseUp={handleMouseUp}>
+      <div className="reader-doc" ref={containerRef}>
         <h1 className="reader-title">{doc.title}</h1>
         <div className="small muted" style={{ marginBottom: 18 }}>
           {doc.author ? `${doc.author} · ` : ''}
@@ -210,14 +274,7 @@ export const Reader = memo(function Reader(props: Props): JSX.Element {
               )}
             </div>
             {section.blocks.map((b) => (
-              <Block
-                key={b.id}
-                block={b}
-                marks={marksByBlock.get(b.id)}
-                pins={pinsByBlock.get(b.id)}
-                onSeek={seek}
-                onPin={onPin}
-              />
+              <Block key={b.id} block={b} marks={marksByBlock.get(b.id)} pins={pinsByBlock.get(b.id)} onSeek={seek} onPin={onPin} />
             ))}
           </section>
         ))}

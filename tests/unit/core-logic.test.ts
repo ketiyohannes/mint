@@ -18,7 +18,12 @@ describe('directives', () => {
       { type: 'set', paramId: 'angle', value: 45 }
     ])
     const segs = splitDirectives(text)
-    expect(segs.filter((s) => s.kind === 'text').map((s) => (s.kind === 'text' ? s.text : '')).join('')).toContain('[[set:angle=x]]')
+    expect(
+      segs
+        .filter((s) => s.kind === 'text')
+        .map((s) => (s.kind === 'text' ? s.text : ''))
+        .join('')
+    ).toContain('[[set:angle=x]]')
   })
 })
 
@@ -71,6 +76,29 @@ describe('curriculum validation (code repairs the model)', () => {
     expect(matchSection('page 12', ['p. 11', 'p. 12'])).toBe('p. 12')
     expect(matchSection('eigen', ['Intro', 'Eigenvalues'])).toBe('Eigenvalues')
     expect(matchSection('zzz', ['Intro'])).toBeNull()
+  })
+
+  it('reads a page range as its first page, not as a shorter page number', () => {
+    const pages = Array.from({ length: 40 }, (_, i) => `p. ${i + 1}`)
+    expect(matchSection('p. 25-27', pages)).toBe('p. 25')
+    expect(matchSection('pp. 12-14', pages)).toBe('p. 12')
+    expect(matchSection('pages 3 to 5', pages)).toBe('p. 3')
+  })
+
+  it('does not take a heading that starts with "p" for a page locator', () => {
+    expect(matchSection('Conditional Probability', ['Intro', 'Probability'])).toBe('Probability')
+    expect(matchSection('2.3 Proofs', ['Intro', 'Proofs', 'Summary'])).toBe('Proofs')
+    expect(matchSection('probability', ['Intro', 'Probability'])).toBe('Probability')
+  })
+
+  it('matches labels in any script, and never matches on nothing', () => {
+    const labels = ['Введение', 'Собственные значения', '结论']
+    expect(matchSection('собственные значения', labels)).toBe('Собственные значения')
+    expect(matchSection('结论', labels)).toBe('结论')
+    expect(matchSection('Заключение', labels)).toBeNull()
+    expect(matchSection('eigenvalues', labels)).toBeNull()
+    expect(matchSection('...', ['Intro', '***'])).toBeNull()
+    expect(matchSection('', ['Intro'])).toBeNull()
   })
 })
 
@@ -137,7 +165,11 @@ describe('learning engine', () => {
     expect(few.level).toBe(0)
     expect(few.defaultRung).toBe(3)
     // A Guided learner (hint by default) who never needs more help moves up.
-    const selfSufficient = computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 3)), [], [])
+    const selfSufficient = computeIndependence(
+      Array.from({ length: 12 }, (_, i) => ev(i, 3)),
+      [],
+      []
+    )
     expect(selfSufficient.level).toBe(2)
     expect(selfSufficient.defaultRung).toBe(1)
     // ...but full independence also needs passed checks.
@@ -149,14 +181,37 @@ describe('learning engine', () => {
       phase: 'wrap',
       startedAt: '',
       prompts: {},
-      attempts: Array.from({ length: 6 }, (_, i) => ({ id: `a${i}`, kind: 'explain' as const, prompt: '', answer: '' as const, at: '', verdict: { result: 'pass' as const, feedback: '', misconceptions: [] } }))
+      attempts: Array.from({ length: 6 }, (_, i) => ({
+        id: `a${i}`,
+        kind: 'explain' as const,
+        prompt: '',
+        answer: '' as const,
+        at: '',
+        verdict: { result: 'pass' as const, feedback: '', misconceptions: [] }
+      }))
     }
-    expect(computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 3)), [passed], []).level).toBe(3)
+    expect(
+      computeIndependence(
+        Array.from({ length: 12 }, (_, i) => ev(i, 3)),
+        [passed],
+        []
+      ).level
+    ).toBe(3)
     // Escalating two rungs to a full explanation every time keeps support high.
-    const needy = computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 4, true, 2)), [], [])
+    const needy = computeIndependence(
+      Array.from({ length: 12 }, (_, i) => ev(i, 4, true, 2)),
+      [],
+      []
+    )
     expect(needy.level).toBe(0)
     // One extra rung each time costs half the credit.
-    expect(computeIndependence(Array.from({ length: 12 }, (_, i) => ev(i, 4, true, 3)), [], []).level).toBe(1)
+    expect(
+      computeIndependence(
+        Array.from({ length: 12 }, (_, i) => ev(i, 4, true, 3)),
+        [],
+        []
+      ).level
+    ).toBe(1)
   })
 
   it('counts only the final rung of an escalated ask', () => {

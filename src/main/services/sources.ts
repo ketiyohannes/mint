@@ -8,7 +8,15 @@ import { proposeSources } from '../jobs'
 import type { Kernel } from './kernel'
 import { userError, userMessage } from './kernel'
 
+/** A pasted transcript longer than this is cut (far beyond any real video). */
+const MAX_TRANSCRIPT_CHARS = 2_000_000
+
 export class SourceService {
+  /** Approved proposals this run is importing right now. */
+  private importing = new Set<string>()
+  /** Classes already checked for imports an earlier run left unfinished. */
+  private recovered = new Set<string>()
+
   constructor(private readonly k: Kernel) {}
 
   async addFiles(classId: string, paths: string[]): Promise<{ added: SourceMeta[]; errors: string[] }> {
@@ -68,10 +76,13 @@ export class SourceService {
   }
 
   /** Attach a pasted transcript to a video that had none. */
-  async setTranscript(classId: string, sourceId: string, text: string): Promise<SourceMeta> {
+  async setTranscript(classId: string, sourceId: string, input: string): Promise<SourceMeta> {
+    const text = String(input ?? '').slice(0, MAX_TRANSCRIPT_CHARS)
     if (!text.trim()) throw userError('Paste the transcript text first.')
     return this.k.repo.lock(classId, async () => {
       const doc = await this.k.repo.readSource(classId, sourceId)
+      // Only a video's text is a transcript; any other source keeps what was imported.
+      if (doc.kind !== 'youtube') throw userError('Only a video can take a pasted transcript.')
       const sections = normalizeSections(transcriptFromText(text))
       if (!sections.length) throw userError('That transcript has no readable text.')
       const next: SourceDoc = { ...doc, sections, needsTranscript: false, wordCount: wordCount(sections), sectionCount: sections.length }
@@ -83,7 +94,11 @@ export class SourceService {
     })
   }
 
-  /** Ask the agent for trusted public sources (allowlisted domains only). */
+  /**
+   * Ask the agent for trusted public sources. It is told to stay on the class's
+   * allowlist; a suggestion from another domain is kept but marked `newDomain`,
+   * and approving it is what trusts that domain.
+   */
   async proposeTrusted(classId: string, focus?: string): Promise<void> {
     const existing = await this.k.repo.read(classId, 'sources')
     const proposals = await this.k.repo.read(classId, 'proposals')
@@ -130,6 +145,7 @@ export class SourceService {
       const meta = await this.k.repo.requireMeta(classId)
       const proposals = await this.k.repo.read(classId, 'proposals')
       const approved = proposals.filter((p) => approve.includes(p.id) && (p.status === 'proposed' || p.status === 'failed'))
+      for (const p of approved) this.importing.add(p.id)
       const newDomains = approved.filter((p) => p.newDomain).map((p) => p.domain)
       if (newDomains.length) {
         await this.k.repo.writeMeta({ ...meta, trustedDomains: Array.from(new Set([...meta.trustedDomains, ...newDomains])), updatedAt: nowIso() })
@@ -138,23 +154,49 @@ export class SourceService {
         classId,
         'proposals',
         proposals.map((p) =>
-          approve.includes(p.id) && approved.includes(p) ? { ...p, status: 'approved' as const, error: undefined } : reject.includes(p.id) && p.status === 'proposed' ? { ...p, status: 'rejected' as const } : p
+          approve.includes(p.id) && approved.includes(p)
+            ? { ...p, status: 'approved' as const, error: undefined }
+            : reject.includes(p.id) && p.status === 'proposed'
+              ? { ...p, status: 'rejected' as const }
+              : p
         )
       )
       return approved
     })
     this.k.changed(classId)
 
-    for (const p of toImport) {
-      try {
-        const meta = await this.k.repo.requireMeta(classId)
-        if (!isDomainAllowed(p.url, meta.trustedDomains)) throw userError(`${p.domain} is not on this class's trusted list.`)
-        const source = await this.addUrl(classId, p.url, 'trusted', p.why)
-        await this.setProposal(classId, p.id, { status: 'imported', sourceId: source.id })
-      } catch (err) {
-        await this.setProposal(classId, p.id, { status: 'failed', error: userMessage(err) })
+    try {
+      for (const p of toImport) {
+        try {
+          const meta = await this.k.repo.requireMeta(classId)
+          if (!isDomainAllowed(p.url, meta.trustedDomains)) throw userError(`${p.domain} is not on this class's trusted list.`)
+          const source = await this.addUrl(classId, p.url, 'trusted', p.why)
+          await this.setProposal(classId, p.id, { status: 'imported', sourceId: source.id })
+        } catch (err) {
+          await this.setProposal(classId, p.id, { status: 'failed', error: userMessage(err) })
+        }
       }
+    } finally {
+      for (const p of toImport) this.importing.delete(p.id)
     }
+  }
+
+  /**
+   * An approved proposal is imported by the run that approved it. One still
+   * "approved" with no import under way was cut off (mint quit mid-import) and
+   * would wait forever, so it becomes a failed one the learner can approve
+   * again. Checked once per class per run.
+   */
+  async recoverInterrupted(classId: string): Promise<void> {
+    if (this.recovered.has(classId)) return
+    const stale = (p: SourceProposal): boolean => p.status === 'approved' && !this.importing.has(p.id)
+    const found = (await this.k.repo.read(classId, 'proposals')).some(stale)
+    this.recovered.add(classId)
+    if (!found) return
+    await this.k.repo.lock(classId, () =>
+      this.k.repo.update(classId, 'proposals', (list) => list.map((p) => (stale(p) ? { ...p, status: 'failed' as const, error: 'The import was interrupted. Approve it again to retry.' } : p)))
+    )
+    this.k.changed(classId)
   }
 
   private async setProposal(classId: string, id: string, patch: Partial<SourceProposal>): Promise<void> {

@@ -1,10 +1,12 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import type { CodeExercise, CodeRunResult } from '@shared/types'
 import { CodeEditor } from '../../components/CodeEditor'
 import { RichText } from '../../components/RichText'
 import { Icon } from '../../components/Icon'
 import { runCode } from '../../lib/codeRunner'
 import { api } from '../../lib/api'
+import { codeDraftKey, readDraft, writeDraft } from '../../lib/drafts'
+import { shortcutLabel } from '../../lib/shortcuts'
 import { useStudy } from '../study/context'
 import { useChat } from './chatContext'
 
@@ -18,7 +20,10 @@ interface Props {
 export function CodeWidget({ messageId, exercise, submission }: Props): JSX.Element {
   const study = useStudy()
   const chat = useChat()
-  const [code, setCode] = useState(submission?.code ?? exercise.starter)
+  // Unsent code survives leaving the chat and a restart; what was submitted (or the starter) needs no copy.
+  const saved = submission?.code ?? exercise.starter
+  const [code, setCode] = useState(() => readDraft(codeDraftKey(messageId)) || saved)
+  useEffect(() => writeDraft(codeDraftKey(messageId), code === saved ? '' : code), [messageId, code, saved])
   const [result, setResult] = useState<CodeRunResult | null>(null)
   const [running, setRunning] = useState(false)
   const [hint, setHint] = useState(false)
@@ -36,9 +41,7 @@ export function CodeWidget({ messageId, exercise, submission }: Props): JSX.Elem
 
   async function submit() {
     const r = await run()
-    await chat.stream((streamId) =>
-      api.chat.answer({ classId: study.classId, threadId: chat.threadId, messageId, answer: { kind: 'code', code, result: r, streamId } })
-    )
+    await chat.stream((streamId) => api.chat.answer({ classId: study.classId, threadId: chat.threadId, messageId, answer: { kind: 'code', code, result: r, streamId } }))
   }
 
   const passed = result?.tests.filter((t) => t.pass).length ?? 0
@@ -57,7 +60,7 @@ export function CodeWidget({ messageId, exercise, submission }: Props): JSX.Elem
       <RichText text={exercise.prompt} />
       <CodeEditor language={exercise.language} value={code} onChange={setCode} onRun={() => void run()} />
       <div className="widget-foot">
-        <button className="btn sm" disabled={running} onClick={() => void run()} title="Run the tests (⌘↵)" data-testid="code-run">
+        <button className="btn sm" disabled={running} onClick={() => void run()} title={`Run the tests (${shortcutLabel('runTests')})`} data-testid="code-run">
           {running ? <span className="spinner tiny" /> : <Icon name="play" size={11} />} Run tests
         </button>
         <button className="btn sm primary" disabled={running || chat.busy || !code.trim()} onClick={() => void submit()} data-testid="code-submit">
@@ -69,7 +72,7 @@ export function CodeWidget({ messageId, exercise, submission }: Props): JSX.Elem
             {hint ? 'Hide hint' : 'Hint'}
           </button>
         )}
-        <button className="btn ghost sm" onClick={() => setCode(exercise.starter)} title="Reset to the starter code">
+        <button className="btn ghost sm" onClick={() => setCode(exercise.starter)} title="Reset to the starter code" data-testid="code-reset">
           Reset
         </button>
       </div>

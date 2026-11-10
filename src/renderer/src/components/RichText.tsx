@@ -2,6 +2,7 @@ import { useContext, useMemo, type JSX, type MouseEvent } from 'react'
 import type { Directive } from '@shared/directives'
 import { renderMarkdown } from '../lib/markdown'
 import { api } from '../lib/api'
+import { copyText } from '../lib/clipboard'
 import { StudyCtx } from '../views/study/context'
 
 interface Props {
@@ -13,6 +14,18 @@ interface Props {
   /** Override the class-wide directive handling (rarely needed). */
   onDirective?: (d: Directive) => void
   testId?: string
+}
+
+/** Copy the code block a copy button sits on, and say so on the button for a moment. */
+async function copyCode(button: HTMLButtonElement): Promise<void> {
+  const pre = button.parentElement?.querySelector('pre')
+  if (!pre || !(await copyText((pre.textContent ?? '').replace(/\n$/, '')))) return
+  button.textContent = 'Copied'
+  button.classList.add('done')
+  setTimeout(() => {
+    button.textContent = 'Copy'
+    button.classList.remove('done')
+  }, 1400)
 }
 
 /**
@@ -35,6 +48,13 @@ export function RichText({ text, inline, streaming, className, onDirective, test
       e.preventDefault()
       e.stopPropagation()
       if (/^https?:\/\//i.test(link.href)) void api.system.openExternal(link.href)
+      return
+    }
+    const copy = (e.target as HTMLElement).closest<HTMLButtonElement>('button.code-copy')
+    if (copy) {
+      e.preventDefault()
+      e.stopPropagation()
+      void copyCode(copy)
       return
     }
     const el = (e.target as HTMLElement).closest<HTMLElement>('[data-dir]')

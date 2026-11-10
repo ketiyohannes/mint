@@ -10,7 +10,7 @@ export function Activity({ classId }: { classId?: string }): JSX.Element | null 
   return (
     <div className="activity" data-testid="activity" title={mine.map((j) => j.label).join('\n')}>
       <span className="spinner" />
-      <span>{latest.label}…</span>
+      <span className="ellipsis">{latest.label}…</span>
       {mine.length > 1 && <span className="muted">+{mine.length - 1}</span>}
     </div>
   )

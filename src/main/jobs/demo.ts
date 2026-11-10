@@ -2,7 +2,7 @@ import type { Brief, CheckAttempt, CheckKind, Diagnostic, NoteDoc, Session, Topi
 import type { ClassContext } from './context'
 import type { ThreadContext } from './index'
 import type { CurriculumOutput, DiagramOutput, ExerciseOutput, IntakeQuestionsOutput, QuizOutput } from './schemas'
-import type { CodeLanguage } from '@shared/types'
+import { UNNAMED_CLASS, type CodeLanguage } from '@shared/types'
 import { slugify } from '../store/fsutil'
 
 /**
@@ -115,7 +115,11 @@ export function brief(ctx: ClassContext, topic: Topic): Brief {
     win: `You can explain "${topic.title}" in your own words and use it once.`,
     whyItMatters: `It moves you toward your mission: ${(ctx.meta.mission.why || ctx.meta.title).replace(/[.!?]+$/, '')}.`,
     readings: reading ? [{ sourceId: reading.sourceId, section: reading.section, note: 'Read for the main claim and the reason behind it.' }] : [],
-    questions: [`What is the main idea of "${topic.title}"?`, 'What reason or evidence does the text give for it?', 'Where does a statement like $A\\mathbf{x} = \\lambda \\mathbf{x}$ appear, and what does each symbol stand for?']
+    questions: [
+      `What is the main idea of "${topic.title}"?`,
+      'What reason or evidence does the text give for it?',
+      'Where does a statement like $A\\mathbf{x} = \\lambda \\mathbf{x}$ appear, and what does each symbol stand for?'
+    ]
   }
 }
 
@@ -159,9 +163,7 @@ export function wrap(topic: Topic, session: Session) {
           }
         ]
       : [],
-    terms: passed.length
-      ? [{ term: topic.title, definition: passed[0].answer.split(/(?<=[.!?])\s/)[0].slice(0, 220), avoid: [], evidence: 'Used correctly in a passed check.' }]
-      : []
+    terms: passed.length ? [{ term: topic.title, definition: passed[0].answer.split(/(?<=[.!?])\s/)[0].slice(0, 220), avoid: [], evidence: 'Used correctly in a passed check.' }] : []
   }
 }
 
@@ -181,10 +183,7 @@ function studyBoxNote(t: ThreadContext): string {
 
 function ladderReply(t: ThreadContext): string {
   const anchor = t.thread.anchor
-  const cite =
-    anchor.kind === 'source'
-      ? `[[cite:${anchor.sourceId}|${anchor.sectionLabel}|${anchor.quote.split(/\s+/).slice(0, 6).join(' ')}]]`
-      : ''
+  const cite = anchor.kind === 'source' ? `[[cite:${anchor.sourceId}|${anchor.sectionLabel}|${anchor.quote.split(/\s+/).slice(0, 6).join(' ')}]]` : ''
   const last = [...t.thread.messages].reverse().find((m) => m.role === 'user')?.text ?? ''
   if (anchor.kind === 'diagram' && t.explorable) {
     const el = anchor.elementId
@@ -246,7 +245,12 @@ function draw() {
 
 function demoTitle(request: string): string {
   const quoted = /"([^"]+)"/.exec(request)?.[1] ?? request
-  const words = quoted.replace(/[^\p{L}\p{N}\s-]/gu, '').split(/\s+/).filter(Boolean).slice(0, 6).join(' ')
+  const words = quoted
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 6)
+    .join(' ')
   return words ? `${words[0].toUpperCase()}${words.slice(1)}` : 'Explorable'
 }
 
@@ -267,9 +271,15 @@ export function noteReview(note: NoteDoc): string {
 }
 
 export function intakeQuestions(ctx: ClassContext, firstMessage: string): IntakeQuestionsOutput {
-  const subject = ctx.sources[0]?.meta.title ?? (firstMessage.replace(/^(i want to |teach me |help me )?(learn|understand|study)?\s*/i, '').split(/[.?!]/)[0].trim() || 'your topic')
+  const subject =
+    ctx.sources[0]?.meta.title ??
+    (firstMessage
+      .replace(/^(i want to |teach me |help me )?(learn|understand|study)?\s*/i, '')
+      .split(/[.?!]/)[0]
+      .trim() ||
+      'your topic')
   const derived = subject.split(/\s+/).slice(0, 5).join(' ')
-  const title = ctx.meta.title !== 'New class' ? ctx.meta.title : derived.charAt(0).toUpperCase() + derived.slice(1)
+  const title = ctx.meta.title !== UNNAMED_CLASS ? ctx.meta.title : derived.charAt(0).toUpperCase() + derived.slice(1)
   return {
     title,
     intro: `Got it. ${ctx.sources.length ? `I can see ${ctx.sources.length} source${ctx.sources.length > 1 ? 's' : ''} in this class, starting with "${ctx.sources[0].meta.title}".` : 'You have not added materials yet, so I will find trusted ones.'} A few quick questions so the plan fits you:`,
@@ -345,7 +355,8 @@ export function exercise(focus: string, language: CodeLanguage | null): Exercise
       prompt: `Write \`scale(v, k)\` that returns a new list with every entry of \`v\` multiplied by \`k\` (this is what a matrix does to an eigenvector). Focus: ${focus}.\n\nExample: \`scale([1, 2], 3)\` returns \`[3, 6]\`.`,
       language: 'python',
       starter: 'def scale(v, k):\n    # return a new list\n    pass\n',
-      tests: 'def test_basic():\n    assert scale([1, 2], 3) == [3, 6], "scale([1, 2], 3) should be [3, 6]"\n\ndef test_negative():\n    assert scale([1, -2], -1) == [-1, 2], "a negative k flips the vector"\n\ndef test_new_list():\n    v = [1, 2]\n    scale(v, 2)\n    assert v == [1, 2], "do not modify the input"\n',
+      tests:
+        'def test_basic():\n    assert scale([1, 2], 3) == [3, 6], "scale([1, 2], 3) should be [3, 6]"\n\ndef test_negative():\n    assert scale([1, -2], -1) == [-1, 2], "a negative k flips the vector"\n\ndef test_new_list():\n    v = [1, 2]\n    scale(v, 2)\n    assert v == [1, 2], "do not modify the input"\n',
       hint: 'Build a new list with one multiplication per entry.'
     }
   }
@@ -354,7 +365,8 @@ export function exercise(focus: string, language: CodeLanguage | null): Exercise
     prompt: `Write \`scale(v, k)\` that returns a new array with every entry of \`v\` multiplied by \`k\` (this is what a matrix does to an eigenvector). Focus: ${focus}.\n\nExample: \`scale([1, 2], 3)\` returns \`[3, 6]\`.`,
     language: 'javascript',
     starter: 'function scale(v, k) {\n  // return a new array\n  return null\n}\n',
-    tests: "test('scales every entry', () => assertEqual(scale([1, 2], 3), [3, 6]))\ntest('negative k flips the vector', () => assertEqual(scale([1, -2], -1), [-1, 2]))\ntest('does not modify the input', () => { const v = [1, 2]; scale(v, 2); assertEqual(v, [1, 2]) })\n",
+    tests:
+      "test('scales every entry', () => assertEqual(scale([1, 2], 3), [3, 6]))\ntest('negative k flips the vector', () => assertEqual(scale([1, -2], -1), [-1, 2]))\ntest('does not modify the input', () => { const v = [1, 2]; scale(v, 2); assertEqual(v, [1, 2]) })\n",
     hint: 'Use map to build a new array.'
   }
 }

@@ -136,15 +136,23 @@ export function validateCurriculum(raw: RawCurriculum, sources: SourceIndex[], p
   }
 }
 
-/** Find the section label a reference means, tolerating "p.12" vs "p. 12" and case. */
+/** Find the section label a reference means, tolerating "p.12" vs "p. 12", case and punctuation in any script. */
 export function matchSection(wanted: string, labels: string[]): string | null {
-  if (!wanted) return null
-  const norm = (s: string) => s.toLowerCase().replace(/^(page|pp?\.?)\s*/, 'p ').replace(/[^a-z0-9:]+/g, ' ').trim()
-  const w = norm(wanted)
-  const exact = labels.find((l) => norm(l) === w)
-  if (exact) return exact
-  const partial = labels.find((l) => norm(l).includes(w) || w.includes(norm(l)))
-  return partial ?? null
+  // "page 12" and "p.12" are page locators; a heading that merely starts with "p" is not.
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/^(?:pages?|pp?\.?)\s*(?=\d)/, 'p ')
+      .replace(/[^\p{L}\p{N}:]+/gu, ' ')
+      .trim()
+  const w = norm(String(wanted ?? ''))
+  if (!w) return null
+  const known = labels.map((label) => ({ label, n: norm(label) })).filter((x) => x.n)
+  const exact = known.find((x) => x.n === w)
+  if (exact) return exact.label
+  // A label that contains the reference ("eigen" means "Eigenvalues"), else the
+  // longest label the reference contains ("p. 25-27" means "p. 25", not "p. 2").
+  const containing = known.find((x) => x.n.includes(w))
+  if (containing) return containing.label
+  return known.filter((x) => w.includes(x.n)).sort((a, b) => b.n.length - a.n.length)[0]?.label ?? null
 }
-
-export { allTopics, findTopic, diffCurricula } from '@shared/curriculum'

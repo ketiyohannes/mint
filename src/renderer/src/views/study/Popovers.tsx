@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { Anchor, Annotation, Thread } from '@shared/types'
-import { api } from '../../lib/api'
+import { api, errorMessage } from '../../lib/api'
+import { shortcutLabel } from '../../lib/shortcuts'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
 import { RichText } from '../../components/RichText'
@@ -51,13 +52,15 @@ function Floating({
   onMove,
   children,
   testId,
-  className = ''
+  className = '',
+  onKeyDown
 }: {
   pos: { x: number; y: number }
   onMove: (p: { x: number; y: number }) => void
   children: (dragHandle: (e: React.MouseEvent) => void) => ReactNode
   testId?: string
   className?: string
+  onKeyDown?: (e: React.KeyboardEvent) => void
 }): JSX.Element {
   const drag = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
@@ -72,12 +75,16 @@ function Floating({
     const up = () => {
       window.removeEventListener('mousemove', move)
       window.removeEventListener('mouseup', up)
+      document.body.classList.remove('moving')
     }
+    // Embedded pages (a video, the browser) would swallow the mouse mid-drag.
+    document.body.classList.add('moving')
     window.addEventListener('mousemove', move)
     window.addEventListener('mouseup', up)
   }
   return (
-    <div className={`popover ${className}`} style={{ left: pos.x, top: pos.y }} role="dialog" aria-modal="false" data-testid={testId}>
+    // --pop-top: styles.css keeps a growing side chat above the window's bottom edge.
+    <div className={`popover ${className}`} style={{ left: pos.x, top: pos.y, ['--pop-top' as string]: `${pos.y}px` }} role="dialog" aria-modal="false" onKeyDown={onKeyDown} data-testid={testId}>
       {children(drag)}
     </div>
   )
@@ -118,11 +125,13 @@ export function AskPopover({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        if (thread) onMinimize()
-        else onClose()
-      }
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return
+      // Escape pressed in another field, editor or menu is for that one, not for the side chat.
+      const target = e.target instanceof HTMLElement ? e.target : null
+      if (target && !target.closest('.ask-popover') && (target.isContentEditable || target.closest('input, textarea, select, .menu'))) return
+      e.preventDefault()
+      if (thread) onMinimize()
+      else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -130,8 +139,17 @@ export function AskPopover({
 
   const parent = a.kind === 'message' ? study.bundle.threads.find((t) => t.id === a.threadId) : undefined
 
+  /** The conversation becomes a note to finish in your own words (once per side chat). */
+  const [savedNote, setSavedNote] = useState(false)
+  const saveNote = async () => {
+    if (!thread || savedNote) return
+    setSavedNote(true)
+    const note = await run(() => api.notes.fromThread(study.classId, thread.id), 'Saved to your notes.')
+    if (!note) setSavedNote(false)
+  }
+
   return (
-    <Floating pos={state.pos} onMove={onMove} testId="ask-popover" className={state.expanded ? 'expanded' : ''}>
+    <Floating pos={state.pos} onMove={onMove} testId="ask-popover" className={`ask-popover ${state.expanded ? 'expanded' : ''}`}>
       {(drag) => (
         <>
           <div className="popover-head" onMouseDown={drag}>
@@ -143,6 +161,18 @@ export function AskPopover({
               </button>
             )}
             <span className="spacer" />
+            {thread && (
+              <button
+                className="btn ghost sm icon"
+                title={savedNote ? 'Saved to your notes' : 'Save to your notes'}
+                aria-label="Save this side chat to your notes"
+                disabled={savedNote}
+                onClick={() => void saveNote()}
+                data-testid="popover-save-note"
+              >
+                <Icon name={savedNote ? 'check' : 'notebook'} size={13} />
+              </button>
+            )}
             {thread && (
               <button
                 className="btn ghost sm icon"
@@ -166,7 +196,13 @@ export function AskPopover({
             >
               <Icon name={state.expanded ? 'collapse' : 'expand'} size={13} />
             </button>
-            <button className="btn ghost sm icon" title={thread ? 'Pin as a sticky (Esc)' : 'Close (Esc)'} aria-label="Minimize" onClick={thread ? onMinimize : onClose} data-testid="popover-minimize">
+            <button
+              className="btn ghost sm icon"
+              title={thread ? 'Pin as a sticky (Esc)' : 'Close (Esc)'}
+              aria-label={thread ? 'Pin the side chat as a sticky' : 'Close the side chat'}
+              onClick={thread ? onMinimize : onClose}
+              data-testid="popover-minimize"
+            >
               <Icon name={thread ? 'minus' : 'x'} size={13} />
             </button>
           </div>
@@ -178,15 +214,31 @@ export function AskPopover({
   )
 }
 
-export function NotePopover({ annotation, pos, onMove, onClose }: { annotation: Annotation; pos: { x: number; y: number }; onMove: (p: { x: number; y: number }) => void; onClose: () => void }): JSX.Element {
+export function NotePopover({
+  annotation,
+  pos,
+  onMove,
+  onClose
+}: {
+  annotation: Annotation
+  pos: { x: number; y: number }
+  onMove: (p: { x: number; y: number }) => void
+  onClose: () => void
+}): JSX.Element {
   const { run } = useApp()
   const study = useStudy()
   const [text, setText] = useState(annotation.text ?? '')
   const ref = useRef<HTMLTextAreaElement>(null)
   useEffect(() => ref.current?.focus(), [])
+  // Another note opened in this popover: show its text, not the last one's.
+  useEffect(() => setText(annotation.text ?? ''), [annotation.id]) // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
-    await run(() => api.annotations.update(study.classId, annotation.id, text))
-    onClose()
+    const saved = await run(async () => {
+      await api.annotations.update(study.classId, annotation.id, text)
+      return true
+    })
+    // A save that failed leaves the note open, with its text.
+    if (saved) onClose()
   }
   return (
     <Floating pos={pos} onMove={onMove} testId="note-popover">
@@ -226,7 +278,7 @@ export function NotePopover({ annotation, pos, onMove, onClose }: { annotation: 
               data-testid="note-input"
             />
             <div className="row" style={{ marginTop: 8 }}>
-              <span className="hint">⌘↵ to save</span>
+              <span className="hint">{shortcutLabel('saveSticky')} to save</span>
               <span className="spacer" />
               <button className="btn primary sm" onClick={save} data-testid="note-save">
                 Save
@@ -239,13 +291,38 @@ export function NotePopover({ annotation, pos, onMove, onClose }: { annotation: 
   )
 }
 
-export function TermPopover({ anchor, pos, onMove, onClose }: { anchor: Extract<Anchor, { kind: 'source' }>; pos: { x: number; y: number }; onMove: (p: { x: number; y: number }) => void; onClose: () => void }): JSX.Element {
+export function TermPopover({
+  anchor,
+  pos,
+  onMove,
+  onClose
+}: {
+  anchor: Extract<Anchor, { kind: 'source' }>
+  pos: { x: number; y: number }
+  onMove: (p: { x: number; y: number }) => void
+  onClose: () => void
+}): JSX.Element {
   const { toast } = useApp()
   const study = useStudy()
-  const [term, setTerm] = useState(anchor.quote.length <= 60 ? anchor.quote.replace(/[.,;:!?]+$/, '') : '')
+  const termOf = (a: typeof anchor) => (a.quote.length <= 60 ? a.quote.replace(/[.,;:!?]+$/, '') : '')
+  const [term, setTerm] = useState(() => termOf(anchor))
+  /** A short selection is the term already: start in the definition. */
+  const [named] = useState(term !== '')
   const [definition, setDefinition] = useState('')
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+  // The popover closes itself after a term is accepted, unless it was closed (or replaced) first.
+  const closing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => () => clearTimeout(closing.current), [])
+  // Another selection opened in this popover: start over with it.
+  useEffect(() => {
+    clearTimeout(closing.current)
+    setTerm(termOf(anchor))
+    setDefinition('')
+    setFeedback(null)
+  }, [anchor]) // eslint-disable-line react-hooks/exhaustive-deps
   const submit = async () => {
     setBusy(true)
     try {
@@ -253,16 +330,26 @@ export function TermPopover({ anchor, pos, onMove, onClose }: { anchor: Extract<
       setFeedback({ ok: res.accepted, text: res.feedback })
       if (res.accepted) {
         toast(`"${term}" added to your glossary.`)
-        setTimeout(onClose, 1400)
+        closing.current = setTimeout(() => onCloseRef.current(), 1400)
       }
     } catch (err) {
-      setFeedback({ ok: false, text: err instanceof Error ? err.message.replace(/^.*mint:/, '') : String(err) })
+      setFeedback({ ok: false, text: errorMessage(err) })
     } finally {
       setBusy(false)
     }
   }
   return (
-    <Floating pos={pos} onMove={onMove} testId="term-popover">
+    <Floating
+      pos={pos}
+      onMove={onMove}
+      testId="term-popover"
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || e.nativeEvent.isComposing) return
+        // Handled here: an open side chat stays.
+        e.preventDefault()
+        onClose()
+      }}
+    >
       {(drag) => (
         <>
           <div className="popover-head" onMouseDown={drag}>
@@ -278,11 +365,11 @@ export function TermPopover({ anchor, pos, onMove, onClose }: { anchor: Extract<
             </p>
             <div className="field">
               <label htmlFor="term-name">Term</label>
-              <input id="term-name" className="input" value={term} onChange={(e) => setTerm(e.target.value)} data-testid="term-name" />
+              <input id="term-name" className="input" value={term} onChange={(e) => setTerm(e.target.value)} autoFocus={!named} data-testid="term-name" />
             </div>
             <div className="field">
               <label htmlFor="term-def">Your definition</label>
-              <textarea id="term-def" className="textarea" value={definition} onChange={(e) => setDefinition(e.target.value)} data-testid="term-definition" />
+              <textarea id="term-def" className="textarea" value={definition} onChange={(e) => setDefinition(e.target.value)} autoFocus={named} data-testid="term-definition" />
             </div>
             {feedback && <RichText text={feedback.text} className={`verdict ${feedback.ok ? 'pass' : 'partial'} small`} />}
             <div className="row" style={{ marginTop: 8 }}>
@@ -335,13 +422,7 @@ export function SelectionToolbar({
   }, [rect])
   // onMouseDown preventDefault keeps the text selection alive while clicking.
   return (
-    <div
-      ref={ref}
-      className="sel-toolbar"
-      style={pos ?? { top: 0, left: 0, visibility: 'hidden' }}
-      onMouseDown={(e) => e.preventDefault()}
-      data-testid="selection-toolbar"
-    >
+    <div ref={ref} className="sel-toolbar" style={pos ?? { top: 0, left: 0, visibility: 'hidden' }} onMouseDown={(e) => e.preventDefault()} data-testid="selection-toolbar">
       <button onClick={onChat} data-testid="sel-chat" title="Discuss this passage in the main chat">
         <Icon name="chat" size={14} /> Chat
       </button>

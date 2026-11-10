@@ -28,11 +28,8 @@ export function buildPdf(pages: string[][], info: { title?: string } = {}): Uint
   pages.forEach((lines, i) => {
     const pageId = pageObjectIds[i]
     const contentId = pageId + 1
-    const ops = lines.length
-      ? ['BT', '/F1 11 Tf', '14 TL', '72 720 Td', ...lines.map((line) => `(${escapePdfString(line)}) Tj T*`), 'ET'].join('\n')
-      : ''
-    objects[pageId] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`
+    const ops = lines.length ? ['BT', '/F1 11 Tf', '14 TL', '72 720 Td', ...lines.map((line) => `(${escapePdfString(line)}) Tj T*`), 'ET'].join('\n') : ''
+    objects[pageId] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`
     objects[contentId] = `<< /Length ${ops.length} >>\nstream\n${ops}\nendstream`
   })
 
@@ -122,9 +119,7 @@ export function buildDocx(paragraphs: Array<{ text: string; heading?: 1 | 2 | 3 
     })
     .join('')
 
-  const headingStyles = [1, 2, 3]
-    .map((n) => `<w:style w:type="paragraph" w:styleId="Heading${n}"><w:name w:val="heading ${n}"/></w:style>`)
-    .join('')
+  const headingStyles = [1, 2, 3].map((n) => `<w:style w:type="paragraph" w:styleId="Heading${n}"><w:name w:val="heading ${n}"/></w:style>`).join('')
 
   return buildZip({
     '[Content_Types].xml':

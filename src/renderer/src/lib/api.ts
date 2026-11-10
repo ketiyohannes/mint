@@ -1,12 +1,12 @@
-import type { MintApi } from '@shared/api'
+import { USER_ERROR_PREFIX, type MintApi } from '@shared/api'
 
 export const api: MintApi = window.mint
 
 /** Extract the human message from an IPC error ("Error invoking remote method 'x': Error: mint:..."). */
 export function errorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err)
-  const idx = raw.indexOf('mint:')
-  if (idx >= 0) return raw.slice(idx + 5).trim()
+  const idx = raw.indexOf(USER_ERROR_PREFIX)
+  if (idx >= 0) return raw.slice(idx + USER_ERROR_PREFIX.length).trim()
   return raw.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '').trim() || 'Something went wrong.'
 }
 

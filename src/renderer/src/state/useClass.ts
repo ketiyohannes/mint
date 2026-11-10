@@ -51,6 +51,7 @@ export function useSourceDoc(classId: string, sourceId: string | null, version: 
   useEffect(() => {
     if (!sourceId) {
       setDoc(null)
+      setError(null)
       return
     }
     const key = `${classId}/${sourceId}/${version ?? ''}`
@@ -62,6 +63,7 @@ export function useSourceDoc(classId: string, sourceId: string | null, version: 
     }
     let alive = true
     setDoc(null)
+    setError(null)
     api.sources
       .get(classId, sourceId)
       .then((d) => {

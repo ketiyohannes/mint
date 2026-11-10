@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeSections } from '../../src/main/sources/normalize'
-import {
-  importYouTube,
-  NO_TRANSCRIPT_MESSAGE,
-  parseYouTubeId,
-  transcriptFromText,
-  type YouTubeClient,
-  type YouTubeTranscriptItem,
-  type YouTubeVideoInfo
-} from '../../src/main/sources/youtube'
+import { importYouTube, NO_TRANSCRIPT_MESSAGE, parseYouTubeId, transcriptFromText, type YouTubeClient, type YouTubeTranscriptItem, type YouTubeVideoInfo } from '../../src/main/sources/youtube'
 
 const ID = 'dQw4w9WgXcQ'
 
@@ -79,9 +71,7 @@ describe('transcriptFromText', () => {
       { type: 'cue', text: 'general idea', t: 4 }
     ])
 
-    const srt = transcriptFromText(
-      '1\n00:00:01,000 --> 00:00:04,000\nFirst caption\n\n2\n00:00:05,500 --> 00:00:08,000\nSecond caption\n'
-    )
+    const srt = transcriptFromText('1\n00:00:01,000 --> 00:00:04,000\nFirst caption\n\n2\n00:00:05,500 --> 00:00:08,000\nSecond caption\n')
     expect(srt[0].blocks).toEqual([
       { type: 'cue', text: 'First caption', t: 1 },
       { type: 'cue', text: 'Second caption', t: 5 }
@@ -127,9 +117,7 @@ function fakeClient(info: Partial<YouTubeVideoInfo> & Pick<YouTubeVideoInfo, 'ge
 
 describe('importYouTube', () => {
   it('imports transcript cues grouped into timed sections', async () => {
-    const segments: YouTubeTranscriptItem[] = [
-      { type: 'TranscriptSectionHeader', start_ms: '0', snippet: { text: 'Intro' } }
-    ]
+    const segments: YouTubeTranscriptItem[] = [{ type: 'TranscriptSectionHeader', start_ms: '0', snippet: { text: 'Intro' } }]
     for (let s = 0; s < 200; s += 10) segments.push(segment(s * 1000 + 500, `Sentence at ${s}.`))
     const client = fakeClient({
       getTranscript: async () => ({ transcript: { content: { body: { initial_segments: segments } } } })
@@ -168,9 +156,7 @@ describe('importYouTube', () => {
 
     expect(source.needsTranscript).toBe(true)
     expect(source.author).toBe('Some Channel')
-    expect(source.sections).toEqual([
-      { id: 's0', label: '00:00', t: 0, blocks: [{ id: 's0b0', type: 'paragraph', text: NO_TRANSCRIPT_MESSAGE }] }
-    ])
+    expect(source.sections).toEqual([{ id: 's0', label: '00:00', t: 0, blocks: [{ id: 's0b0', type: 'paragraph', text: NO_TRANSCRIPT_MESSAGE }] }])
   })
 
   it('treats an empty transcript as unavailable', async () => {
@@ -187,9 +173,7 @@ describe('importYouTube', () => {
         throw new Error('Video unavailable')
       }
     }
-    await expect(importYouTube(`https://youtu.be/${ID}`, { innertube: client })).rejects.toThrow(
-      'Could not load this YouTube video (Video unavailable).'
-    )
+    await expect(importYouTube(`https://youtu.be/${ID}`, { innertube: client })).rejects.toThrow('Could not load this YouTube video (Video unavailable).')
   })
 
   it('rejects non-video links', async () => {

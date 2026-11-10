@@ -15,17 +15,45 @@ export async function readJson<T>(path: string, fallback: T): Promise<T> {
     return JSON.parse(raw) as T
   } catch {
     // A corrupt file must not brick the app: keep a copy and start fresh.
-    await rename(path, `${path}.corrupt-${Date.now()}`).catch(() => undefined)
+    const kept = `${path}.corrupt-${Date.now()}`
+    const moved = await rename(path, kept).then(
+      () => true,
+      () => false
+    )
+    console.warn(`[mint] ${path} is not valid JSON, so mint starts it afresh${moved ? `; the old content is kept in ${kept}` : ''}`)
     return fallback
   }
 }
 
-/** Write a file atomically (temp file + rename) so a crash never leaves half a file. */
-export async function writeFileAtomic(path: string, data: string | Uint8Array): Promise<void> {
+/** Errors Windows gives while another handle (a reader, an indexer, antivirus) holds the file being replaced. */
+const BUSY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES'])
+const RENAME_RETRIES = 5
+const RENAME_RETRY_MS = 25
+
+/** Rename over `to`, waiting out a file that is briefly held open on Windows (state files are read without the class lock). */
+async function renameOver(from: string, to: string, platform: NodeJS.Platform): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await rename(from, to)
+    } catch (err) {
+      const busy = platform === 'win32' && BUSY_CODES.has((err as NodeJS.ErrnoException).code ?? '')
+      if (!busy || attempt >= RENAME_RETRIES) throw err
+      await new Promise((resolve) => setTimeout(resolve, RENAME_RETRY_MS * (attempt + 1)))
+    }
+  }
+}
+
+/** Write a file atomically (temp file + rename) so a crash never leaves half a file. A failed write leaves no temp file behind. */
+export async function writeFileAtomic(path: string, data: string | Uint8Array, platform: NodeJS.Platform = process.platform): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tmp = `${path}.${randomUUID()}.tmp`
-  await writeFile(tmp, data)
-  await rename(tmp, path)
+  try {
+    await writeFile(tmp, data)
+    await renameOver(tmp, path, platform)
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => undefined)
+    throw err
+  }
 }
 
 export async function writeJson(path: string, value: unknown): Promise<void> {

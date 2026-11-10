@@ -1,6 +1,6 @@
 import { useEffect, useRef, type JSX } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
-import { EditorState } from '@codemirror/state'
+import { EditorState, Prec } from '@codemirror/state'
 import { keymap } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
 import { javascript } from '@codemirror/lang-javascript'
@@ -37,7 +37,9 @@ export function CodeEditor({ language, value, onChange, readOnly, onRun }: Props
       doc: value,
       extensions: [
         basicSetup,
-        keymap.of([{ key: 'Mod-Enter', run: () => (callbacks.current.onRun?.(), true) }, indentWithTab]),
+        // Above the basic setup's own Mod-Enter (insert a blank line), which would otherwise win.
+        Prec.highest(keymap.of([{ key: 'Mod-Enter', run: () => (callbacks.current.onRun?.(), true) }])),
+        keymap.of([indentWithTab]),
         language === 'python' ? python() : javascript(),
         theme,
         EditorState.readOnly.of(Boolean(readOnly)),

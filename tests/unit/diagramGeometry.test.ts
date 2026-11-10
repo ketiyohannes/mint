@@ -31,13 +31,7 @@ interface Geometry {
   hitShape(shape: Shape, x: number, y: number, tolerance: number): boolean
   pickRegion(regions: Iterable<Region>, x: number, y: number, tolerance: number): string | null
   clientToCanvas(cx: number, cy: number, rect: Rect, w: number, h: number): { x: number; y: number }
-  canvasToLayerTransform(
-    canvasRect: Rect,
-    layerRect: Rect,
-    w: number,
-    h: number,
-    dpr: number
-  ): { sx: number; sy: number; tx: number; ty: number }
+  canvasToLayerTransform(canvasRect: Rect, layerRect: Rect, w: number, h: number, dpr: number): { sx: number; sy: number; tx: number; ty: number }
   applyTransform(t: { sx: number; sy: number; tx: number; ty: number }, x: number, y: number): { x: number; y: number }
   cssToCanvasDistance(css: number, rect: Rect, w: number, h: number): number
   fitScale(cw: number, ch: number, bw: number, bh: number): number
@@ -65,7 +59,15 @@ describe('normalizeShape', () => {
     expect(G.normalizeShape({ rect: [0, 0, 10, 5] })).toMatchObject({ kind: 'rect', w: 10, h: 5 })
     expect(G.normalizeShape({ segment: [0, 0, 1, 1] })).toMatchObject({ kind: 'segment', width: 0 })
     expect(G.normalizeShape({ segment: [0, 0, 1, 1], width: 6 })).toMatchObject({ width: 6 })
-    expect(G.normalizeShape({ polygon: [[0, 0], [1, 0], [0, 1]] })).toMatchObject({ kind: 'polygon' })
+    expect(
+      G.normalizeShape({
+        polygon: [
+          [0, 0],
+          [1, 0],
+          [0, 1]
+        ]
+      })
+    ).toMatchObject({ kind: 'polygon' })
   })
 
   it('normalises negative rect sizes', () => {
@@ -83,7 +85,12 @@ describe('normalizeShape', () => {
       { rect: [0, 0, Infinity, 1] },
       { segment: [0, 0, 1, 1], width: -2 },
       { segment: [0, 0, 1, 1], width: '3' },
-      { polygon: [[0, 0], [1, 1]] },
+      {
+        polygon: [
+          [0, 0],
+          [1, 1]
+        ]
+      },
       { polygon: [[0, 0], [1, 1], [2]] },
       { polygon: 'nope' }
     ]) {
@@ -129,7 +136,18 @@ describe('hitShape', () => {
 
   it('polygon: point-in-polygon for a concave outline', () => {
     // A "C"/U shape open at the top: notch between x=4..6 above y=2.
-    const u = shape({ polygon: [[0, 0], [10, 0], [10, 10], [6, 10], [6, 2], [4, 2], [4, 10], [0, 10]] })
+    const u = shape({
+      polygon: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [6, 10],
+        [6, 2],
+        [4, 2],
+        [4, 10],
+        [0, 10]
+      ]
+    })
     expect(G.hitShape(u, 2, 5, 0)).toBe(true)
     expect(G.hitShape(u, 8, 5, 0)).toBe(true)
     expect(G.hitShape(u, 5, 1, 0)).toBe(true)
@@ -138,7 +156,13 @@ describe('hitShape', () => {
   })
 
   it('polygon: tolerance measured from the nearest edge', () => {
-    const tri = shape({ polygon: [[0, 0], [10, 0], [0, 10]] })
+    const tri = shape({
+      polygon: [
+        [0, 0],
+        [10, 0],
+        [0, 10]
+      ]
+    })
     expect(G.hitShape(tri, 5, -3, 0)).toBe(false)
     expect(G.hitShape(tri, 5, -3, 4)).toBe(true)
     expect(G.hitShape(tri, 5, -5, 4)).toBe(false)

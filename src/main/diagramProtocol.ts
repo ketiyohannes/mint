@@ -8,7 +8,7 @@
  *     handleDiagramProtocol(diagramResourcesDir())
  *     ...
  *   })
- *   app.on('web-contents-created', (_e, contents) => restrictDiagramFrameNavigation(contents))
+ *   restrictDiagramFrameNavigation(window.webContents)   // each window that hosts diagram frames
  *
  * The renderer's own CSP must allow the frame: `frame-src mint-sandbox:`.
  */

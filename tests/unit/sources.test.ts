@@ -16,6 +16,28 @@ function allText(sections: SourceSection[]): string {
 }
 
 describe('normalizeSections', () => {
+  it('numbers a repeated label, so a citation names one section only', () => {
+    const p = (text: string) => [{ type: 'paragraph' as const, text }]
+    const sections = normalizeSections([
+      { label: 'Exercises', blocks: p('one') },
+      { label: 'Summary', blocks: p('two') },
+      { label: ' Exercises ', blocks: p('three') },
+      { label: 'Exercises (2)', blocks: p('four') },
+      { label: 'Exercises', blocks: p('five') }
+    ])
+    const labels = sections.map((s) => s.label)
+    expect(labels).toEqual(['Exercises', 'Summary', 'Exercises (2)', 'Exercises (2) (2)', 'Exercises (3)'])
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(toAgentMarkdown({ id: 'src_1', title: 'T', kind: 'markdown', sections })).toContain('## [Exercises (3)]')
+  })
+
+  it('keeps repeated chapter headings of a markdown file apart', () => {
+    const doc = importMarkdown('# One\n\n## Exercises\n\nFirst set.\n\n# Two\n\n## Exercises\n\nSecond set.\n', 'book.md')
+    const exercises = doc.sections.filter((s) => s.label.startsWith('Exercises'))
+    expect(exercises.map((s) => s.label)).toEqual(['Exercises', 'Exercises (2)'])
+    expect(exercises[1].blocks[0].text).toBe('Second set.')
+  })
+
   it('assigns contiguous ids after dropping empty blocks and sections', () => {
     const sections = normalizeSections([
       { label: 'Empty', blocks: [{ type: 'paragraph', text: '   ' }] },
@@ -43,9 +65,7 @@ describe('normalizeSections', () => {
   })
 
   it('keeps cue times and section times', () => {
-    const [section] = normalizeSections([
-      { label: '01:00', t: 60, blocks: [{ type: 'cue', text: 'hi', t: 61.5 }] }
-    ])
+    const [section] = normalizeSections([{ label: '01:00', t: 60, blocks: [{ type: 'cue', text: 'hi', t: 61.5 }] }])
     expect(section.t).toBe(60)
     expect(section.blocks[0]).toEqual({ id: 's0b0', type: 'cue', text: 'hi', t: 61.5 })
   })
@@ -72,7 +92,13 @@ describe('normalizeSections', () => {
 
   it('counts words', () => {
     const sections = normalizeSections([
-      { label: 'A', blocks: [{ type: 'paragraph', text: 'one two  three' }, { type: 'cue', text: 'four' }] }
+      {
+        label: 'A',
+        blocks: [
+          { type: 'paragraph', text: 'one two  three' },
+          { type: 'cue', text: 'four' }
+        ]
+      }
     ])
     expect(wordCount(sections)).toBe(4)
   })
@@ -182,12 +208,8 @@ describe('importMarkdown', () => {
     expect(source.title).toBe('Linear Algebra Notes')
     expect(source.sections.map((s) => s.label)).toEqual(['Introduction', 'Linear Algebra Notes', 'Eigenvalues'])
 
-    expect(source.sections[0].blocks).toEqual([
-      { id: 's0b0', type: 'paragraph', text: 'Preamble with bold and a link.' }
-    ])
-    expect(source.sections[1].blocks).toEqual([
-      { id: 's1b0', type: 'paragraph', text: 'Vectors are arrows. They have direction and magnitude.' }
-    ])
+    expect(source.sections[0].blocks).toEqual([{ id: 's0b0', type: 'paragraph', text: 'Preamble with bold and a link.' }])
+    expect(source.sections[1].blocks).toEqual([{ id: 's1b0', type: 'paragraph', text: 'Vectors are arrows. They have direction and magnitude.' }])
 
     const eigen = source.sections[2].blocks.map(({ type, text, level }) => ({ type, text, level }))
     expect(eigen).toEqual([
@@ -264,26 +286,18 @@ describe('importHtml', () => {
       'Eigenvalues are the scale factors along those directions.',
       'A matrix can have repeated eigenvalues.'
     ])
-    expect(eigen.blocks.find((b) => b.type === 'quote')?.text).toBe(
-      'The eigenvectors of a matrix are the skeleton on which its behaviour hangs.'
-    )
+    expect(eigen.blocks.find((b) => b.type === 'quote')?.text).toBe('The eigenvectors of a matrix are the skeleton on which its behaviour hangs.')
     // Inline <em>/<code> text is kept, with spacing intact.
     expect(eigen.blocks[0].text).toContain('matrix A is a non-zero vector v that')
 
     const computing = source.sections.find((s) => s.label === 'Computing them')!
     expect(computing.blocks.map((b) => b.type)).toEqual(['paragraph', 'heading', 'code', 'paragraph'])
     expect(computing.blocks[1]).toMatchObject({ text: 'A worked example in code', level: 3 })
-    expect(computing.blocks[2].text).toBe(
-      'import numpy as np\n\nA = np.array([[2, 0], [0, 3]])\nvalues, vectors = np.linalg.eig(A)\nprint(values)  # [2. 3.]'
-    )
+    expect(computing.blocks[2].text).toBe('import numpy as np\n\nA = np.array([[2, 0], [0, 3]])\nvalues, vectors = np.linalg.eig(A)\nprint(values)  # [2. 3.]')
   })
 
   it('is kind html for local files and falls back to the body for tiny pages', () => {
-    const source = importHtml(
-      '<html><body><nav>Menu</nav><div>Short note<br>with a break</div><footer>foot</footer></body></html>',
-      undefined,
-      'note'
-    )
+    const source = importHtml('<html><body><nav>Menu</nav><div>Short note<br>with a break</div><footer>foot</footer></body></html>', undefined, 'note')
     expect(source.kind).toBe('html')
     expect(source.domain).toBeUndefined()
     expect(source.title).toBe('note')

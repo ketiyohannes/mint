@@ -4,8 +4,9 @@ import { dirname, extname, isAbsolute, resolve } from 'node:path'
 /**
  * End-to-end test support only (enabled by MINT_E2E_FIXTURES). Serves URL
  * imports from local fixture files so tests never depend on the network.
- * The production SSRF guard stays in place because importers treat an
- * injected fetch exactly like the real one.
+ * The SSRF guard still checks every URL (scheme, private hosts and literal
+ * addresses); only its DNS lookup is skipped for an injected fetch, since
+ * fixture hosts need not resolve.
  */
 export function createFixtureFetch(mapPath: string): typeof fetch {
   const map = JSON.parse(readFileSync(mapPath, 'utf8')) as Record<string, string>

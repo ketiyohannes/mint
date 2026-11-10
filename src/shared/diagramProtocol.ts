@@ -101,13 +101,7 @@ export interface ParamChangedMessage {
   value: number
 }
 
-export type SandboxToHost =
-  | ReadyMessage
-  | LoadedMessage
-  | ElementClickMessage
-  | HoverMessage
-  | ErrorMessage
-  | ParamChangedMessage
+export type SandboxToHost = ReadyMessage | LoadedMessage | ElementClickMessage | HoverMessage | ErrorMessage | ParamChangedMessage
 
 // ---------------------------------------------------------------------------
 // Runtime guard
@@ -141,20 +135,13 @@ export function isSandboxMessage(x: unknown): x is SandboxToHost {
     case 'ready':
       return true
     case 'loaded':
-      return (
-        Array.isArray(m.registered) &&
-        m.registered.length <= SANDBOX_LIMITS.registered &&
-        m.registered.every(isElementId)
-      )
+      return Array.isArray(m.registered) && m.registered.length <= SANDBOX_LIMITS.registered && m.registered.every(isElementId)
     case 'element-click':
       return isElementId(m.id) && isShortString(m.label, SANDBOX_LIMITS.label)
     case 'hover':
       return m.id === null || isElementId(m.id)
     case 'error':
-      return (
-        isShortString(m.message, SANDBOX_LIMITS.message) &&
-        (m.stack === undefined || isShortString(m.stack, SANDBOX_LIMITS.stack))
-      )
+      return isShortString(m.message, SANDBOX_LIMITS.message) && (m.stack === undefined || isShortString(m.stack, SANDBOX_LIMITS.stack))
     case 'param-changed':
       return isElementId(m.id) && typeof m.value === 'number' && Number.isFinite(m.value)
     default:

@@ -1,5 +1,5 @@
-import { useState, type JSX } from 'react'
-import { CHECK_KINDS, type ClassBundle, type Topic } from '@shared/types'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { CHECK_KINDS, type ClassBundle, type GlossaryTerm, type Topic } from '@shared/types'
 import { allTopics } from '@shared/curriculum'
 import { useApp } from '../state/app'
 import { api, dueLabel } from '../lib/api'
@@ -31,6 +31,18 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
   const busyPlanning = planning || jobs.some((j) => j.classId === classId && /curriculum/i.test(j.label))
   const legacyPending = bundle.curriculumProposals.find((p) => p.status === 'pending')
 
+  // Opening the tab brings what is next into view when it is further down the plan (with a lesson
+  // under way, Resume at the top is the way on). Scrolls the tab only: scrollIntoView would try the app shell too.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const next = rootRef.current?.querySelector<HTMLElement>('.plan-topic.next')
+    const scroller = rootRef.current?.closest<HTMLElement>('.panel-page')
+    if (!next || !scroller || openSession) return
+    const row = next.getBoundingClientRect()
+    const view = scroller.getBoundingClientRect()
+    if (row.bottom > view.bottom) scroller.scrollTop += row.top - view.top - (view.height - row.height) / 2
+  }, [])
+
   const start = (topic: Topic) => {
     const open = bundle.sessions.find((s) => !s.endedAt && s.topicId === topic.id)
     if (open) onResume(open.id)
@@ -39,10 +51,13 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
 
   async function plan(why?: string) {
     setPlanning(true)
-    const ok = await run(async () => {
-      await api.intake.autoPlan(classId, why)
-      return true
-    }, c ? 'Plan updated.' : 'Plan ready.')
+    const ok = await run(
+      async () => {
+        await api.intake.autoPlan(classId, why)
+        return true
+      },
+      c ? 'Plan updated.' : 'Plan ready.'
+    )
     setPlanning(false)
     if (ok) setReason('')
   }
@@ -71,7 +86,7 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
   }
 
   return (
-    <div className="panel-pad stack plan" data-testid="plan">
+    <div className="panel-pad stack plan" ref={rootRef} data-testid="plan">
       <div className="plan-stats">
         <span title={bundle.independence.reason} data-testid="independence-badge">
           <Icon name="target" size={13} /> {LEVELS[bundle.independence.level]}
@@ -79,12 +94,19 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
         <span>
           {mastered}/{topics.length} mastered
         </span>
-        {bundle.reviewsDue.length > 0 && <span className="warn">{bundle.reviewsDue.length} review{bundle.reviewsDue.length > 1 ? 's' : ''} due</span>}
+        {bundle.reviewsDue.length > 0 && (
+          <span className="warn">
+            {bundle.reviewsDue.length} review{bundle.reviewsDue.length > 1 ? 's' : ''} due
+          </span>
+        )}
       </div>
 
       {openSession && (
         <button className="plan-resume" onClick={() => onResume(openSession.id)} data-testid="resume-session">
-          <Icon name="book" size={14} /> Resume: {topics.find((t) => t.id === openSession.topicId)?.title ?? 'lesson'}
+          <Icon name="book" size={14} />
+          <span>
+            Resume: <RichText text={topics.find((t) => t.id === openSession.topicId)?.title ?? 'lesson'} inline />
+          </span>
           <span className="spacer" />
           <Icon name="arrow" size={13} />
         </button>
@@ -110,6 +132,9 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
         <section key={m.id} className="plan-milestone">
           <div className="plan-milestone-title">
             <span className="muted">{String(i + 1).padStart(2, '0')}</span> <RichText text={m.title} inline />
+            <span className="small muted" style={{ marginLeft: 8, fontWeight: 400 }} title="Lessons mastered in this part" data-testid="milestone-progress">
+              {m.topics.filter((t) => bundle.progress[t.id]?.status === 'mastered').length}/{m.topics.length}
+            </span>
           </div>
           {m.topics.map((t) => {
             const p = bundle.progress[t.id]
@@ -163,14 +188,54 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
           void plan(reason.trim() || 'Revise the plan based on my recent evidence and any new materials.')
         }}
       >
-        <input className="input sm" placeholder="Change the plan… e.g. skip the history, more practice on proofs" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="revise-input" />
+        <input
+          className="input sm"
+          placeholder="Change the plan… e.g. skip the history, more practice on proofs"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          data-testid="revise-input"
+        />
         <button className="btn sm" disabled={busyPlanning} data-testid="revise-plan">
           {busyPlanning ? <span className="spinner tiny" /> : <Icon name="refresh" size={13} />} {reason.trim() ? 'Apply' : 'Refresh'}
         </button>
       </form>
 
+      {bundle.glossary.length > 0 && <Glossary terms={bundle.glossary} openSource={openSource} />}
+
       <Proposals bundle={bundle} compact />
     </div>
+  )
+}
+
+/** The terms the learner has earned, each as they defined it. Folded until asked for. */
+function Glossary({ terms, openSource }: { terms: GlossaryTerm[]; openSource: (sourceId: string, section?: string) => void }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const sorted = useMemo(() => [...terms].sort((a, b) => a.term.localeCompare(b.term)), [terms])
+  return (
+    <section className="plan-glossary" data-testid="glossary">
+      <button className="plan-glossary-head" onClick={() => setOpen((o) => !o)} aria-expanded={open} data-testid="glossary-toggle">
+        <Icon name="term" size={13} /> Glossary <span className="muted">{terms.length}</span>
+        <span className="spacer" />
+        <Icon name="caret" size={12} />
+      </button>
+      {open && (
+        <dl>
+          {sorted.map((t) => (
+            <div key={t.id} className="plan-term" data-testid="glossary-term">
+              <dt>{t.term}</dt>
+              <dd>
+                <RichText text={t.definition} inline />
+                {t.sourceRef && (
+                  <button className="cite-chip" onClick={() => openSource(t.sourceRef!.sourceId, t.sourceRef!.section)} title="Where you met it" data-testid="glossary-source">
+                    ↗ {t.sourceRef.section || 'source'}
+                  </button>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
   )
 }
 
@@ -191,6 +256,8 @@ function GapBadge({ bundle, topic }: { bundle: ClassBundle; topic: Topic }): JSX
   return (
     <button
       className="badge amber"
+      // A badge that is a button: without the browser's own button border.
+      style={{ border: 0, cursor: busy ? 'default' : 'pointer' }}
       disabled={busy}
       title="Your materials do not cover this. mint can suggest trusted sources for you to approve."
       onClick={async () => {

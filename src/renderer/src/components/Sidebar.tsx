@@ -3,11 +3,11 @@ import type { ClassBundle, SourceMeta } from '@shared/types'
 import { useApp } from '../state/app'
 import { api, timeAgo } from '../lib/api'
 import { useUpdates } from '../lib/useUpdates'
+import { chatDraftKey, writeDraft } from '../lib/drafts'
+import { IS_MAC, shortcutLabel } from '../lib/shortcuts'
 import { Icon, type IconName } from './Icon'
 
-export const IS_MAC = /Mac/.test(navigator.userAgent)
-/** The key that shows and hides the sidebar, as the platform writes it. */
-export const SIDEBAR_SHORTCUT = IS_MAC ? '⌘B' : 'Ctrl+B'
+export { IS_MAC }
 
 export const KIND_ICON: Record<SourceMeta['kind'], IconName> = {
   pdf: 'pdf',
@@ -48,7 +48,7 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
   return (
     <aside className="sidebar" data-testid="sidebar">
       <div className="sidebar-head">
-        <button className="icon-btn sidebar-toggle" onClick={onCollapse} title={`Hide the sidebar (${SIDEBAR_SHORTCUT})`} aria-label="Hide the sidebar" data-testid="sidebar-collapse">
+        <button className="icon-btn sidebar-toggle" onClick={onCollapse} title={`Hide the sidebar (${shortcutLabel('toggleSidebar')})`} aria-label="Hide the sidebar" data-testid="sidebar-collapse">
           <Icon name="sidebarLeft" size={15} />
         </button>
         <span className="brand">
@@ -76,8 +76,20 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
                   <Icon name={active ? 'folderOpen' : 'folder'} size={14} />
                   <span className="ellipsis">{c.title}</span>
                 </button>
-                {busy ? <span className="spinner tiny" /> : c.reviewsDue > 0 ? <span className="count warn" title="Reviews due">{c.reviewsDue}</span> : null}
-                <button className="icon-btn ghost-hover" title="New chat" aria-label={`New chat in ${c.title}`} onClick={() => go({ name: 'class', classId: c.id, chatId: null })} data-testid="new-chat">
+                {busy ? (
+                  <span className="spinner tiny" />
+                ) : c.reviewsDue > 0 ? (
+                  <span className="count warn" title="Reviews due">
+                    {c.reviewsDue}
+                  </span>
+                ) : null}
+                <button
+                  className="icon-btn ghost-hover"
+                  title={active ? `New chat (${shortcutLabel('newChat')})` : 'New chat'}
+                  aria-label={`New chat in ${c.title}`}
+                  onClick={() => go({ name: 'class', classId: c.id, chatId: null })}
+                  data-testid="new-chat"
+                >
                   <Icon name="compose" size={12} />
                 </button>
               </div>
@@ -96,6 +108,7 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
                         onClick={() => {
                           if (!window.confirm(`Delete the chat "${t.title}"?`)) return
                           if (activeChat === t.id) go({ name: 'class', classId: c.id, chatId: null })
+                          writeDraft(chatDraftKey(c.id, t.id), '')
                           void run(() => api.threads.remove(c.id, t.id))
                         }}
                       >
@@ -114,7 +127,12 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
 
       <div className="sidebar-foot">
         <UpdateRow />
-        <button className={`class-row plain ${route.name === 'settings' ? 'active' : ''}`} onClick={() => go({ name: 'settings' })} data-testid="nav-settings">
+        <button
+          className={`class-row plain ${route.name === 'settings' ? 'active' : ''}`}
+          onClick={() => go({ name: 'settings' })}
+          title={`Settings (${shortcutLabel('settings')})`}
+          data-testid="nav-settings"
+        >
           <Icon name="settings" size={14} /> Settings
         </button>
       </div>

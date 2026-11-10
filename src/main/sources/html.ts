@@ -1,14 +1,7 @@
 import { Readability } from '@mozilla/readability'
 import { JSDOM } from 'jsdom'
 import { domainOf } from './net'
-import {
-  chunkIntoParts,
-  collapseWhitespace,
-  normalizeSections,
-  truncateLabel,
-  type RawBlock,
-  type RawSection
-} from './normalize'
+import { chunkIntoParts, collapseWhitespace, normalizeSections, truncateLabel, type RawBlock, type RawSection } from './normalize'
 import type { ImportedSource } from './types'
 
 // Node.nodeType values (no DOM globals in the main process).
@@ -17,8 +10,26 @@ const TEXT_NODE = 3
 
 /** Elements whose content is never reading material. */
 const SKIP_TAGS = new Set([
-  'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object', 'embed',
-  'button', 'input', 'select', 'textarea', 'form', 'math', 'video', 'audio', 'picture', 'img', 'head'
+  'script',
+  'style',
+  'noscript',
+  'template',
+  'svg',
+  'canvas',
+  'iframe',
+  'object',
+  'embed',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'form',
+  'math',
+  'video',
+  'audio',
+  'picture',
+  'img',
+  'head'
 ])
 
 /** Page chrome, skipped only in the no-Readability fallback (Readability already removes it). */
@@ -26,10 +37,50 @@ const CHROME_TAGS = new Set(['nav', 'aside', 'header', 'footer', 'menu'])
 
 /** Elements that start a new block; everything else is treated as inline text. */
 const BLOCK_TAGS = new Set([
-  'address', 'article', 'aside', 'blockquote', 'details', 'dialog', 'dd', 'div', 'dl', 'dt',
-  'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'header', 'hgroup', 'hr', 'li', 'main', 'menu', 'nav', 'ol', 'p', 'pre', 'section', 'summary',
-  'table', 'tbody', 'thead', 'tfoot', 'tr', 'td', 'th', 'caption', 'ul', 'body', 'center'
+  'address',
+  'article',
+  'aside',
+  'blockquote',
+  'details',
+  'dialog',
+  'dd',
+  'div',
+  'dl',
+  'dt',
+  'fieldset',
+  'figcaption',
+  'figure',
+  'footer',
+  'form',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'header',
+  'hgroup',
+  'hr',
+  'li',
+  'main',
+  'menu',
+  'nav',
+  'ol',
+  'p',
+  'pre',
+  'section',
+  'summary',
+  'table',
+  'tbody',
+  'thead',
+  'tfoot',
+  'tr',
+  'td',
+  'th',
+  'caption',
+  'ul',
+  'body',
+  'center'
 ])
 
 function tagOf(el: Element): string {
@@ -141,7 +192,7 @@ export function htmlToRawSections(root: Element, options: WalkOptions = { skipCh
       if (isElement(child) && BLOCK_TAGS.has(tagOf(child))) {
         push({ type: 'quote', text: inline })
         inline = ''
-        push({ type: 'quote', text: hasBlockChild(child) ? child.textContent ?? '' : inlineText(child) })
+        push({ type: 'quote', text: hasBlockChild(child) ? (child.textContent ?? '') : inlineText(child) })
       } else inline += inlineText(child)
     }
     push({ type: 'quote', text: inline })

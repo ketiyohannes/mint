@@ -18,6 +18,7 @@ import type {
   Thread,
   TopicProgress
 } from '@shared/types'
+import { USER_ERROR_PREFIX } from '@shared/api'
 import { KeyedMutex, readJson, removePath, writeFileAtomic, writeJson } from './fsutil'
 import { toAgentMarkdown } from '../sources'
 
@@ -106,7 +107,7 @@ export class ClassRepo {
 
   async requireMeta(classId: string): Promise<ClassMeta> {
     const meta = await this.readMeta(classId)
-    if (!meta) throw new Error('mint:That class no longer exists.')
+    if (!meta) throw new Error(`${USER_ERROR_PREFIX}That class no longer exists.`)
     return meta
   }
 
@@ -118,8 +119,10 @@ export class ClassRepo {
     return readJson<ClassFiles[K]>(join(this.dir(classId), 'state', `${key}.json`), DEFAULTS[key]())
   }
 
-  write<K extends keyof ClassFiles>(classId: string, key: K, value: ClassFiles[K]): Promise<void> {
-    return writeJson(join(this.dir(classId), 'state', `${key}.json`), value)
+  /** Write one state file. Work that outlives its class must not bring the deleted folder back, so the class has to exist. */
+  async write<K extends keyof ClassFiles>(classId: string, key: K, value: ClassFiles[K]): Promise<void> {
+    await this.requireMeta(classId)
+    await writeJson(join(this.dir(classId), 'state', `${key}.json`), value)
   }
 
   /** Read-modify-write one state file. Callers must already hold the class lock. */
@@ -132,9 +135,9 @@ export class ClassRepo {
   }
 
   async readSource(classId: string, sourceId: string): Promise<SourceDoc> {
-    if (!/^[\w-]+$/.test(sourceId)) throw new Error('mint:Invalid source id.')
+    if (!/^[\w-]+$/.test(sourceId)) throw new Error(`${USER_ERROR_PREFIX}Invalid source id.`)
     const doc = await readJson<SourceDoc | null>(join(this.sourcesDir(classId), sourceId, 'doc.json'), null)
-    if (!doc) throw new Error('mint:That source is missing. It may have been removed.')
+    if (!doc) throw new Error(`${USER_ERROR_PREFIX}That source is missing. It may have been removed.`)
     return doc
   }
 
@@ -152,7 +155,7 @@ export class ClassRepo {
   }
 
   removeSource(classId: string, sourceId: string): Promise<void> {
-    if (!/^[\w-]+$/.test(sourceId)) throw new Error('mint:Invalid source id.')
+    if (!/^[\w-]+$/.test(sourceId)) throw new Error(`${USER_ERROR_PREFIX}Invalid source id.`)
     return removePath(join(this.sourcesDir(classId), sourceId))
   }
 

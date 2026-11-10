@@ -1,20 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import {
-  DEFAULT_FOCUS,
-  FOCUS_LIMITS,
-  IDLE_FOCUS,
-  PHASE_NAME,
-  advance,
-  clock,
-  isRunning,
-  pause,
-  phaseLength,
-  remaining,
-  start,
-  type FocusNumber,
-  type FocusSpec,
-  type FocusState
-} from '@shared/focus'
+import { DEFAULT_FOCUS, FOCUS_LIMITS, IDLE_FOCUS, PHASE_NAME, advance, clock, isRunning, pause, phaseLength, remaining, start, type FocusNumber, type FocusSpec, type FocusState } from '@shared/focus'
 import { useApp } from '../state/app'
 import { api } from '../lib/api'
 import { chime, focusState, logFocusBlock, primeChime, setFocusState, useFocusState, useFocusToday } from '../lib/focusTimer'
@@ -118,7 +103,12 @@ export function FocusTimer(): JSX.Element {
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      // Back to the button that opened the popover.
+      ref.current?.querySelector('button')?.focus()
+    }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
     return () => {

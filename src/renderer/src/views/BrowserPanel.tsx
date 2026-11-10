@@ -1,10 +1,46 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { ArrowSquareOutIcon } from '@phosphor-icons/react'
 import { api } from '../lib/api'
 import { useApp } from '../state/app'
 import { Icon } from '../components/Icon'
 
 const HOME = 'https://www.google.com/'
 const PARTITION = 'persist:mint-browser'
+/** The page each class's browser was last on ({ classId: url }), so the tab reopens there. */
+const PAGES_KEY = 'mint.browser.pages'
+const isWeb = (url: string) => /^https?:\/\//i.test(url)
+
+function lastPage(classId: string): string | null {
+  try {
+    const url = (JSON.parse(localStorage.getItem(PAGES_KEY) ?? '{}') as Record<string, unknown>)[classId]
+    return typeof url === 'string' && isWeb(url) ? url : null
+  } catch {
+    return null
+  }
+}
+
+function rememberPage(classId: string, url: string): void {
+  if (!isWeb(url)) return
+  try {
+    const pages = JSON.parse(localStorage.getItem(PAGES_KEY) ?? '{}') as Record<string, string>
+    localStorage.setItem(PAGES_KEY, JSON.stringify({ ...pages, [classId]: url }))
+  } catch {
+    // Storage full or unavailable: the tab opens on the home page next time.
+  }
+}
+
+/** A deleted class takes its last page with it. */
+export function forgetBrowserPage(classId: string): void {
+  try {
+    const { [classId]: _gone, ...pages } = JSON.parse(localStorage.getItem(PAGES_KEY) ?? '{}') as Record<string, string>
+    localStorage.setItem(PAGES_KEY, JSON.stringify(pages))
+  } catch {
+    // Nothing to clean up.
+  }
+}
+
+/** The last search request acted on. Kept outside the panel, so one that is shown again does not repeat an old search over its page. */
+let handledRequest = 0
 
 /** The subset of Electron's <webview> element this panel uses. */
 interface WebviewEl extends HTMLElement {
@@ -20,13 +56,15 @@ interface WebviewEl extends HTMLElement {
   loadURL(url: string): Promise<void>
 }
 
+const searchUrl = (query: string) => `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`
+
 /** Turn what was typed into a URL: a web address, or a Google search. */
 export function toUrl(input: string): string {
   const t = input.trim()
   if (!t) return HOME
-  if (/^https?:\/\//i.test(t)) return t
+  if (isWeb(t)) return t
   if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(t) && !/\s/.test(t)) return `https://${t}`
-  return `https://www.google.com/search?q=${encodeURIComponent(t)}`
+  return searchUrl(t)
 }
 
 /**
@@ -45,20 +83,30 @@ export function BrowserPanel({ classId, request }: { classId: string; request: {
   const [loading, setLoading] = useState(false)
   const [nav, setNav] = useState({ back: false, forward: false })
   const [adding, setAdding] = useState(false)
+  /** The address box has the keyboard: what is being typed is not replaced by the page's address. */
+  const editing = useRef(false)
+  const addressRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     const view = document.createElement('webview') as WebviewEl
     view.setAttribute('partition', PARTITION)
-    view.setAttribute('src', HOME)
+    // Links that ask for a new tab reach the main process, which opens them in this one.
+    view.setAttribute('allowpopups', '')
+    view.setAttribute('src', lastPage(classId) ?? HOME)
     view.className = 'browser-view'
+    let remembered = ''
     const sync = () => {
       if (!readyRef.current) return
       try {
         const u = view.getURL()
         setUrl(u)
-        setAddress(u)
+        if (!editing.current) setAddress(u)
+        if (u !== remembered) {
+          remembered = u
+          rememberPage(classId, u)
+        }
         setTitle(view.getTitle())
         setNav({ back: view.canGoBack(), forward: view.canGoForward() })
       } catch {
@@ -87,16 +135,16 @@ export function BrowserPanel({ classId, request }: { classId: string; request: {
       view.remove()
       viewRef.current = null
     }
-  }, [])
+  }, [classId])
 
-  const go = (input: string) => {
-    const target = toUrl(input)
+  const load = (target: string) => {
     setAddress(target)
     const view = viewRef.current
     if (!view) return
     if (readyRef.current) void view.loadURL(target).catch(() => undefined)
     else view.setAttribute('src', target)
   }
+  const go = (input: string) => load(toUrl(input))
 
   /** Call a webview method only once it can take it. */
   const call = (fn: (v: WebviewEl) => void) => {
@@ -110,15 +158,15 @@ export function BrowserPanel({ classId, request }: { classId: string; request: {
   }
 
   // "Search the web" requests from elsewhere (e.g. a selection in the reader).
-  const lastRequest = useRef(0)
   useEffect(() => {
-    if (request && request.nonce !== lastRequest.current) {
-      lastRequest.current = request.nonce
-      go(request.query)
+    if (request && request.nonce !== handledRequest) {
+      handledRequest = request.nonce
+      // Always a search: a selection like "Node.js" or "3.14" looks like an address, but is not one.
+      load(searchUrl(request.query))
     }
   }, [request])
 
-  const canAdd = /^https?:\/\//i.test(url) && !/^https:\/\/www\.google\.[^/]+\/(search|$)/.test(url)
+  const canAdd = isWeb(url) && !/^https:\/\/www\.google\.[^/]+\/(search|$)/.test(url)
 
   return (
     <div className="browser" data-testid="browser">
@@ -136,11 +184,42 @@ export function BrowserPanel({ classId, request }: { classId: string; request: {
           className="browser-address"
           onSubmit={(e) => {
             e.preventDefault()
+            addressRef.current?.blur()
             go(address)
           }}
         >
-          <input className="input sm" value={address} onChange={(e) => setAddress(e.target.value)} onFocus={(e) => e.currentTarget.select()} placeholder="Search Google or type a URL" data-testid="browser-address" />
+          <input
+            ref={addressRef}
+            className="input sm"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            onFocus={(e) => {
+              editing.current = true
+              e.currentTarget.select()
+            }}
+            onBlur={() => {
+              editing.current = false
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              // Back to the address of the page that is showing.
+              setAddress(url)
+              e.currentTarget.blur()
+            }}
+            placeholder="Search Google or type a URL"
+            data-testid="browser-address"
+          />
         </form>
+        <button
+          className="icon-btn"
+          disabled={!isWeb(url)}
+          onClick={() => void run(() => api.system.openExternal(url))}
+          title="Open this page in your browser"
+          aria-label="Open this page in your browser"
+          data-testid="browser-open-external"
+        >
+          <ArrowSquareOutIcon size={14} />
+        </button>
         <button
           className="btn sm"
           disabled={!canAdd || adding}

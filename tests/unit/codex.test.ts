@@ -54,9 +54,7 @@ describe('CodexRuntime (fake app-server)', () => {
 
   it('sends the expected thread/start and turn/start parameters', async () => {
     const runtime = makeRuntime({ model: 'gpt-test' })
-    const schemaless = await runtime.run(
-      request('ECHO_PARAMS', { readFiles: true, web: { allowedDomains: ['en.wikipedia.org'] }, effort: 'low' })
-    )
+    const schemaless = await runtime.run(request('ECHO_PARAMS', { readFiles: true, web: { allowedDomains: ['en.wikipedia.org'] }, effort: 'low' }))
     const sent = JSON.parse(schemaless.text) as { thread: Record<string, unknown>; turn: Record<string, unknown> }
     expect(sent.thread).toMatchObject({
       cwd: process.cwd(),
@@ -153,10 +151,7 @@ describe('CodexRuntime (fake app-server)', () => {
     const runtime = makeRuntime({ spawnImpl })
     const a: string[] = []
     const b: string[] = []
-    const [ra, rb] = await Promise.all([
-      runtime.run(request('SLOW alpha', { onDelta: (d) => a.push(d) })),
-      runtime.run(request('SLOW beta', { onDelta: (d) => b.push(d) }))
-    ])
+    const [ra, rb] = await Promise.all([runtime.run(request('SLOW alpha', { onDelta: (d) => a.push(d) })), runtime.run(request('SLOW beta', { onDelta: (d) => b.push(d) }))])
     expect(ra.text).toBe('Hello from fake codex: SLOW alpha')
     expect(rb.text).toBe('Hello from fake codex: SLOW beta')
     expect(a.join('')).toBe(ra.text)

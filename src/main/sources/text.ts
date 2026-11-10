@@ -1,12 +1,4 @@
-import {
-  chunkIntoParts,
-  collapseWhitespace,
-  normalizeSections,
-  titleFromFileName,
-  truncateLabel,
-  type RawBlock,
-  type RawSection
-} from './normalize'
+import { chunkIntoParts, collapseWhitespace, normalizeSections, titleFromFileName, truncateLabel, type RawBlock, type RawSection } from './normalize'
 import type { ImportedSource } from './types'
 
 /** Paragraphs per "Part N" section for unstructured text. */
@@ -26,20 +18,18 @@ function normalizeNewlines(text: string): string {
  * targets are dropped.
  */
 export function stripInlineMarkdown(text: string): string {
-  return (
-    text
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images -> alt text
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // [text](url)
-      .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1') // [text][ref]
-      .replace(/<(https?:\/\/[^>\s]+)>/g, '$1') // autolinks
-      .replace(/<\/?[a-z][a-z0-9-]*(\s[^>]*)?\/?>/gi, '') // inline HTML tags
-      .replace(/(`+)(.+?)\1/g, (_m, _fence: string, code: string) => code.trim())
-      .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2') // bold
-      .replace(/(^|[^\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?!\w)/g, '$1$2') // *italic*
-      .replace(/(^|\W)_(?=\S)([^_]+?)(?<=\S)_(?!\w)/g, '$1$2') // _italic_ (not snake_case)
-      .replace(/~~(.+?)~~/g, '$1') // strikethrough
-      .replace(/\\([\\`*_{}[\]()#+\-.!|>~])/g, '$1') // backslash escapes
-  )
+  return text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // images -> alt text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // [text](url)
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1') // [text][ref]
+    .replace(/<(https?:\/\/[^>\s]+)>/g, '$1') // autolinks
+    .replace(/<\/?[a-z][a-z0-9-]*(\s[^>]*)?\/?>/gi, '') // inline HTML tags
+    .replace(/(`+)(.+?)\1/g, (_m, _fence: string, code: string) => code.trim())
+    .replace(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, '$2') // bold
+    .replace(/(^|[^\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?!\w)/g, '$1$2') // *italic*
+    .replace(/(^|\W)_(?=\S)([^_]+?)(?<=\S)_(?!\w)/g, '$1$2') // _italic_ (not snake_case)
+    .replace(/~~(.+?)~~/g, '$1') // strikethrough
+    .replace(/\\([\\`*_{}[\]()#+\-.!|>~])/g, '$1') // backslash escapes
 }
 
 const ATX_HEADING = /^ {0,3}(#{1,6})(?:\s+(.*?))?\s*#*\s*$/

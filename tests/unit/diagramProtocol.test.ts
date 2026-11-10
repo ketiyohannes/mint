@@ -21,17 +21,7 @@ describe('isSandboxMessage', () => {
   })
 
   it('rejects non-objects, unknown types and host-bound messages', () => {
-    for (const message of [
-      null,
-      undefined,
-      'ready',
-      42,
-      [],
-      {},
-      { type: 'nope' },
-      { type: 'load', spec: {} },
-      { type: 'highlight', ids: [] }
-    ]) {
+    for (const message of [null, undefined, 'ready', 42, [], {}, { type: 'nope' }, { type: 'load', spec: {} }, { type: 'highlight', ids: [] }]) {
       expect(isSandboxMessage(message), JSON.stringify(message)).toBe(false)
     }
   })
@@ -59,9 +49,7 @@ describe('isSandboxMessage', () => {
   it('rejects oversized payloads', () => {
     expect(isSandboxMessage({ type: 'hover', id: 'x'.repeat(SANDBOX_LIMITS.id + 1) })).toBe(false)
     expect(isSandboxMessage({ type: 'error', message: 'x'.repeat(SANDBOX_LIMITS.message + 1) })).toBe(false)
-    expect(
-      isSandboxMessage({ type: 'loaded', registered: Array.from({ length: SANDBOX_LIMITS.registered + 1 }, (_, i) => `e${i}`) })
-    ).toBe(false)
+    expect(isSandboxMessage({ type: 'loaded', registered: Array.from({ length: SANDBOX_LIMITS.registered + 1 }, (_, i) => `e${i}`) })).toBe(false)
   })
 })
 

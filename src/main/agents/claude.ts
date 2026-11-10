@@ -10,6 +10,8 @@ export interface ClaudeRuntimeOptions {
   model?: string
   /** Optional API key; when absent the SDK uses the local Claude login. */
   apiKey?: string | null
+  /** The running mint version, reported to the SDK as the client app. */
+  clientVersion?: string
   log?: (msg: string) => void
 }
 
@@ -161,7 +163,7 @@ export class ClaudeRuntime implements AgentRuntime {
   }
 
   private env(): Record<string, string | undefined> {
-    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'mint/0.1.0' }
+    const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: this.opts.clientVersion ? `mint/${this.opts.clientVersion}` : 'mint' }
     if (this.opts.apiKey) env.ANTHROPIC_API_KEY = this.opts.apiKey
     return env
   }
