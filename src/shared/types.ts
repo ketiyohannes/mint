@@ -8,6 +8,7 @@
  */
 
 import type { FocusSpec } from './focus'
+import type { StudyDepth } from './depth'
 
 export type ID = string
 
@@ -45,6 +46,8 @@ export interface Settings {
   trustedDomains: string[]
   theme: ThemePref
   lessonView: LessonView
+  /** How many checks a lesson has after the reading (shared/depth.ts). */
+  studyDepth: StudyDepth
   tutorStyle: TutorStyle
   /** The focus timer's rhythm (block and break lengths). */
   focus: FocusSpec
@@ -277,6 +280,12 @@ export interface TopicProgress {
   topicId: ID
   status: TopicStatus
   checks: Record<CheckKind, CheckState>
+  /**
+   * The checks this topic must pass to be mastered: the ones its latest lesson
+   * had, at the study depth of the time. Absent (never studied, or studied
+   * before depths existed): all three.
+   */
+  required?: CheckKind[]
   /** Index into the review ladder (days): 1, 3, 7, 14, 30, 60. */
   reviewStage: number
   nextReviewAt?: string
@@ -646,3 +655,36 @@ export interface ProgressEvent {
   /** A background failure nobody awaits: the UI shows it as a toast. */
   notice?: boolean
 }
+
+// ---------------------------------------------------------------------------
+// Windows: the lesson and the panel can each leave the main window for their own
+// ---------------------------------------------------------------------------
+
+/** What can be moved into a window of its own. */
+export type PopoutKind = 'lesson' | 'panel'
+
+export const POPOUT_KINDS: readonly PopoutKind[] = ['lesson', 'panel']
+
+/** The class each open window is showing; null while that part is in the main window. */
+export type PopoutState = Record<PopoutKind, ID | null>
+
+/**
+ * What one window asks of another. Every window gets every message and acts
+ * on those for the part it shows: the chat is always in the main window, the
+ * panel and the lesson are wherever they were moved to.
+ */
+export type WindowMessage =
+  /** Show a source in the panel, optionally at a section and quote. */
+  | { type: 'open-source'; classId: ID; sourceId: ID; section?: string; quote?: string }
+  /** Bring a panel tab into view. */
+  | { type: 'show-tab'; classId: ID; tab: string }
+  /** Run a chat tool in the chat that is showing. */
+  | { type: 'command'; classId: ID; command: ChatCommand; arg?: string }
+  /** Attach a highlighted passage to the next chat message. */
+  | { type: 'quote'; classId: ID; text: string; source: string }
+  /** Bring the open lesson into view. */
+  | { type: 'reveal-lesson'; classId: ID }
+  /** Settings were changed in another window. */
+  | { type: 'settings' }
+
+export const WINDOW_MESSAGE_TYPES: readonly WindowMessage['type'][] = ['open-source', 'show-tab', 'command', 'quote', 'reveal-lesson', 'settings']

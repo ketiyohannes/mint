@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { USER_ERROR_PREFIX } from '@shared/api'
 import type { SecretName, Settings, SettingsView } from '@shared/types'
 import { DEFAULT_FOCUS, sanitizeFocus } from '@shared/focus'
+import { DEFAULT_STUDY_DEPTH, isStudyDepth } from '@shared/depth'
 import { readJson, writeJson } from './fsutil'
 
 /** Curated starting allowlist for curricula built from public sources. */
@@ -45,6 +46,7 @@ export const DEFAULT_SETTINGS: Settings = {
   trustedDomains: DEFAULT_TRUSTED_DOMAINS,
   theme: 'light',
   lessonView: 'dock',
+  studyDepth: DEFAULT_STUDY_DEPTH,
   tutorStyle: 'teach',
   focus: DEFAULT_FOCUS
 }
@@ -168,6 +170,7 @@ function sanitize(input: Settings): Settings {
     trustedDomains: domains.length ? domains : DEFAULT_TRUSTED_DOMAINS,
     theme: (['light', 'dark', 'system'] as const).includes(s.theme) ? s.theme : 'light',
     lessonView: s.lessonView === 'tab' ? 'tab' : 'dock',
+    studyDepth: isStudyDepth(s.studyDepth) ? s.studyDepth : DEFAULT_STUDY_DEPTH,
     tutorStyle: s.tutorStyle === 'coach' ? 'coach' : 'teach',
     focus: sanitizeFocus(s.focus),
     claudeModel: (s.claudeModel ?? '').trim(),

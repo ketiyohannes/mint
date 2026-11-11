@@ -18,22 +18,31 @@ interface Props {
   /** Leave a finished lesson. */
   onClose: () => void
   /** Dock lessons over the chat instead (the Settings choice). */
-  onDock: () => void
+  onDock?: () => void
+  /** Move the lesson into a window of its own. */
+  onPopOut?: () => void
 }
 
 /**
  * The Study tab: the lesson loop (brief, read, explain, apply, distinguish,
  * wrap up) of the class's open lesson, beside whichever chat is showing.
  */
-export function StudyTab({ bundle, session, onOpenReading, onResume, onStartNext, onDone, onClose, onDock }: Props): JSX.Element {
+export function StudyTab({ bundle, session, onOpenReading, onResume, onStartNext, onDone, onClose, onDock, onPopOut }: Props): JSX.Element {
   if (session) {
     return (
       <div className="panel-pad stack" data-testid="study">
         <div className="row">
           <span className="spacer" />
-          <button className="btn ghost sm" onClick={onDock} title="Dock lessons over the chat instead" data-testid="study-to-dock">
-            <Icon name="expand" size={13} /> Show over the chat
-          </button>
+          {onPopOut && (
+            <button className="btn ghost sm" onClick={onPopOut} title="Move the lesson into a window of its own" data-testid="study-popout">
+              <Icon name="popOut" size={13} /> Open in a window
+            </button>
+          )}
+          {onDock && (
+            <button className="btn ghost sm" onClick={onDock} title="Dock lessons over the chat instead" data-testid="study-to-dock">
+              <Icon name="expand" size={13} /> Show over the chat
+            </button>
+          )}
         </div>
         {/* Keyed by lesson, so an answer written in one never shows up in the next. */}
         <SessionPanel key={session.id} session={session} onOpenReading={onOpenReading} onDone={onDone} onClose={onClose} />

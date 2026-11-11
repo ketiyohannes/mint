@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { Anchor, Annotation, ChatCommand, ClassBundle, Thread } from '@shared/types'
+import type { Anchor, Annotation, ChatCommand, ClassBundle, Thread, WindowMessage } from '@shared/types'
 import type { Directive } from '@shared/directives'
 import { findTopic } from '@shared/curriculum'
 import { useApp } from '../state/app'
@@ -7,6 +7,7 @@ import { useSourceDoc } from '../state/useClass'
 import { api } from '../lib/api'
 import { clearClassDrafts } from '../lib/drafts'
 import { matchesShortcut, shortcutLabel } from '../lib/shortcuts'
+import { focusWindow, sendToWindows, takeHeld, usePopouts, useWindowMessages, type WindowView } from '../lib/windows'
 import type { SelectionAnchor } from '../lib/anchors'
 import { Icon, type IconName } from '../components/Icon'
 import { Activity } from '../components/Activity'
@@ -20,6 +21,7 @@ import { ChatView } from './chat/ChatView'
 import { LessonsPanel } from './LessonsPanel'
 import { StudyTab } from './study/StudyTab'
 import { LessonDock } from './study/LessonDock'
+import { LessonWindow } from './study/LessonWindow'
 import { useDarkTheme } from '../lib/useDarkTheme'
 import { BrowserPanel, forgetBrowserPage } from './BrowserPanel'
 import { forgetPositions } from './study/position'
@@ -88,9 +90,20 @@ const MIN_CHAT = 420
  * panel with your sources, lessons, a browser for your own research, and
  * notes. The chat and the panel can swap sides. The class's open lesson docks
  * over whichever chat is showing (or sits in the panel's Study tab).
+ *
+ * The lesson and the panel can each be moved into a window of their own. That
+ * window renders this same workspace in another `view`, showing only its
+ * part, and what a part asks of one that is in another window (open this
+ * source, run this tool in the chat) is sent there as a message.
  */
-export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: string | null | undefined }): JSX.Element {
+export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBundle; chatId: string | null | undefined; view?: WindowView }): JSX.Element {
   const { toast, run, go, classes, settings, setSettings } = useApp()
+  const popouts = usePopouts()
+  /** The main window has the chat. */
+  const isMain = view === 'main'
+  /** The panel is in this window: its own, or the main one unless it was moved out. */
+  const panelHere = view === 'panel' || (isMain && !popouts.panel)
+  const lessonOut = popouts.lesson !== null
   /** The open lesson docks over the chat unless Settings puts it in the Study tab (otherwise there is no Study tab). */
   const docked = (settings?.lessonView ?? 'dock') === 'dock'
   const panelTabs = useMemo(() => (docked ? PANEL_TABS.filter((t) => t.id !== 'study') : PANEL_TABS), [docked])
@@ -106,9 +119,14 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   // was deleted falls back to a new one; a chat just created may not be in the
   // bundle yet, so it is left alone.
   useEffect(() => {
+    if (!isMain) return
     if (chatId === undefined) go({ name: 'class', classId, chatId: chats[0]?.id ?? null })
     else if (chatId && chatId !== adoptedChat.current && !bundle.threads.some((t) => t.id === chatId)) go({ name: 'class', classId, chatId: null })
-  }, [chatId, chats, bundle.threads, classId, go])
+  }, [isMain, chatId, chats, bundle.threads, classId, go])
+  // The windows of the lesson and the panel show the class the main window is on.
+  useEffect(() => {
+    if (isMain && [popouts.lesson, popouts.panel].some((shown) => shown !== null && shown !== classId)) void api.windows.follow(classId).catch(() => undefined)
+  }, [isMain, popouts.lesson, popouts.panel, classId])
   const thread = chatId ? bundle.threads.find((t) => t.id === chatId) : undefined
   const chatKey = useRef({ chatId, key: 0 })
   if (chatKey.current.chatId !== chatId) {
@@ -193,12 +211,24 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const [dockFolded, setDockFolded] = useState(() => localStorage.getItem(DOCK_FOLDED_KEY) === '1')
   useEffect(() => localStorage.setItem(DOCK_FOLDED_KEY, dockFolded ? '1' : '0'), [dockFolded])
 
-  /** Bring the open lesson into view: unfold the dock, or show the Study tab. */
-  const revealLesson = useCallback(() => {
-    if (docked) return setDockFolded(false)
+  /** Show the Study tab, wherever the panel is. */
+  const showStudyTab = useCallback(() => {
+    if (!panelHere) return sendToWindows({ type: 'show-tab', classId, tab: 'study' })
     setPanelOpen(true)
     setPaneTab('a', 'study')
-  }, [docked, setPaneTab])
+  }, [panelHere, classId, setPaneTab])
+
+  /** Bring the open lesson into view: its window, the dock unfolded, or the Study tab. */
+  const revealLesson = useCallback(() => {
+    if (lessonOut) return focusWindow('lesson')
+    if (!docked) {
+      showStudyTab()
+      return panelHere ? undefined : focusWindow(popouts.panel ? 'panel' : 'main')
+    }
+    if (isMain) return setDockFolded(false)
+    sendToWindows({ type: 'reveal-lesson', classId })
+    focusWindow('main')
+  }, [lessonOut, docked, isMain, panelHere, popouts.panel, classId, showStudyTab])
 
   const toggleSplit = () => {
     if (splitTab) return setSplit((s) => ({ ...s, tab: null }))
@@ -283,13 +313,29 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     if (!activeSourceId || !bundle.sources.some((s) => s.id === activeSourceId)) setActiveSourceId(bundle.sources[0]?.id ?? null)
   }, [bundle.sources, activeSourceId])
 
-  const openSource = useCallback(
-    (sourceId: string, section?: string, quote?: string) => {
+  /** Show a source in the panel. When the panel is in another window, that window shows it, and comes forward if `raise`. */
+  const showSource = useCallback(
+    (sourceId: string, section: string | undefined, quote: string | undefined, raise: boolean) => {
+      if (!panelHere) {
+        sendToWindows({ type: 'open-source', classId, sourceId, section, quote })
+        if (raise) focusWindow(popouts.panel ? 'panel' : 'main')
+        return
+      }
       showPanel('sources')
       setActiveSourceId(sourceId)
       setFocus({ sourceId, section, quote, nonce: Date.now() })
     },
-    [showPanel]
+    [panelHere, popouts.panel, classId, showPanel]
+  )
+  const openSource = useCallback((sourceId: string, section?: string, quote?: string) => showSource(sourceId, section, quote, true), [showSource])
+  /** Bring a panel tab into view, wherever the panel is. */
+  const showTab = useCallback(
+    (tab: PanelTab) => {
+      if (panelHere) return showPanel(tab)
+      sendToWindows({ type: 'show-tab', classId, tab })
+      focusWindow(popouts.panel ? 'panel' : 'main')
+    },
+    [panelHere, popouts.panel, classId, showPanel]
   )
 
   // A lesson that becomes the open one (started, or resumed from any chat)
@@ -298,16 +344,18 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const shownLesson = useRef(bundle.meta.openLessonId)
   const readingOpenedFor = useRef<string | null>(null)
   useEffect(() => {
-    if (session?.id === shownLesson.current) return
+    // The main window sees to it, whichever windows the lesson and the panel are in.
+    if (!isMain || session?.id === shownLesson.current) return
     shownLesson.current = session?.id
     if (!session) return
     const r = session.brief?.readings[0]
     const openReading = Boolean(r) && readingOpenedFor.current !== session.id
     if (r) readingOpenedFor.current = session.id
-    if (docked) {
-      setDockFolded(false)
-      if (r && openReading) openSource(r.sourceId, r.section)
-      return
+    if (lessonOut || docked || !panelHere) {
+      if (r && openReading) showSource(r.sourceId, r.section, undefined, false)
+      if (lessonOut) return focusWindow('lesson')
+      if (docked) return setDockFolded(false)
+      return showStudyTab()
     }
     // Set the layout directly: showPanel would read the panel state from before this render.
     setPanelOpen(true)
@@ -319,7 +367,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       setActiveSourceId(r.sourceId)
       setFocus({ sourceId: r.sourceId, section: r.section, nonce: Date.now() })
     }
-  }, [session, docked, openSource, splitTab, setPaneTab, widenForSplit])
+  }, [isMain, session, docked, lessonOut, panelHere, showSource, showStudyTab, splitTab, setPaneTab, widenForSplit])
 
   async function addMaterials(paths?: string[]) {
     const picked = paths ?? (await api.system.pickMaterials())
@@ -336,7 +384,15 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   // --- chat tools ------------------------------------------------------------------
   const [commandRequest, setCommandRequest] = useState<{ command: ChatCommand; arg?: string; nonce: number } | null>(null)
   // Tools run in the chat that is showing (a new one from the class home); a lesson started there opens over every chat.
-  const command = useCallback((cmd: ChatCommand, arg?: string) => setCommandRequest({ command: cmd, arg, nonce: Date.now() }), [])
+  const command = useCallback(
+    (cmd: ChatCommand, arg?: string) => {
+      if (isMain) return setCommandRequest({ command: cmd, arg, nonce: Date.now() })
+      // The chat is in the main window.
+      sendToWindows({ type: 'command', classId, command: cmd, arg })
+      focusWindow('main')
+    },
+    [isMain, classId]
+  )
   /**
    * Resume a lesson where you are: it becomes the class's open lesson, over
    * the chat that is showing. A finished or missing one starts afresh.
@@ -359,11 +415,13 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       if (!s) return
       setSettings(s)
       if (lessonView === 'dock') return setDockFolded(false)
-      setPanelOpen(true)
-      setPaneTab('a', 'study')
+      showStudyTab()
     },
-    [run, setSettings, setPaneTab]
+    [run, setSettings, showStudyTab]
   )
+  /** Move the lesson or the panel into a window of its own, or put it back in the main window. */
+  const popOut = useCallback((kind: 'lesson' | 'panel') => void run(() => api.windows.detach(kind, classId)), [run, classId])
+  const dockBack = useCallback((kind: 'lesson' | 'panel') => void run(() => api.windows.attach(kind)), [run])
   /** A highlighted passage to discuss in the main chat ("Chat" on a selection). */
   const [quoteRequest, setQuoteRequest] = useState<{ text: string; source: string; nonce: number } | null>(null)
   const onHandled = useCallback((kind: 'command' | 'quote') => {
@@ -371,6 +429,42 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     else setQuoteRequest(null)
   }, [])
   const [browserRequest, setBrowserRequest] = useState<{ query: string; nonce: number } | null>(null)
+  /** Discuss a highlighted passage in the chat, which is in the main window. */
+  const quoteToChat = useCallback(
+    (text: string, source: string) => {
+      if (isMain) return setQuoteRequest({ text, source, nonce: Date.now() })
+      sendToWindows({ type: 'quote', classId, text, source })
+      focusWindow('main')
+    },
+    [isMain, classId]
+  )
+
+  // What the other windows ask of the part this one shows.
+  const onMessage = (m: WindowMessage) => {
+    if (m.type === 'settings' || m.classId !== classId) return
+    if (m.type === 'command') {
+      if (isMain) setCommandRequest({ command: m.command, arg: m.arg, nonce: Date.now() })
+    } else if (m.type === 'quote') {
+      if (isMain) setQuoteRequest({ text: m.text, source: m.source, nonce: Date.now() })
+    } else if (m.type === 'reveal-lesson') {
+      if (isMain && docked && !lessonOut) setDockFolded(false)
+    } else if (!panelHere) {
+      return
+    } else if (m.type === 'open-source') {
+      if (bundle.sources.some((x) => x.id === m.sourceId)) showSource(m.sourceId, m.section, m.quote, false)
+    } else if (m.tab === 'study') {
+      if (!docked) showStudyTab()
+    } else if (panelTabs.some((t) => t.id === m.tab)) {
+      showPanel(m.tab as PanelTab)
+    }
+  }
+  useWindowMessages(onMessage)
+  // One that arrived while the main window was on another screen.
+  useEffect(() => {
+    const waiting = isMain ? takeHeld(classId) : null
+    if (waiting) onMessage(waiting)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMain, classId])
 
   // --- popovers (side chats) -------------------------------------------------------
   const [selection, setSelection] = useState<(SelectionAnchor & { sourceId: string }) | null>(null)
@@ -454,10 +548,10 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
       openSource,
       command,
       openLesson: openLessonById,
-      openLessons: () => showPanel('lessons'),
+      openLessons: () => showTab('lessons'),
       registerDiagram
     }),
-    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, openLessonById, showPanel, registerDiagram]
+    [bundle, classId, session?.id, sourceTitle, handleDirective, askAt, openSource, command, openLessonById, showTab, registerDiagram]
   )
   const onOpenThread = useCallback((t: Thread, rect: DOMRect) => askAt(t.anchor, rect, t.id), [askAt])
   const onOpenNote = useCallback((a: Annotation, rect: DOMRect) => setNote({ annotation: a, pos: placeNear(rect) }), [])
@@ -486,14 +580,21 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
   const chatTitle = thread?.title ?? 'New chat'
 
   // Shortcuts of the open class: the panel, and stepping through the chats in the sidebar's order.
-  const keys = useRef({ chats, chatId })
-  keys.current = { chats, chatId }
+  /** Show or hide the panel; one that is in its own window comes back instead. */
+  const togglePanel = () => {
+    if (!popouts.panel) return setPanelOpen((o) => !o)
+    setPanelOpen(true)
+    dockBack('panel')
+  }
+  const keys = useRef({ chats, chatId, togglePanel })
+  keys.current = { chats, chatId, togglePanel }
   useEffect(() => {
+    if (!isMain) return
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
       if (matchesShortcut(e, 'togglePanel')) {
         e.preventDefault()
-        return setPanelOpen((o) => !o)
+        return keys.current.togglePanel()
       }
       const step = matchesShortcut(e, 'nextChat') ? 1 : matchesShortcut(e, 'previousChat') ? -1 : 0
       const { chats, chatId } = keys.current
@@ -505,11 +606,14 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [classId, go])
+  }, [isMain, classId, go])
 
   // --- render --------------------------------------------------------------------------
+  /** The lesson docks over the chat, unless it is in the Study tab or in its own window. */
+  const dockHere = docked && !lessonOut && Boolean(openLesson)
+  const panelShown = panelHere && (panelOpen || !isMain)
   const chatPane = (
-    <section key="chat" className={`chat-pane ${docked && openLesson ? 'has-dock' : ''}`} data-testid="chat-pane">
+    <section key="chat" className={`chat-pane ${dockHere ? 'has-dock' : ''}`} data-testid="chat-pane">
       <div className="pane-head">
         <div className="crumbs">
           <Icon name="folder" size={14} />
@@ -526,9 +630,9 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           <Icon name="swap" size={14} />
         </button>
         <button
-          className={`icon-btn ${panelOpen ? 'on' : ''}`}
-          onClick={() => setPanelOpen((o) => !o)}
-          title={`${panelOpen ? 'Hide the panel' : 'Show the panel'} (${shortcutLabel('togglePanel')})`}
+          className={`icon-btn ${panelShown ? 'on' : ''}`}
+          onClick={togglePanel}
+          title={`${popouts.panel ? 'Bring the panel back from its window' : panelOpen ? 'Hide the panel' : 'Show the panel'} (${shortcutLabel('togglePanel')})`}
           aria-label="Toggle panel"
           data-testid="toggle-panel"
         >
@@ -565,7 +669,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         commandRequest={commandRequest}
         quoteRequest={quoteRequest}
       />
-      {docked && openLesson && (
+      {dockHere && openLesson && (
         <LessonDock
           key={openLesson.id}
           session={openLesson}
@@ -573,8 +677,9 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           onFold={setDockFolded}
           onClose={closeLesson}
           onMoveToTab={() => void setLessonView('tab')}
+          onPopOut={() => popOut('lesson')}
           onOpenReading={(sid, sec) => openSource(sid, sec)}
-          onDone={() => showPanel('lessons')}
+          onDone={() => showTab('lessons')}
         />
       )}
     </section>
@@ -612,6 +717,15 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         >
           <Icon name={split.dir === 'row' ? 'splitH' : 'splitV'} size={15} />
         </button>
+        {isMain ? (
+          <button className="icon-btn" onClick={() => popOut('panel')} title="Move the panel into a window of its own" aria-label="Open the panel in a window" data-testid="panel-popout">
+            <Icon name="popOut" size={15} />
+          </button>
+        ) : (
+          <button className="icon-btn" onClick={() => dockBack('panel')} title="Put the panel back in the main window" aria-label="Put the panel back in the main window" data-testid="panel-dock">
+            <Icon name="popIn" size={15} />
+          </button>
+        )}
       </div>
 
       <div className={`panel-body ${splitTab ? `split split-${split.dir}` : ''}`} style={splitTab ? ({ ['--split' as string]: String(split.ratio) } as React.CSSProperties) : undefined}>
@@ -826,19 +940,37 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         {!docked && (
           <div className={pageClass('study', 'scroll')} data-testid="page-study">
             <ErrorBoundary label="the study box">
-              <StudyTab
-                bundle={bundle}
-                session={openLesson}
-                onOpenReading={(sid, sec) => openSource(sid, sec)}
-                onResume={openLessonById}
-                onStartNext={() => command('lesson')}
-                onDone={() => showPanel('lessons')}
-                onClose={() => {
-                  closeLesson()
-                  showPanel('lessons')
-                }}
-                onDock={() => void setLessonView('dock')}
-              />
+              {lessonOut ? (
+                <div className="panel-pad stack" data-testid="study-elsewhere">
+                  <div className="study-empty">
+                    <Icon name="popOut" size={22} />
+                    <p>The lesson is open in a window of its own.</p>
+                  </div>
+                  <div className="row">
+                    <button className="btn sm" onClick={() => focusWindow('lesson')}>
+                      Show that window
+                    </button>
+                    <button className="btn ghost sm" onClick={() => dockBack('lesson')} data-testid="study-bring-back">
+                      Bring it back here
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <StudyTab
+                  bundle={bundle}
+                  session={openLesson}
+                  onOpenReading={(sid, sec) => openSource(sid, sec)}
+                  onResume={openLessonById}
+                  onStartNext={() => command('lesson')}
+                  onDone={() => showPanel('lessons')}
+                  onClose={() => {
+                    closeLesson()
+                    showPanel('lessons')
+                  }}
+                  onDock={() => void setLessonView('dock')}
+                  onPopOut={() => popOut('lesson')}
+                />
+              )}
             </ErrorBoundary>
           </div>
         )}
@@ -867,11 +999,23 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
         the reader would lose its place, a streaming reply would be cut off).
       */}
       <div
-        className={`workspace ${swapped ? 'swapped' : ''} ${panelOpen ? '' : 'no-panel'}`}
+        className={`workspace ${isMain ? '' : 'popout-view'} ${swapped && isMain ? 'swapped' : ''} ${panelShown && isMain ? '' : 'no-panel'}`}
         style={{ ['--panel-w' as string]: `${panelW}px`, ['--panel-min' as string]: `${MIN_PANEL}px`, ['--chat-min' as string]: `${MIN_CHAT}px` }}
       >
-        {chatPane}
-        {panelOpen && (
+        {isMain && chatPane}
+        {view === 'lesson' && (
+          <LessonWindow
+            bundle={bundle}
+            session={openLesson}
+            onOpenReading={(sid, sec) => openSource(sid, sec)}
+            onResume={openLessonById}
+            onStartNext={() => command('lesson')}
+            onDone={() => showTab('lessons')}
+            onClose={closeLesson}
+            onDock={() => dockBack('lesson')}
+          />
+        )}
+        {isMain && panelShown && (
           <div
             key="splitter"
             className="splitter"
@@ -884,7 +1028,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
             data-testid="splitter"
           />
         )}
-        {panelOpen && panel}
+        {panelShown && panel}
       </div>
 
       {selection && !ask && (
@@ -892,7 +1036,7 @@ export function Workspace({ bundle, chatId }: { bundle: ClassBundle; chatId: str
           rect={selection.rect}
           onChat={() => {
             const source = [sourceTitle(selection.sourceId) ?? 'Source', selection.sectionLabel].filter(Boolean).join(' · ')
-            setQuoteRequest({ text: selection.quote, source, nonce: Date.now() })
+            quoteToChat(selection.quote, source)
             clearSelection()
           }}
           onAsk={() => askAt(sourceAnchor(selection), selection.rect)}

@@ -20,9 +20,12 @@ import type {
   Settings,
   SourceDoc,
   SourceMeta,
+  PopoutKind,
+  PopoutState,
   StreamEvent,
   Thread,
-  UpdateStatus
+  UpdateStatus,
+  WindowMessage
 } from './types'
 
 /**
@@ -144,11 +147,27 @@ export interface MintApi {
     /** Quit, apply the downloaded update and relaunch. */
     install(): Promise<void>
   }
+  /** The lesson and the panel can each be moved into a window of their own, and back. */
+  windows: {
+    state(): Promise<PopoutState>
+    /** Move a part into its own window, showing this class (or bring that window forward). */
+    detach(kind: PopoutKind, classId: string): Promise<void>
+    /** Close a part's window: it shows in the main window again. */
+    attach(kind: PopoutKind): Promise<void>
+    /** The main window opened another class: the open windows show it too. */
+    follow(classId: string): Promise<void>
+    /** Bring a window forward. */
+    focus(target: PopoutKind | 'main'): Promise<void>
+    /** Pass a message to every window. */
+    send(message: WindowMessage): Promise<void>
+  }
   on: {
     stream(cb: (e: StreamEvent) => void): () => void
     progress(cb: (e: ProgressEvent) => void): () => void
     classChanged(cb: (classId: string) => void): () => void
     update(cb: (status: UpdateStatus) => void): () => void
+    popouts(cb: (state: PopoutState) => void): () => void
+    message(cb: (message: WindowMessage) => void): () => void
   }
 }
 
@@ -167,14 +186,17 @@ export const API_GROUPS = {
   records: ['supersede'],
   diagrams: ['create', 'repair', 'setKept', 'remove'],
   system: ['pickMaterials', 'openExternal', 'platform', 'windowTheme'],
-  updates: ['status', 'check', 'download', 'install']
+  updates: ['status', 'check', 'download', 'install'],
+  windows: ['state', 'detach', 'attach', 'follow', 'focus', 'send']
 } as const satisfies { [K in Exclude<keyof MintApi, 'on'>]: readonly (keyof MintApi[K])[] }
 
 export const EVENT_CHANNELS = {
   stream: 'event:stream',
   progress: 'event:progress',
   classChanged: 'event:classChanged',
-  update: 'event:update'
+  update: 'event:update',
+  popouts: 'event:popouts',
+  message: 'event:message'
 } as const
 
 /** Errors cross IPC as plain messages; this prefix marks user-facing ones. */

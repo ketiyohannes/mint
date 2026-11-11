@@ -28,6 +28,14 @@ export interface HostBridge {
 /** The app updater lives in the Electron layer; headless cores (tests) report updates as disabled. */
 export type UpdateController = MintApi['updates']
 
+/** Windows are Electron's too; a headless core has only the one it does not have. */
+export type WindowController = MintApi['windows']
+
+function noWindows(): WindowController {
+  const nothing = async (): Promise<void> => undefined
+  return { state: async () => ({ lesson: null, panel: null }), detach: nothing, attach: nothing, follow: nothing, focus: nothing, send: nothing }
+}
+
 function disabledUpdates(): UpdateController {
   const status = async (): Promise<UpdateStatus> => ({ currentVersion: '0.0.0', state: { status: 'disabled', reason: 'Updates are off in this build.' } })
   return { status, check: status, download: status, install: async () => undefined }
@@ -41,7 +49,7 @@ export interface MintCore {
   dispose(): Promise<void>
 }
 
-export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge; updates?: UpdateController } & KernelOptions): MintCore {
+export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitter: Emitter; host: HostBridge; updates?: UpdateController; windows?: WindowController } & KernelOptions): MintCore {
   const repo = new ClassRepo(join(opts.dataDir, 'classes'))
   const settings = new SettingsStore(opts.dataDir, opts.cipher)
   void settings.forgetRetiredSecrets().catch(() => undefined)
@@ -201,7 +209,8 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       platform: async () => opts.host.platform,
       windowTheme: async (dark) => opts.host.setWindowTheme?.(dark === true)
     },
-    updates: opts.updates ?? disabledUpdates()
+    updates: opts.updates ?? disabledUpdates(),
+    windows: opts.windows ?? noWindows()
   }
 
   return { kernel, handlers, dispose: () => kernel.dispose() }

@@ -93,6 +93,8 @@ CI (`.github/workflows/ci.yml`) runs `npm run format:check`, `npm run check` and
 
 Errors a learner should read are thrown with a message starting `mint:`; anything else reaches the interface as "Something went wrong".
 
+**More than one window.** The lesson and the panel can each be moved into a window of their own (`src/main/windows.ts`). Such a window runs the same renderer with `?view=lesson` or `?view=panel`, and `Workspace` renders only that part. Windows share nothing in memory: they all read the main process's state, and what one asks of another (open this source, run this tool in the chat) is a `WindowMessage` sent with `api.windows.send`, which every window receives and acts on only for the part it shows. State a part needs in whichever window it is in belongs in the main process or in `localStorage`, not in a module variable.
+
 **Model output is never trusted.** Each job in `src/main/jobs` has a zod schema and a Demo answer; whatever changes state is validated by the schema and then checked again by code. A new job needs all three: the prompt, the schema, and the Demo answer.
 
 **Tutor text has one renderer**, `src/renderer/src/components/RichText.tsx`, which sanitizes it. Do not render model text any other way.

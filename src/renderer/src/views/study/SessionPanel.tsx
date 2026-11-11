@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react'
-import { CHECK_KINDS, type CheckKind, type Phase, type Session } from '@shared/types'
+import type { CheckKind, Phase, Session } from '@shared/types'
+import { DEFAULT_STUDY_DEPTH, PHASE_LABEL, sessionChecks, sessionPhases } from '@shared/depth'
 import { findTopic } from '@shared/curriculum'
 import { api, errorMessage } from '../../lib/api'
 import { useApp } from '../../state/app'
@@ -9,8 +10,13 @@ import { useStudy } from './context'
 import { clearSessionDrafts, hideCheckDraft, savedDraft, setCheckDraft } from './drafts'
 import { shortcutLabel } from '../../lib/shortcuts'
 
-export const PHASE_LABEL: Record<Phase, string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
-export const ORDER: Phase[] = ['brief', 'read', 'explain', 'apply', 'distinguish', 'wrap']
+/** A lesson's steps at the study depth in Settings, and where the lesson is in them ("Explain · 3 of 6"). */
+export function useLessonSteps(session: Session): { phases: Phase[]; index: number; where: string } {
+  const depth = useApp().settings?.studyDepth ?? DEFAULT_STUDY_DEPTH
+  const phases = sessionPhases(session, depth)
+  const index = Math.max(0, phases.indexOf(session.phase))
+  return { phases, index, where: session.endedAt ? 'Complete' : `${PHASE_LABEL[session.phase]} · ${index + 1} of ${phases.length}` }
+}
 const CHECK_HELP: Record<CheckKind, string> = {
   explain: 'From memory, in your own words. No peeking.',
   apply: 'Use the idea on a new case.',
@@ -28,13 +34,13 @@ interface Props {
   bare?: boolean
 }
 
-/** The session loop: brief → read → explain → apply → distinguish → wrap. */
+/** The session loop: brief → read → explain → apply → distinguish → wrap (fewer checks at a lighter study depth). */
 export function SessionPanel({ session, onOpenReading, onDone, onClose, bare = false }: Props): JSX.Element {
   const { run } = useApp()
   const study = useStudy()
   const topic = findTopic(study.bundle.curriculum, session.topicId)
   const [busy, setBusy] = useState<string | null>(null)
-  const idx = ORDER.indexOf(session.phase)
+  const { phases: ORDER, index: idx } = useLessonSteps(session)
 
   async function go(phase: Phase) {
     setBusy(`phase:${phase}`)
@@ -265,7 +271,7 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
 }
 
 function WrapCard({ session, onDone }: { session: Session; onDone: () => void }): JSX.Element {
-  const { run } = useApp()
+  const { run, settings } = useApp()
   const study = useStudy()
   const w = session.wrap
   const [records, setRecords] = useState<Set<number>>(() => new Set(w?.records.map((_, i) => i)))
@@ -285,13 +291,14 @@ function WrapCard({ session, onDone }: { session: Session; onDone: () => void })
     else n.add(i)
     return n
   }
-  const passedKinds = CHECK_KINDS.filter((k) => session.attempts.some((a) => a.kind === k && a.verdict?.result === 'pass'))
+  const checks = sessionChecks(session, settings?.studyDepth ?? DEFAULT_STUDY_DEPTH)
+  const passedKinds = checks.filter((k) => session.attempts.some((a) => a.kind === k && a.verdict?.result === 'pass'))
   return (
     <div className="stack" data-testid="wrap">
       <div className="card">
         <RichText text={w.summary} />
         <div className="row small">
-          {CHECK_KINDS.map((k) => (
+          {checks.map((k) => (
             <span key={k} className={`check-pill ${passedKinds.includes(k) ? 'ok' : ''}`}>
               {k}
             </span>

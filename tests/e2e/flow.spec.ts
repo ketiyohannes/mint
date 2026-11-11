@@ -341,6 +341,22 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('tab-study')).toHaveCount(0)
   await expect(page.getByTestId('tab-sources')).toHaveAttribute('aria-selected', 'true')
   await expect(dock.getByTestId('lesson-dock-where')).toHaveText('Brief · 1 of 6')
+  // Study depth (Settings) sets how many checks a lesson has; the open lesson changes at once.
+  await page.getByTestId('nav-settings').click()
+  await page.getByTestId('depth-quick').click()
+  await expect(page.getByTestId('depth-hint')).toContainText('Brief → Read → Explain → Wrap up')
+  await page.getByTestId('depth-hint').scrollIntoViewIfNeeded()
+  await shot(page, 'study-depth')
+  await page.keyboard.press('Escape')
+  await expect(dock.getByTestId('lesson-dock-where')).toHaveText('Brief · 1 of 4')
+  await expect(dock.getByTestId('phase-explain')).toBeVisible()
+  await expect(dock.getByTestId('phase-apply')).toHaveCount(0)
+  await expect(dock.getByTestId('phase-distinguish')).toHaveCount(0)
+  await page.getByTestId('nav-settings').click()
+  await page.getByTestId('depth-thorough').click()
+  await page.keyboard.press('Escape')
+  await expect(dock.getByTestId('lesson-dock-where')).toHaveText('Brief · 1 of 6')
+  await expect(dock.getByTestId('phase-distinguish')).toBeVisible()
   // Formulas render the same way in the brief as in the chat (one renderer everywhere).
   await expect(dock.getByTestId('brief').locator('.katex').first()).toBeVisible()
   // The chat scrolls behind the dock: its top padding clears the dock's height.
@@ -458,6 +474,61 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(dock.getByTestId('check-answer')).toHaveCount(0)
   await dock.getByTestId('phase-next').click()
   await expect(dock.getByTestId('phase-apply')).toHaveClass(/active/)
+
+  // --- Wider, and into windows of their own ---------------------------------------------------
+  // The docked lesson's sides set its width (it stays centred); a double-click puts it back.
+  const dockedWidth = (await dock.boundingBox())!.width
+  const dockSide = (await dock.getByTestId('lesson-dock-side').boundingBox())!
+  // The edge that drags the width is clear of the scrolling body, so its scroll bar is never in the way.
+  const dockBody = (await dock.getByTestId('lesson-dock-body').boundingBox())!
+  expect(dockSide.x).toBeGreaterThanOrEqual(dockBody.x + dockBody.width)
+  expect(dockSide.width).toBeGreaterThanOrEqual(6)
+  await page.mouse.move(dockSide.x + dockSide.width / 2, dockSide.y + dockSide.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(dockSide.x - 100, dockSide.y + dockSide.height / 2, { steps: 6 })
+  await page.mouse.up()
+  expect((await dock.boundingBox())!.width).toBeLessThan(dockedWidth - 150)
+  await dock.getByTestId('lesson-dock-side').dblclick()
+  await expect.poll(async () => (await dock.boundingBox())!.width).toBe(dockedWidth)
+
+  // The lesson moves into its own window with the answer being written, and the dock leaves the chat.
+  await dock.getByTestId('check-answer').fill('half an answer')
+  const [lessonWindow] = await Promise.all([m.app.waitForEvent('window'), dock.getByTestId('lesson-dock-popout').click()])
+  await expect(lessonWindow.getByTestId('lesson-window-where')).toHaveText('Apply · 4 of 6')
+  await expect(lessonWindow.getByTestId('check-answer')).toHaveValue('half an answer')
+  await expect(lessonWindow).toHaveTitle('Linear Algebra · Lesson')
+  await expect(dock).toHaveCount(0)
+  // A reading asked for there opens in the panel, in the main window.
+  await page.getByTestId('tab-notes').click()
+  await lessonWindow.getByTestId('check-reading').first().click()
+  await expect(page.getByTestId('tab-sources')).toHaveAttribute('aria-selected', 'true')
+
+  // The panel moves into its own window too; the chat takes the whole main window.
+  const [panelWindow] = await Promise.all([m.app.waitForEvent('window'), page.getByTestId('panel-popout').click()])
+  await expect(panelWindow.getByTestId('source-tab')).toHaveCount(2)
+  await expect(page.getByTestId('panel')).toHaveCount(0)
+  await expect(page.getByTestId('toggle-panel')).toHaveAttribute('title', /Bring the panel back/)
+  // Now the lesson's reading opens in the panel's window, and a passage picked there goes to the chat in the main one.
+  await panelWindow.getByTestId('tab-notes').click()
+  await lessonWindow.getByTestId('check-reading').first().click()
+  await expect(panelWindow.getByTestId('tab-sources')).toHaveAttribute('aria-selected', 'true')
+  await expect(panelWindow.locator('.pdf-page[data-page="1"] .textLayer span').first()).toBeAttached({ timeout: 20_000 })
+  await selectText(panelWindow, '[data-testid=pdf-view] .textLayer', 'they stay on the')
+  await panelWindow.getByTestId('sel-chat').click()
+  await expect(page.getByTestId('composer-quote')).toContainText('they stay on the')
+  await shot(lessonWindow, 'lesson-window')
+  await shot(panelWindow, 'panel-window')
+  await shot(page, 'main-without-panel')
+  await page.getByTestId('composer-quote').getByRole('button').click()
+  await expect(page.getByTestId('composer-quote')).toHaveCount(0)
+  // An answer written in the lesson's window is the one the dock shows when the lesson comes back.
+  await lessonWindow.getByTestId('check-answer').fill('written in the window')
+  await Promise.all([lessonWindow.waitForEvent('close'), lessonWindow.getByTestId('lesson-window-dock').click()])
+  await expect(dock.getByTestId('check-answer')).toHaveValue('written in the window')
+  // The panel comes back from the main window's own button.
+  await Promise.all([panelWindow.waitForEvent('close'), page.getByTestId('toggle-panel').click()])
+  await expect(page.getByTestId('panel')).toBeVisible()
+  await expect(page.getByTestId('panel-popout')).toBeVisible()
 
   const long = 'An eigenvector is a direction the matrix does not rotate: multiplying it by the matrix only scales it, and the scale factor is the eigenvalue, so A x equals lambda x for that vector.'
   for (const next of ['distinguish', 'wrap']) {

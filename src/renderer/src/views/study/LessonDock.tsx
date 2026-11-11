@@ -7,11 +7,12 @@ import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { matchesShortcut, shortcutLabel } from '../../lib/shortcuts'
 import { useStudy } from './context'
 import { useHasDraft } from './drafts'
-import { ORDER, PHASE_LABEL, SessionPanel } from './SessionPanel'
+import { SessionPanel, useLessonSteps } from './SessionPanel'
 
 const HEIGHT_KEY = 'mint.lessonDock.height'
 const PLACE_KEY = 'mint.lessonDock.place'
 const WIDTH_KEY = 'mint.lessonDock.width'
+const DOCKED_WIDTH_KEY = 'mint.lessonDock.dockedWidth'
 const DEFAULT_HEIGHT = 380
 const MIN_HEIGHT = 140
 /** Dragging the handle this far above the smallest height folds the dock. */
@@ -24,6 +25,8 @@ const PANE_HEAD = 52
 /** A floating lesson keeps this far inside the chat pane. */
 const EDGE = 8
 const FLOAT_WIDTH = 480
+/** Kept clear on each side of the docked lesson. */
+const DOCKED_MARGIN = 16
 /** Narrower than this, the bar's buttons no longer fit and Close is cut off. */
 const MIN_WIDTH = 400
 /** Dropping the lesson this close to the top docks it again. */
@@ -68,18 +71,20 @@ interface Props {
   onClose: () => void
   /** Show lessons in the Study tab instead (the Settings choice). */
   onMoveToTab: () => void
+  /** Move the lesson into a window of its own. */
+  onPopOut: () => void
   onOpenReading: (sourceId: string, section: string) => void
   onDone: () => void
 }
 
 /**
  * The open lesson, docked over the top of the chat. It floats: the chat
- * scrolls behind it, it folds to one line, and its handle sets its height.
- * Dragged by its bar, it lifts off anywhere over the chat; dropped back at the
- * top, it docks again. It lives outside the chat view, so it stays put (with a
- * half-written answer) when another chat opens.
+ * scrolls behind it, it folds to one line, its bottom handle sets its height
+ * and its sides set its width. Dragged by its bar, it lifts off anywhere over
+ * the chat; dropped back at the top, it docks again. It lives outside the chat
+ * view, so it stays put (with a half-written answer) when another chat opens.
  */
-export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOpenReading, onDone }: Props): JSX.Element {
+export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onPopOut, onOpenReading, onDone }: Props): JSX.Element {
   const study = useStudy()
   const ref = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(() => {
@@ -88,6 +93,11 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
   })
   /** Null while docked at the top. */
   const [place, setPlace] = useState<Place | null>(readPlace)
+  /** The docked lesson's width, once it has been dragged; it stays centred. */
+  const [dockedWidth, setDockedWidth] = useState<number | null>(() => {
+    const stored = Number(localStorage.getItem(DOCKED_WIDTH_KEY))
+    return stored >= MIN_WIDTH ? stored : null
+  })
   const floating = place !== null
   /** Shows where a lesson dragged to the top will dock. */
   const [snapping, setSnapping] = useState(false)
@@ -95,9 +105,8 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
   const dragged = useRef(false)
   const hasDraft = useHasDraft(session.id)
   const topic = findTopic(study.bundle.curriculum, session.topicId)
-  const step = ORDER.indexOf(session.phase)
-  const where = session.endedAt ? 'Complete' : `${PHASE_LABEL[session.phase]} · ${step + 1} of ${ORDER.length}`
-  const progress = session.endedAt ? 1 : step / ORDER.length
+  const { phases, index: step, where } = useLessonSteps(session)
+  const progress = session.endedAt ? 1 : step / phases.length
 
   // The chat pane pads its messages by the docked lesson's height (--dock-h),
   // so the first message can scroll out from under it; a floating lesson
@@ -237,27 +246,44 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
     )
   }
 
-  const startWiden = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || !place) return
+  /** Drag a side: a floating lesson moves that edge; a docked one, centred, grows or shrinks on both sides. */
+  const startWiden = (side: 'left' | 'right') => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
     e.preventDefault()
     const dock = ref.current!
-    const room = dock.parentElement!.clientWidth - place.x - EDGE
-    const left = dock.getBoundingClientRect().left
+    const pane = dock.parentElement!.getBoundingClientRect()
     const start = place
-    let w = start.w
+    let w = dock.getBoundingClientRect().width
     document.body.classList.add('resizing', 'resizing-x')
     track(
       e.currentTarget,
       e.pointerId,
       (ev) => {
-        w = Math.round(Math.max(MIN_WIDTH, Math.min(room, ev.clientX - left)))
-        setPlace({ ...start, w })
+        if (!start) {
+          const reach = Math.abs(ev.clientX - (pane.left + pane.width / 2))
+          w = Math.round(Math.max(Math.min(MIN_WIDTH, pane.width - 2 * DOCKED_MARGIN), Math.min(pane.width - 2 * DOCKED_MARGIN, 2 * reach)))
+          setDockedWidth(w)
+        } else if (side === 'right') {
+          w = Math.round(Math.max(MIN_WIDTH, Math.min(pane.width - start.x - EDGE, ev.clientX - pane.left - start.x)))
+          setPlace({ ...start, w })
+        } else {
+          const right = start.x + start.w
+          const x = Math.round(Math.max(EDGE, Math.min(right - MIN_WIDTH, ev.clientX - pane.left)))
+          w = right - x
+          setPlace({ ...start, x, w })
+        }
       },
       () => {
         document.body.classList.remove('resizing', 'resizing-x')
-        localStorage.setItem(WIDTH_KEY, String(w))
+        localStorage.setItem(start ? WIDTH_KEY : DOCKED_WIDTH_KEY, String(w))
       }
     )
+  }
+  /** A double-click on a docked lesson's side puts its width back. */
+  const resetWidth = () => {
+    if (floating) return
+    setDockedWidth(null)
+    localStorage.removeItem(DOCKED_WIDTH_KEY)
   }
 
   return (
@@ -266,7 +292,7 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
       <div
         ref={ref}
         className={`lesson-dock ${folded ? 'folded' : ''} ${floating ? 'floating' : ''}`}
-        style={{ ['--dock-max' as string]: `${height}px`, ...(place && { left: place.x, top: place.y, width: place.w }) }}
+        style={{ ['--dock-max' as string]: `${height}px`, ...(place ? { left: place.x, top: place.y, width: place.w } : dockedWidth ? { ['--dock-w' as string]: `${dockedWidth}px` } : {}) }}
         role="region"
         aria-label="Open lesson"
         data-testid="lesson-dock"
@@ -295,6 +321,9 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
           )}
           <button className="icon-btn" onClick={onMoveToTab} title="Show lessons in the Study tab instead" aria-label="Show lessons in the Study tab" data-testid="lesson-dock-to-tab">
             <Icon name="sidebar" size={14} />
+          </button>
+          <button className="icon-btn" onClick={onPopOut} title="Move the lesson into a window of its own" aria-label="Open the lesson in a window" data-testid="lesson-dock-popout">
+            <Icon name="popOut" size={14} />
           </button>
           <button
             className="icon-btn lesson-dock-fold"
@@ -344,17 +373,20 @@ export function LessonDock({ session, folded, onFold, onClose, onMoveToTab, onOp
             <i />
           </div>
         )}
-        {floating && !folded && (
-          <div
-            className="lesson-dock-side"
-            onPointerDown={startWiden}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize the lesson's width"
-            title="Drag to resize"
-            data-testid="lesson-dock-side"
-          />
-        )}
+        {!folded &&
+          (['left', 'right'] as const).map((side) => (
+            <div
+              key={side}
+              className={`lesson-dock-side ${side}`}
+              onPointerDown={startWiden(side)}
+              onDoubleClick={resetWidth}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the lesson's width"
+              title={floating ? 'Drag to resize' : 'Drag to resize, double-click to reset'}
+              data-testid={side === 'right' ? 'lesson-dock-side' : 'lesson-dock-side-left'}
+            />
+          ))}
       </div>
     </>
   )

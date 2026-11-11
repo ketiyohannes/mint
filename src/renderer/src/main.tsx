@@ -5,6 +5,8 @@ import '@fontsource-variable/geist-mono'
 import 'katex/dist/katex.min.css'
 import './styles.css'
 import { App } from './App'
+import { Popout } from './Popout'
+import { WINDOW_VIEW } from './lib/windows'
 import { AppProvider, THEME_KEY } from './state/app'
 
 if (/Mac/.test(navigator.userAgent)) document.documentElement.dataset.platform = 'mac'
@@ -20,8 +22,6 @@ try {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AppProvider>
-      <App />
-    </AppProvider>
+    <AppProvider>{WINDOW_VIEW === 'main' ? <App /> : <Popout view={WINDOW_VIEW} />}</AppProvider>
   </StrictMode>
 )

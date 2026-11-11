@@ -1754,7 +1754,12 @@ button.chip {
   top: 60px; /* under the 52px pane head */
   left: 50%;
   transform: translateX(-50%);
-  width: min(calc(100% - 32px), 748px);
+  /* 748px until its sides are dragged (--dock-w, from LessonDock.tsx). */
+  width: min(calc(100% - 32px), var(--dock-w, 748px));
+  /* Its bar drops the "Lesson" label when it gets narrow. */
+  container-type: inline-size;
+  /* The strip down each side that drags the width (the body and its scroll bar keep out of it). */
+  --dock-edge: 7px;
   /* Leaves room for the composer below (ROOM_BELOW in LessonDock.tsx). */
   max-height: min(var(--dock-max, 380px), calc(100% - 52px - 8px - 190px));
   min-height: 0;
@@ -1894,12 +1899,21 @@ button.chip {
   transition: width 0.3s;
 }
 
+/*
+ * The body stops short of the lesson's sides, which are its width handles
+ * (.lesson-dock-side): its scroll bar sits inside them, so grabbing an edge
+ * never grabs the scroll bar, and scrolling never resizes the lesson.
+ */
 .lesson-dock-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px;
-  border-top: 1px solid var(--border);
+  margin: 0 var(--dock-edge);
+  padding: 12px calc(14px - var(--dock-edge));
+}
+
+.lesson-dock:not(.folded) .lesson-dock-bar {
+  border-bottom: 1px solid var(--border);
 }
 
 .lesson-dock.folded .lesson-dock-body {
@@ -1927,15 +1941,81 @@ button.chip {
   background: var(--muted);
 }
 
-/* A floating lesson's right edge sets its width. */
+/* The lesson's sides set its width. */
 .lesson-dock-side {
   position: absolute;
   top: 42px;
-  right: 0;
   bottom: 12px;
-  width: 8px;
+  width: var(--dock-edge);
   cursor: ew-resize;
   touch-action: none;
+}
+
+.lesson-dock-side.left {
+  left: 0;
+}
+
+.lesson-dock-side.right {
+  right: 0;
+}
+
+@container (max-width: 460px) {
+  .lesson-dock-kind {
+    display: none;
+  }
+}
+
+/* ---------- a part of the class in a window of its own (Popout.tsx) ---------- */
+
+.app.popout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace.popout-view {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The window is dragged by its header: by the gap beside the tabs, and by the lesson's title. */
+.popout-view .pane-head > .spacer {
+  align-self: stretch;
+  -webkit-app-region: drag;
+}
+
+/* macOS: leave room for the traffic lights. */
+:root[data-platform='mac'] .popout-view .pane-head {
+  padding-left: 78px;
+}
+
+:root[data-platform='win'] .popout-view .pane-head {
+  padding-right: calc(10px + var(--controls-inset));
+}
+
+.lesson-window {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.lesson-window .crumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.lesson-window .lesson-dock-title {
+  color: var(--fg);
+}
+
+.lesson-window-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.lesson-window-body > .panel-pad {
+  max-width: 780px;
+  margin: 0 auto;
 }
 
 .study-empty {

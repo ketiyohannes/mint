@@ -1,3 +1,4 @@
+import { PHASE_LABEL } from '@shared/depth'
 import type {
   Anchor,
   CodeExercise,
@@ -284,14 +285,15 @@ const RUNG_RULES: Record<Rung, string> = {
   1: `HELP RUNG 1 (POINTER). Do not explain and do not answer. In at most 60 words, point to the exact passage(s) in their materials that answer this, using [[cite:...]] directives, and say in one sentence what to look for there.`,
   2: `HELP RUNG 2 (GUIDING QUESTION). Do not state the answer. In at most 90 words, ask one or two guiding questions that lead the learner to work it out from the passage, and cite the passage with [[cite:...]].`,
   3: `HELP RUNG 3 (HINT). Give a partial hint that unlocks the next step (a key relation, an analogy, or the first step) but leave the conclusion to the learner. At most 130 words. Cite the passage with [[cite:...]].`,
-  4: `EXPLAIN LIKE A TEACHER. Teach the idea fully and in depth, in your own words. Never answer by pointing to the materials or restating them: first read what their materials say, then digest it for the learner.
-- Start with the intuition: what the idea means and why it is true or needed.
-- Break the definition or claim into its parts and explain each one (every symbol of a formula, every condition of a definition).
-- Work through at least one concrete example step by step; add a second, contrasting example when it sharpens the idea.
+  4: `EXPLAIN LIKE A TEACHER. Teach the idea completely, in your own words and in plain, friendly English. Never answer by pointing to the materials or restating them: first read what their materials say, then digest it for the learner.
+- Open with the answer or the main idea in one or two plain sentences, so the learner has it before the detail.
+- Then build it from the problem it answers (the method under "How to explain an idea"): what was needed, the natural first try and where it breaks, the idea as the fix, and the exact statement last.
+- When you reach the exact statement, take it apart: every symbol of a formula and every condition of a definition, each with what it is for.
+- Work through one small, concrete example step by step; add a second, contrasting one only when it sharpens the idea.
 - Connect it to what the learner already knows and to their mission, and clear up the usual confusion before it happens.
-- Go beyond the materials whenever it deepens understanding (another angle, an analogy, where it is used), labeling what is outside their materials.
+- Go beyond the materials when it helps understanding (another angle, an analogy, where it is used), labeling what is outside their materials.
 - Cite the passages you build on with [[cite:...]], woven into the explanation as references; a citation never replaces explaining.
-Take the space the idea needs (headings or numbered steps for longer answers, no padding), and end with one short question that checks understanding.`
+Take the space the idea needs and no more: short paragraphs, headings or numbered steps only for longer answers, no padding, and a short answer for a small question. End with one short question that checks understanding.`
 }
 
 const MAIN_CHAT_RULES = `You are the tutor in the class's main chat. The learner's materials are open in a viewer beside the chat.
@@ -309,6 +311,8 @@ export interface ThreadContext {
   sessionTopic?: Topic
   /** The class's open lesson, whichever chat it started in: what the learner sees in its study box. */
   session?: Session
+  /** That lesson's steps, at the study depth in Settings. */
+  sessionSteps?: Session['phase'][]
   /** An answer the learner is writing in the study box but has not submitted. */
   studyDraft?: StudyDraft
 }
@@ -318,7 +322,7 @@ export interface StudyDraft {
   text: string
 }
 
-const STEP_LABEL: Record<Session['phase'], string> = { brief: 'Brief', read: 'Read', explain: 'Explain', apply: 'Apply', distinguish: 'Distinguish', wrap: 'Wrap up' }
+const STEP_LABEL = PHASE_LABEL
 const VERDICT_LABEL: Record<Verdict['result'], string> = { pass: 'Pass', partial: 'Almost', fail: 'Not yet' }
 const quoted = (s: string, n: number) => {
   const t = s.trim()
@@ -329,9 +333,9 @@ const quoted = (s: string, n: number) => {
  * The lesson's study box as the learner sees it (brief, steps, checks, their
  * answers and the feedback), so they can talk about any of it in the chat.
  */
-export function describeStudyBox(ctx: ClassContext, session: Session, topic: Topic | undefined, draft?: StudyDraft): string {
+export function describeStudyBox(ctx: ClassContext, session: Session, topic: Topic | undefined, draft?: StudyDraft, phases: Session['phase'][] = PHASES_IN_ORDER): string {
   const sourceTitle = (id: string) => ctx.sources.find((s) => s.meta.id === id)?.meta.title ?? id
-  const steps = PHASES_IN_ORDER.map((p) => (p === session.phase ? `${STEP_LABEL[p]} (current)` : STEP_LABEL[p])).join(' → ')
+  const steps = phases.map((p) => (p === session.phase ? `${STEP_LABEL[p]} (current)` : STEP_LABEL[p])).join(' → ')
   const lines = [
     `## The study box (the class's open lesson, shown with this chat; the learner sees exactly this)`,
     `${session.type === 'review' ? 'Review' : 'Lesson'}: ${topic?.title ?? session.topicId}${topic ? `. Objective: ${topic.objective}` : ''}`,
@@ -380,7 +384,7 @@ export function tutorReply(env: JobEnv, t: ThreadContext, onDelta: (d: string) =
     ? `\nThe learner is looking at the interactive diagram "${t.explorable.spec.title}". Its parts: ${t.explorable.spec.elements.map((e) => `${e.id} (${e.label})`).join(', ')}. Its sliders: ${t.explorable.spec.params.map((p) => `${p.id} (${p.label}, ${p.min} to ${p.max}, now ${p.value})`).join(', ') || 'none'}.
 Point at parts while you talk: put [[highlight:<elementId>]] right where you mention a part, and [[set:<paramId>=<value>]] where moving a slider helps. Use only the ids above.`
     : ''
-  const studyBox = t.session ? `\n\n${describeStudyBox(env.ctx, t.session, t.sessionTopic, t.studyDraft)}` : ''
+  const studyBox = t.session ? `\n\n${describeStudyBox(env.ctx, t.session, t.sessionTopic, t.studyDraft, t.sessionSteps)}` : ''
   return runText(env.runtime, {
     ...base(env),
     purpose: `tutor-rung-${rung}`,

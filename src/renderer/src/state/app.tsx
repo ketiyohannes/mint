@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { ClassSummary, ProgressEvent, SettingsView } from '@shared/types'
 import { api, errorMessage } from '../lib/api'
+import { sendToWindows, useWindowMessages } from '../lib/windows'
 
 /**
  * `chatId: null` is a new chat (the centered prompt); omitted means "the latest chat".
@@ -45,7 +46,7 @@ export function useApp(): AppState {
 
 export function AppProvider({ children }: { children: ReactNode }): JSX.Element {
   const [route, setRoute] = useState<Route>({ name: 'home' })
-  const [settings, setSettings] = useState<SettingsView | null>(null)
+  const [settings, applySettings] = useState<SettingsView | null>(null)
   const [classes, setClasses] = useState<ClassSummary[]>([])
   const [classesLoaded, setClassesLoaded] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -88,7 +89,7 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
   )
 
   useEffect(() => {
-    void api.settings.get().then(setSettings)
+    void api.settings.get().then(applySettings)
     void refreshClasses()
     const offChanged = api.on.classChanged(() => void refreshClasses())
     const offProgress = api.on.progress((e) => {
@@ -123,6 +124,22 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
     return () => media.removeEventListener('change', apply)
   }, [settings?.theme])
 
+  // Settings changed here are told to the other windows, which read them again (the theme, where lessons show).
+  const setSettings = useCallback((s: SettingsView) => {
+    applySettings(s)
+    sendToWindows({ type: 'settings' })
+  }, [])
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
+  useWindowMessages((m) => {
+    if (m.type !== 'settings') return
+    void api.settings
+      .get()
+      // The window that sent it hears it too, and has nothing to change.
+      .then((s) => JSON.stringify(s) !== JSON.stringify(settingsRef.current) && applySettings(s))
+      .catch(() => undefined)
+  })
+
   const go = useCallback((r: Route) => {
     setRoute(r)
     if (r.name === 'class') localStorage.setItem(LAST_CLASS_KEY, r.classId)
@@ -130,7 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }): JSX.Element 
 
   const value = useMemo<AppState>(
     () => ({ route, go, settings, setSettings, classes, classesLoaded, refreshClasses, toasts, toast, dismiss, jobs, run }),
-    [route, go, settings, classes, classesLoaded, refreshClasses, toasts, toast, dismiss, jobs, run]
+    [route, go, settings, setSettings, classes, classesLoaded, refreshClasses, toasts, toast, dismiss, jobs, run]
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -228,6 +228,49 @@ describe('mint core with the demo runtime', () => {
     expect(bundle.nextTopicId).not.toBe(topicId)
   })
 
+  it('gives lessons fewer checks at a lighter study depth, and masters a topic by the checks its lesson has', async () => {
+    const answer = 'An eigenvector keeps its direction under the matrix and is only scaled by it; the scale factor is the eigenvalue, so A times x equals lambda times x for that special vector.'
+    const progressOf = async (id: string) => (await core.handlers.classes.get(classId)).progress[id]
+    await expect(core.handlers.settings.update({ studyDepth: 'bogus' as never })).resolves.toMatchObject({ studyDepth: 'thorough' })
+
+    // Quick: the lesson is brief, read, explain, wrap. Passing Explain masters the topic.
+    await core.handlers.settings.update({ studyDepth: 'quick' })
+    const second = (await core.handlers.classes.get(classId)).nextTopicId!
+    let s = await core.handlers.sessions.start(classId, second, 'learn')
+    await expect(core.handlers.sessions.setPhase(classId, s.id, 'apply')).rejects.toThrow(/does not have that step/)
+    s = await core.handlers.sessions.setPhase(classId, s.id, 'explain')
+    s = await core.handlers.sessions.submitCheck(classId, s.id, 'explain', answer)
+    expect(await progressOf(second)).toMatchObject({ status: 'mastered', required: ['explain'] })
+    expect((await progressOf(second)).nextReviewAt).toBeTruthy()
+    // A deeper setting brings the other steps back into the open lesson, and takes nothing away.
+    await core.handlers.settings.update({ studyDepth: 'thorough' })
+    s = await core.handlers.sessions.setPhase(classId, s.id, 'apply')
+    expect(s.prompts.apply).toBeTruthy()
+    expect((await progressOf(second)).status).toBe('mastered')
+    // Back at Quick, the step that was opened stays in this lesson; Distinguish, never opened, is gone.
+    await core.handlers.settings.update({ studyDepth: 'quick' })
+    await expect(core.handlers.sessions.setPhase(classId, s.id, 'distinguish')).rejects.toThrow(/does not have that step/)
+    s = await core.handlers.sessions.setPhase(classId, s.id, 'wrap')
+    await core.handlers.sessions.finish(classId, s.id, [], [])
+
+    // A lesson begun at Thorough and finished at Quick: the topic needs only the checks the lesson ended with.
+    await core.handlers.settings.update({ studyDepth: 'thorough' })
+    const third = (await core.handlers.classes.get(classId)).nextTopicId!
+    expect(third).not.toBe(second)
+    s = await core.handlers.sessions.start(classId, third, 'learn')
+    s = await core.handlers.sessions.setPhase(classId, s.id, 'explain')
+    s = await core.handlers.sessions.submitCheck(classId, s.id, 'explain', answer)
+    expect(await progressOf(third)).toMatchObject({ status: 'in-progress', required: ['explain', 'apply', 'distinguish'] })
+    await core.handlers.settings.update({ studyDepth: 'quick' })
+    expect((await progressOf(third)).status).toBe('in-progress') // the setting alone changes no record
+    s = await core.handlers.sessions.setPhase(classId, s.id, 'wrap')
+    expect(await progressOf(third)).toMatchObject({ status: 'mastered', required: ['explain'] })
+    await core.handlers.sessions.finish(classId, s.id, [], [])
+    await core.handlers.settings.update({ studyDepth: 'thorough' })
+    // The first topic, mastered on all three checks, is untouched throughout.
+    expect((await progressOf(topicId)).status).toBe('mastered')
+  })
+
   it('checks learner-written glossary terms and supersedes records', async () => {
     const no = await core.handlers.glossary.propose(classId, 'Eigenspace', 'a space')
     expect(no.accepted).toBe(false)

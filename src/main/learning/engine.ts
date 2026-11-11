@@ -32,8 +32,25 @@ export function emptyProgress(topicId: string): TopicProgress {
   }
 }
 
+/** Mastered: every check the topic's lessons asked for is passed (all three, unless a lighter study depth set fewer). */
 export function isMastered(p: TopicProgress | undefined): boolean {
-  return Boolean(p && CHECK_KINDS.every((k) => p.checks[k].passed))
+  return Boolean(p && (p.required ?? CHECK_KINDS).every((k) => p.checks[k].passed))
+}
+
+/** Mastery starts the review ladder, once. */
+function scheduleFirstReview(p: TopicProgress, now: Date): TopicProgress {
+  if (!isMastered(p) || p.nextReviewAt) return p
+  return { ...p, reviewStage: 0, nextReviewAt: new Date(now.getTime() + REVIEW_DAYS[0] * DAY_MS).toISOString() }
+}
+
+/**
+ * A lesson sets which checks its topic must pass (the study depth's, plus any
+ * the lesson already reached). Fewer checks can make a topic mastered on the
+ * spot; a mastered topic stays mastered when a later setting asks for more.
+ */
+export function requireChecks(p: TopicProgress, checks: readonly CheckKind[], now = new Date()): TopicProgress {
+  if (isMastered(p) || !checks.length) return p
+  return scheduleFirstReview({ ...p, required: [...checks] }, now)
 }
 
 /**
@@ -75,8 +92,8 @@ export function reviewsDue(progress: Record<string, TopicProgress>, now = new Da
 
 /**
  * Apply one judged check to a topic. Returns the updated progress.
- * - Learn sessions: a pass marks that check; when all three pass the topic is
- *   mastered and the first review is scheduled.
+ * - Learn sessions: a pass marks that check; when every required check has
+ *   passed the topic is mastered and the first review is scheduled.
  * - Review sessions: passing every check in the session promotes the review
  *   stage; any fail resets the stage (but keeps mastery, since the learner
  *   once demonstrated it) and schedules a sooner review.
@@ -85,10 +102,7 @@ export function applyCheck(p: TopicProgress, kind: CheckKind, passed: boolean, s
   const next: TopicProgress = { ...p, checks: { ...p.checks }, lastStudiedAt: now.toISOString() }
   if (session.type === 'learn') {
     if (passed) next.checks[kind] = { passed: true, at: now.toISOString(), sessionId: session.id }
-    if (CHECK_KINDS.every((k) => next.checks[k].passed) && !next.nextReviewAt) {
-      next.reviewStage = 0
-      next.nextReviewAt = new Date(now.getTime() + REVIEW_DAYS[0] * DAY_MS).toISOString()
-    }
+    return scheduleFirstReview(next, now)
   }
   return next
 }

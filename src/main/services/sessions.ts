@@ -1,7 +1,8 @@
-import { CHECK_KINDS, PHASES, type CheckAttempt, type CheckKind, type GlossaryTerm, type Phase, type Session } from '@shared/types'
+import { CHECK_KINDS, PHASES, type CheckAttempt, type CheckKind, type GlossaryTerm, type Phase, type Session, type TopicProgress } from '@shared/types'
+import { sessionChecks, sessionPhases, type StudyDepth } from '@shared/depth'
 import { findTopic } from '@shared/curriculum'
 import { checkPrompt, judgeCheck, wrapSession, writeBrief } from '../jobs'
-import { applyCheck, applyReviewOutcome, emptyProgress } from '../learning/engine'
+import { applyCheck, applyReviewOutcome, emptyProgress, requireChecks } from '../learning/engine'
 import { newId, nowIso } from '../store/fsutil'
 import type { Kernel } from './kernel'
 import { userError } from './kernel'
@@ -27,6 +28,17 @@ export class SessionService {
       copy[i] = session
       return copy
     })
+  }
+
+  /** The study depth in Settings: how many checks a lesson has. */
+  private async depth(): Promise<StudyDepth> {
+    return (await this.k.settings.get()).studyDepth
+  }
+
+  /** A lesson's topic must pass the checks that lesson has (a review tests what was mastered, and changes nothing here). */
+  private required(p: TopicProgress | undefined, session: Session, depth: StudyDepth): TopicProgress {
+    const progress = p ?? emptyProgress(session.topicId)
+    return session.type === 'learn' ? requireChecks(progress, sessionChecks(session, depth)) : progress
   }
 
   /** Start (or resume) a study or review session for a topic. */
@@ -67,12 +79,13 @@ export class SessionService {
         .filter(Boolean)
         .slice(0, 4)
     }
+    const depth = await this.depth()
     await this.k.repo.lock(classId, async () => {
       await this.save(classId, session)
       await this.setOpen(classId, session.id)
       await this.k.repo.update(classId, 'progress', (p) => ({
         ...p,
-        [topicId]: { ...(p[topicId] ?? emptyProgress(topicId)), lastStudiedAt: nowIso() }
+        [topicId]: { ...this.required(p[topicId], session, depth), lastStudiedAt: nowIso() }
       }))
       await this.k.refreshProgress(classId)
     })
@@ -84,6 +97,8 @@ export class SessionService {
     if (!PHASES.includes(phase)) throw userError('Unknown phase.')
     const session = await this.load(classId, sessionId)
     if (session.endedAt) throw userError('This session has ended.')
+    const depth = await this.depth()
+    if (!sessionPhases(session, depth).includes(phase)) throw userError('This lesson does not have that step at the study depth set in Settings.')
     const kind = CHECK_PHASES[phase]
     if (kind && !session.prompts[kind]) {
       const ctx = await this.k.context(classId)
@@ -108,7 +123,11 @@ export class SessionService {
     await this.k.repo.lock(classId, async () => {
       // Re-read under the lock and merge only what this call owns.
       const fresh = await this.load(classId, sessionId)
-      await this.save(classId, { ...fresh, phase, prompts: { ...fresh.prompts, ...session.prompts }, wrap: fresh.wrap ?? session.wrap })
+      const next = { ...fresh, phase, prompts: { ...fresh.prompts, ...session.prompts }, wrap: fresh.wrap ?? session.wrap }
+      await this.save(classId, next)
+      // The depth may have changed since the lesson started: the topic asks for the checks the lesson has now.
+      await this.k.repo.update(classId, 'progress', (p) => ({ ...p, [next.topicId]: this.required(p[next.topicId], next, depth) }))
+      await this.k.refreshProgress(classId)
     })
     this.k.changed(classId)
     return this.load(classId, sessionId)
@@ -138,13 +157,14 @@ export class SessionService {
       )
     )
     const attempt: CheckAttempt = { id: newId('att'), kind, prompt, answer: text, at: nowIso(), verdict }
+    const depth = await this.depth()
     await this.k.repo.lock(classId, async () => {
       const fresh = await this.load(classId, sessionId)
       const next = { ...fresh, attempts: [...fresh.attempts, attempt] }
       await this.save(classId, next)
       await this.k.repo.update(classId, 'progress', (p) => ({
         ...p,
-        [session.topicId]: applyCheck(p[session.topicId] ?? emptyProgress(session.topicId), kind, verdict.result === 'pass', next)
+        [session.topicId]: applyCheck(this.required(p[session.topicId], next, depth), kind, verdict.result === 'pass', next)
       }))
       await this.k.refreshProgress(classId)
       await this.k.snapshotIndependence(classId)
@@ -155,6 +175,7 @@ export class SessionService {
 
   /** Close the session, keeping only the records and terms the learner accepted. */
   async finish(classId: string, sessionId: string, acceptRecords: number[], acceptTerms: number[]): Promise<Session> {
+    const depth = await this.depth()
     await this.k.repo.lock(classId, async () => {
       const session = await this.load(classId, sessionId)
       if (session.endedAt) return
@@ -185,9 +206,13 @@ export class SessionService {
         }
       }
       if (session.type === 'review') {
-        const latest = CHECK_KINDS.map((k) => [...session.attempts].reverse().find((a) => a.kind === k)).filter(Boolean)
+        const latest = sessionChecks(session, depth)
+          .map((k) => [...session.attempts].reverse().find((a) => a.kind === k))
+          .filter(Boolean)
         const allPassed = latest.length > 0 && latest.every((a) => a?.verdict?.result === 'pass')
         await this.k.repo.update(classId, 'progress', (p) => (p[session.topicId] ? { ...p, [session.topicId]: applyReviewOutcome(p[session.topicId], allPassed) } : p))
+      } else {
+        await this.k.repo.update(classId, 'progress', (p) => ({ ...p, [session.topicId]: this.required(p[session.topicId], session, depth) }))
       }
       await this.save(classId, { ...session, phase: 'wrap', endedAt: nowIso() })
       await this.k.refreshProgress(classId)

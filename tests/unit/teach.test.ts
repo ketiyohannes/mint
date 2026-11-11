@@ -105,6 +105,26 @@ describe('teach skill (mint edition)', () => {
     expect(system).toContain('Teach from the source, in your own words')
     expect(system).toContain('teach it anyway from general knowledge')
     expect(system).not.toContain('Send the learner back to the source')
+    // An idea is built from the problem it answered (Toeplitz's genetic method), without made-up history.
+    expect(system).toContain('How to explain an idea: from the problem it answers')
+    expect(system).toContain('Never invent history')
+    expect(system).toContain('the exact statement last')
+    // And it is written to be read easily.
+    expect(system).toContain('Plain, everyday English')
+    expect(system).toContain('a small question gets a short answer')
+  })
+
+  it('asks for plain, easy writing in everything the learner reads, not only chat replies', async () => {
+    const runtime = capturingRuntime()
+    await makeQuiz({ runtime, ctx }, 'eigenvectors')
+    await intakeQuestions({ runtime, ctx }, 'I want to learn linear algebra')
+    for (const { system } of runtime.requests) {
+      expect(system).toContain('## Writing (everything the learner reads')
+      expect(system).toContain('Easy to read, never intimidating')
+      // The writing rules come before the formatting contract, which stays last.
+      expect(system.indexOf('## Writing')).toBeLessThan(system.indexOf('## Formatting'))
+    }
+    expect(runtime.requests.length).toBe(2)
   })
 
   it('lets the tutor in a lesson chat see the study box, including an unsent answer', async () => {

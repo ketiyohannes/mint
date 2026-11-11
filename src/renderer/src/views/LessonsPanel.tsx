@@ -140,11 +140,13 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
             const p = bundle.progress[t.id]
             const status = p?.status ?? 'locked'
             const due = bundle.reviewsDue.includes(t.id)
-            const passed = CHECK_KINDS.filter((k) => p?.checks[k].passed).length
+            // The checks this topic needs: all three, unless its lessons ran at a lighter study depth.
+            const required = p?.required ?? CHECK_KINDS
+            const passed = required.filter((k) => p?.checks[k].passed).length
             const isNext = t.id === bundle.nextTopicId
             return (
               <div key={t.id} className={`plan-topic ${status} ${isNext ? 'next' : ''}`} data-testid="topic-row">
-                <span className={`status-dot ${status}`} style={{ ['--pct' as string]: `${(passed / 3) * 100}%` }} title={status}>
+                <span className={`status-dot ${status}`} style={{ ['--pct' as string]: `${(passed / required.length) * 100}%` }} title={status}>
                   {status === 'mastered' ? <Icon name="check" size={10} strokeWidth={3} /> : null}
                 </span>
                 <div className="plan-topic-body">

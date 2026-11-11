@@ -10,6 +10,7 @@ import { Icon } from './components/Icon'
 import { api } from './lib/api'
 import { useUpdates } from './lib/useUpdates'
 import { useDarkTheme } from './lib/useDarkTheme'
+import { holdForClass, useWindowMessages } from './lib/windows'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { FocusHost } from './components/FocusTimer'
 
@@ -61,6 +62,15 @@ export function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [go])
+  // The lesson's or the panel's window asked something of the chat while this window was elsewhere
+  // (Settings, another class): go to that class, where the workspace takes it from there.
+  useWindowMessages((m) => {
+    if (m.type !== 'command' && m.type !== 'quote' && m.type !== 'reveal-lesson') return
+    const { route, classes } = nav.current
+    if ((route.name === 'class' && route.classId === m.classId) || !classes.some((c) => c.id === m.classId)) return
+    holdForClass(m)
+    go({ name: 'class', classId: m.classId })
+  })
   // The window's own controls (drawn over the app on Windows) follow the theme.
   const dark = useDarkTheme()
   useEffect(() => void api.system.windowTheme(dark).catch(() => undefined), [dark])

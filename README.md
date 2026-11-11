@@ -55,7 +55,7 @@ mint has no agent loop of its own. Every model turn runs in the **Claude Agent S
 The tutor follows a modified version of [teach-skills](https://github.com/ketiyohannes/teach-skills) (itself based on Matt Pocock's `teach` skill), bundled at [`src/main/pedagogy/teach/SKILL.md`](src/main/pedagogy/teach/SKILL.md). Each tool loads the core rules plus only the sections it needs.
 
 - **Your materials are the authority.** The tutor reads and cites them (citations jump to the exact quote on the page) and labels anything from outside them.
-- **A tutor that teaches.** Ask about anything, from your materials or beyond them, and the tutor explains it in depth and in its own words: the intuition, each part of the definition, a worked example, and how it connects to what you know, with the passages it builds on cited as references. Prefer to work things out? Pick **Coach** in Settings for a help ladder instead: a pointer to the passage, then a guiding question, then a hint, and the full explanation only when you ask. On the ladder, help starts lower as you show independence.
+- **A tutor that teaches.** Ask about anything, from your materials or beyond them, and the tutor explains it in its own words, in plain English and small steps. It starts from the problem the idea was made to solve, shows why the obvious first try falls short, and only then gives the exact definition and a worked example, with the passages it builds on cited as references. Prefer to work things out? Pick **Coach** in Settings for a help ladder instead: a pointer to the passage, then a guiding question, then a hint, and the full explanation only when you ask. On the ladder, help starts lower as you show independence.
 - **Mastery, not coverage.** A topic counts as learned when you can explain it, apply it to a new case, and tell it apart from nearby ideas. Mastered topics come back as spaced reviews.
 - **Records of what you know.** Learning records and a glossary hold only what you have shown you understand. They set what to teach next.
 
@@ -65,9 +65,11 @@ Every class is also a plain folder you own, in the `/teach` workspace format: `M
 
 - **Rich rendering everywhere.** Markdown, LaTeX, code, and arrays or matrices as cells look the same in the chat, side chats, lesson briefs, checks and quizzes.
 - **Notes.** A notepad with headings, lists and checklists, highlights, code, links and LaTeX formulas (type `$x^2$`). It saves as you type.
-- **Layout.** Swap the chat and the panel, resize them, or split the panel into two tabs, side by side or stacked.
+- **Layout.** Swap the chat and the panel, resize them, or split the panel into two tabs, side by side or stacked. The open lesson can be dragged anywhere over the chat and resized from its sides and bottom.
+- **Windows of their own.** The open lesson and the panel can each be moved into a separate window (for a second screen, say) and put back with one click. They show the class the main window is on; a reading opened from the lesson appears in the panel wherever it is, and a passage picked in the panel goes to the chat in the main window.
 - **Keyboard first.** New chat, switch chats, show or hide the sidebar and the panel, run tests, check an answer, stop a reply: each has a shortcut, and **Settings → Keyboard shortcuts** lists them all. `/` goes to the prompt box from anywhere.
 - **Nothing typed is lost.** Unsent messages, half-written check answers and exercise code are kept when you move around or restart. The reader reopens each source where you left it, and the Browser tab reopens its last page.
+- **Study depth.** Settings choose how far a lesson goes after the reading: Quick (explain it in your own words), Standard (explain, then apply it to a new case) or Thorough (explain, apply, and tell it apart from nearby ideas). A topic is mastered once it passes the checks its lesson had. Changing the depth changes an open lesson at once, keeping any step already opened.
 - **Focus timer.** A Pomodoro timer in the chat's header: focus blocks, short breaks, and a long break after every few blocks, with lengths you set. It keeps running across views and restarts, chimes and notifies when a block ends, and counts today's focused minutes.
 
 ## Install
@@ -123,8 +125,9 @@ src/main             Electron main process: owns all state
   services/          chat (intake, tools, widgets), classes, sources, sessions, threads, notebook, diagrams
   sources/           importers: PDF, HTML (Readability), Markdown, text, Word, YouTube
   store/             atomic JSON state, settings, keychain-encrypted secrets, /teach exports
+  windows.ts         the lesson and the panel in windows of their own
   updater.ts         in-app updates from GitHub releases (electron-updater; on macOS a verified bundle swap)
-src/preload          the only bridge: typed invoke channels and four event streams
+src/preload          the only bridge: typed invoke channels and event streams
 src/renderer         React UI: chat and widgets, reader, panel, notes, popovers
                      (components/RichText.tsx is the one renderer for tutor text)
 resources/diagram-sandbox   sandboxed runtimes for model-written diagrams and learner code
@@ -148,6 +151,7 @@ Guardrails:
 ## Credits
 
 - The teaching method builds on Matt Pocock's [`teach` skill](https://github.com/mattpocock/skills) (MIT) via [teach-skills](https://github.com/ketiyohannes/teach-skills).
+- The tutor explains an idea from the problem it answered, after Otto Toeplitz's genetic method: ["The Problem of University Courses on Infinitesimal Calculus and Their Demarcation from Infinitesimal Calculus in High Schools"](https://doi.org/10.1017/S0269889715000071) (1927), translated with an [introduction](https://doi.org/10.1017/S0269889715000034) by Michael N. Fried and Hans Niels Jahnke, _Science in Context_ 28(2), 2015.
 - Icons by [Phosphor](https://phosphoricons.com); type set in [Geist](https://vercel.com/font).
 
 ## License

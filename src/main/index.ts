@@ -1,5 +1,5 @@
 import electron from 'electron'
-import type { BrowserWindow as BrowserWindowType, OpenDialogOptions, WebContents } from 'electron'
+import type { BrowserWindow as BrowserWindowType, OpenDialogOptions, Rectangle, WebContents } from 'electron'
 import { join, delimiter, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
@@ -10,9 +10,11 @@ import { AgentError } from './agents/types'
 import { diagramResourcesDir, handleDiagramProtocol, registerDiagramScheme, restrictDiagramFrameNavigation } from './diagramProtocol'
 import { createFixtureFetch } from './testing/fixtureFetch'
 import { Updater } from './updater'
+import { Popouts, type PopoutSize } from './windows'
+import type { PopoutKind } from '@shared/types'
 
 // Electron's ESM loader only exposes a default export for 'electron'.
-const { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, session, shell } = electron
+const { app, BrowserWindow, dialog, ipcMain, nativeTheme, safeStorage, screen, session, shell } = electron
 
 const isE2E = process.env.MINT_E2E === '1'
 const here = dirname(fileURLToPath(import.meta.url))
@@ -36,6 +38,9 @@ if (!hasInstanceLock) app.quit()
 let mainWindow: BrowserWindowType | null = null
 let core: MintCore | null = null
 let updater: Updater | null = null
+let popouts: Popouts | null = null
+/** The pages of mint's own windows (the main one and the parts moved out of it). */
+const appContents = new Set<WebContents>()
 
 function dataDir(): string {
   const dir = process.env.MINT_DATA_DIR || join(app.getPath('userData'), 'data')
@@ -102,18 +107,22 @@ const WINDOW_CONTROLS = {
 /** Whether the interface is dark. The window is painted in the theme's background until the page has drawn itself, so a dark theme never flashes white. */
 let darkWindow = false
 
-function createWindow(): void {
+/**
+ * One of mint's windows: the main one, or a part of it (the lesson, the panel)
+ * in a window of its own. They are the same app, shown in a different view,
+ * with the same restrictions.
+ */
+function openWindow(view: 'main' | PopoutKind, size: PopoutSize, at: Rectangle | null): BrowserWindowType {
+  const colors = darkWindow ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light
   const win = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1040,
-    minHeight: 680,
+    ...size,
+    ...(at ?? {}),
     show: false,
     title: isDevProfile ? 'mint (dev)' : 'mint',
-    backgroundColor: (darkWindow ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light).color,
+    backgroundColor: colors.color,
     titleBarStyle: isMac ? 'hiddenInset' : isWindows ? 'hidden' : 'default',
     trafficLightPosition: { x: 16, y: 18 },
-    ...(isWindows ? { titleBarOverlay: { ...(darkWindow ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light), height: WINDOW_CONTROLS.height } } : {}),
+    ...(isWindows ? { titleBarOverlay: { ...colors, height: WINDOW_CONTROLS.height } } : {}),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
       sandbox: true,
@@ -124,18 +133,15 @@ function createWindow(): void {
       spellcheck: true
     }
   })
-  mainWindow = win
-  // macOS keeps running without its window; nothing may reach for a destroyed one.
-  win.on('closed', () => {
-    if (mainWindow === win) mainWindow = null
-  })
   // The page's own <title> would replace the development marker.
-  if (isDevProfile) win.on('page-title-updated', (event) => event.preventDefault())
+  if (isDevProfile && view === 'main') win.on('page-title-updated', (event) => event.preventDefault())
 
   // No File/Edit/View menu bar on Windows and Linux (editing shortcuts still work in the page).
   if (!isMac) win.removeMenu()
 
   const contents = win.webContents
+  appContents.add(contents)
+  win.on('closed', () => appContents.delete(contents))
   // From source there is no menu to open the developer tools from on Windows and Linux: F12 does it everywhere.
   if (!app.isPackaged && !isE2E) {
     contents.on('before-input-event', (event, input) => {
@@ -166,11 +172,29 @@ function createWindow(): void {
   })
 
   win.once('ready-to-show', () => {
-    if (!isE2E || process.env.MINT_E2E_SHOW === '1') win.show()
+    if (windowsVisible) win.show()
   })
 
-  const loaded = process.env.ELECTRON_RENDERER_URL ? win.loadURL(process.env.ELECTRON_RENDERER_URL) : win.loadFile(join(here, '../renderer/index.html'))
+  // The page reads which view it is from the address.
+  const query = view === 'main' ? undefined : { view }
+  const dev = process.env.ELECTRON_RENDERER_URL
+  const loaded = dev ? win.loadURL(query ? `${dev}?${new URLSearchParams(query)}` : dev) : win.loadFile(join(here, '../renderer/index.html'), { query })
   loaded.catch((err) => console.error('[mint] could not load the window:', err))
+  return win
+}
+
+/** Tests drive hidden windows unless asked to show them. */
+const windowsVisible = !isE2E || process.env.MINT_E2E_SHOW === '1'
+
+function createWindow(): void {
+  const win = openWindow('main', { width: 1440, height: 920, minWidth: 1040, minHeight: 680 }, null)
+  mainWindow = win
+  win.on('closed', () => {
+    // macOS keeps running without its window; nothing may reach for a destroyed one.
+    if (mainWindow === win) mainWindow = null
+    // The lesson and the panel belong to the main window's chat: they go with it.
+    popouts?.closeAll()
+  })
 }
 
 const BROWSER_PARTITION = 'persist:mint-browser'
@@ -196,11 +220,12 @@ function configureBrowser(): void {
  * The app's own session needs no device permissions (camera, microphone,
  * location…) and gets only the two it uses: full screen, for the embedded
  * video player, and writing text to the clipboard ("Copy reply"), which only
- * mint's own page may do, not a frame inside it (the video, a diagram sandbox).
+ * the page of one of mint's windows may do, not a frame inside it (the video,
+ * a diagram sandbox).
  */
 function appPermission(contents: WebContents | null, permission: string, isMainFrame: boolean | undefined): boolean {
   if (permission === 'fullscreen') return true
-  return permission === 'clipboard-sanitized-write' && isMainFrame === true && contents !== null && contents === mainWindow?.webContents
+  return permission === 'clipboard-sanitized-write' && isMainFrame === true && contents !== null && appContents.has(contents)
 }
 
 function configureSession(): void {
@@ -227,12 +252,25 @@ function start(): void {
     applicationsDir: process.env.MINT_UPDATE_FEED ? process.env.MINT_UPDATE_APPLICATIONS || undefined : undefined
   })
 
+  popouts = new Popouts({
+    open: openWindow,
+    main: () => mainWindow,
+    emit: (state) => send(EVENT_CHANNELS.popouts, state),
+    relay: (message) => send(EVENT_CHANNELS.message, message),
+    // A window last left on a display that is gone now would open out of sight.
+    onScreen: (bounds) =>
+      screen.getAllDisplays().some(({ workArea: d }) => bounds.x < d.x + d.width - 80 && bounds.x + bounds.width > d.x + 80 && bounds.y >= d.y - 8 && bounds.y < d.y + d.height - 80),
+    boundsFile: join(app.getPath('userData'), 'windows.json'),
+    visible: windowsVisible
+  })
+
   const fixtures = isE2E ? process.env.MINT_E2E_FIXTURES : undefined
   core = createCore({
     dataDir: dataDir(),
     cipher: cipher(),
     fetchImpl: fixtures ? createFixtureFetch(fixtures) : undefined,
     updates: updater,
+    windows: popouts,
     appVersion: app.getVersion(),
     log: (m) => console.log(`[mint] ${m}`),
     emitter: {
@@ -245,8 +283,10 @@ function start(): void {
       setWindowTheme: (dark) => {
         darkWindow = dark
         const colors = dark ? WINDOW_CONTROLS.dark : WINDOW_CONTROLS.light
-        mainWindow?.setBackgroundColor(colors.color)
-        if (isWindows) mainWindow?.setTitleBarOverlay({ ...colors, height: WINDOW_CONTROLS.height })
+        for (const win of [mainWindow, ...(popouts?.all() ?? [])]) {
+          win?.setBackgroundColor(colors.color)
+          if (isWindows) win?.setTitleBarOverlay({ ...colors, height: WINDOW_CONTROLS.height })
+        }
       },
       openExternal: (url) => shell.openExternal(url),
       openPath: async (p) => {
@@ -275,13 +315,13 @@ function start(): void {
     )
     .then((theme) => {
       darkWindow = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors)
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (!mainWindow) createWindow()
       updater?.start()
     })
     .catch(failStart)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (!mainWindow) createWindow()
   })
 }
 

@@ -33,12 +33,17 @@ export async function launch(opts: { pick?: string[] } = {}): Promise<Launched> 
       ELECTRON_RENDERER_URL: ''
     }
   })
-  const page = await app.firstWindow()
   const errors: string[] = []
-  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
-  page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(`console: ${m.text()}`)
-  })
+  // Every window counts: the lesson and the panel can each open one of their own.
+  const watch = (p: Page): void => {
+    p.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
+    p.on('console', (m) => {
+      if (m.type() === 'error') errors.push(`console: ${m.text()}`)
+    })
+  }
+  app.on('window', watch)
+  const page = await app.firstWindow()
+  watch(page)
   await page.waitForLoadState('domcontentloaded')
   await page.setViewportSize({ width: 1440, height: 920 }).catch(() => undefined)
   return {

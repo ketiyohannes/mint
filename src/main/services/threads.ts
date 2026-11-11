@@ -1,3 +1,4 @@
+import { sessionPhases } from '@shared/depth'
 import { CHECK_KINDS, type Anchor, type HelpEvent, type Rung, type Thread, type ThreadMessage, type Widget } from '@shared/types'
 import { titleText } from '@shared/quote'
 import { findTopic } from '@shared/curriculum'
@@ -268,7 +269,8 @@ export class ThreadService {
       session = (await this.k.repo.read(classId, 'sessions')).find((s) => s.id === openLessonId)
       if (session) sessionTopic = findTopic(await this.k.repo.read(classId, 'curriculum'), session.topicId)
     }
-    return { thread, rung, anchorContext, explorable, sessionTopic, session, studyDraft: session && !session.endedAt ? studyDraft : undefined }
+    const sessionSteps = session && sessionPhases(session, (await this.k.settings.get()).studyDepth)
+    return { thread, rung, anchorContext, explorable, sessionTopic, session, sessionSteps, studyDraft: session && !session.endedAt ? studyDraft : undefined }
   }
 
   private async validateAnchor(classId: string, anchor: Anchor): Promise<Anchor> {

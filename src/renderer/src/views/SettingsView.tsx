@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { ProviderId, SecretName, Settings, TutorStyle } from '@shared/types'
+import { PHASE_LABEL, STUDY_DEPTHS } from '@shared/depth'
 import { useApp } from '../state/app'
 import { api, timeAgo } from '../lib/api'
 import { useUpdates } from '../lib/useUpdates'
@@ -26,6 +27,7 @@ export function SettingsView(): JSX.Element {
   }, [route, loaded])
 
   if (!settings) return <div className="page-inner empty">Loading…</div>
+  const depth = STUDY_DEPTHS.find((d) => d.id === settings.studyDepth) ?? STUDY_DEPTHS[STUDY_DEPTHS.length - 1]
 
   const update = async (patch: Partial<Settings>) => {
     const s = await run(() => api.settings.update(patch))
@@ -220,6 +222,27 @@ export function SettingsView(): JSX.Element {
               {settings.lessonView === 'dock'
                 ? `The open lesson’s brief, reading and checks float at the top of whichever chat you’re in. Drag its bar to move it anywhere over the chat, and fold it to one line with ${shortcutLabel('foldLesson')}.`
                 : 'The open lesson’s brief, reading and checks show in the Study tab beside whichever chat you’re in.'}
+            </span>
+            <div className="row">
+              <span style={{ width: 120 }}>Study depth</span>
+              <div className="tabs" role="radiogroup" aria-label="Study depth">
+                {STUDY_DEPTHS.map((d) => (
+                  <button
+                    key={d.id}
+                    role="radio"
+                    aria-checked={settings.studyDepth === d.id}
+                    className={`tab ${settings.studyDepth === d.id ? 'active' : ''}`}
+                    onClick={() => void update({ studyDepth: d.id })}
+                    data-testid={`depth-${d.id}`}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="hint" data-testid="depth-hint">
+              {depth.hint} A lesson is: {['Brief', 'Read', ...depth.checks.map((k) => PHASE_LABEL[k]), 'Wrap up'].join(' → ')}. A topic is mastered once it passes{' '}
+              {depth.checks.length === 1 ? 'that check' : `those ${depth.checks.length} checks`}. An open lesson changes at once, keeping any step you have already opened.
             </span>
             <div className="row">
               <span style={{ width: 120 }}>Data folder</span>

@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react'
 import type { ThreadMessage } from '@shared/types'
 import { allTopics, findTopic } from '@shared/curriculum'
+import { DEFAULT_STUDY_DEPTH, sessionChecks } from '@shared/depth'
 import { api, errorMessage } from '../../lib/api'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
@@ -17,7 +18,8 @@ import { DiagramWidget } from './DiagramWidget'
 export function Widget({ message }: { message: ThreadMessage }): JSX.Element | null {
   const study = useStudy()
   const chat = useChat()
-  const { toast } = useApp()
+  const { toast, settings } = useApp()
+  const depth = settings?.studyDepth ?? DEFAULT_STUDY_DEPTH
   const [sending, setSending] = useState(false)
   const w = message.widget
   if (!w) return null
@@ -57,7 +59,8 @@ export function Widget({ message }: { message: ThreadMessage }): JSX.Element | n
       const session = study.bundle.sessions.find((s) => s.id === w.sessionId)
       if (!session) return <div className="widget muted small">This lesson is no longer available.</div>
       const topic = findTopic(study.bundle.curriculum, session.topicId)
-      const passed = new Set(session.attempts.filter((a) => a.verdict?.result === 'pass').map((a) => a.kind)).size
+      const checks = sessionChecks(session, depth)
+      const passed = checks.filter((k) => session.attempts.some((a) => a.kind === k && a.verdict?.result === 'pass')).length
       const isOpen = study.bundle.meta.openLessonId === session.id
       return (
         <div className="widget lesson-card" data-testid="lesson-widget">
@@ -65,7 +68,8 @@ export function Widget({ message }: { message: ThreadMessage }): JSX.Element | n
           <div className="lesson-card-body">
             <RichText text={topic?.title ?? 'Lesson'} inline className="lesson-card-title" />
             <div className="small muted">
-              {session.type === 'review' ? 'Review' : 'Lesson'} · {session.endedAt ? 'complete' : session.phase === 'wrap' ? 'wrapping up' : session.phase} · {passed}/3 checks passed
+              {session.type === 'review' ? 'Review' : 'Lesson'} · {session.endedAt ? 'complete' : session.phase === 'wrap' ? 'wrapping up' : session.phase} · {passed}/{checks.length}{' '}
+              {checks.length === 1 ? 'check' : 'checks'} passed
             </div>
           </div>
           {(isOpen || !session.endedAt) && (
