@@ -130,9 +130,7 @@ function openWindow(view: 'main' | PopoutKind, size: PopoutSize, at: Rectangle |
       nodeIntegration: false,
       // The Browser tab is a <webview>; it is hardened in will-attach-webview below.
       webviewTag: true,
-      spellcheck: true,
-      // A hidden window stops drawing on Windows and Linux, and each click the test makes then waits out a timeout.
-      ...(isE2E ? { backgroundThrottling: false } : {})
+      spellcheck: true
     }
   })
   // The page's own <title> would replace the development marker.
