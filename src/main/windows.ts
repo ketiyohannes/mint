@@ -83,6 +83,8 @@ function isBounds(v: unknown): v is Rectangle {
 export class Popouts implements WindowController {
   private readonly windows = new Map<PopoutKind, BrowserWindow>()
   private shown: PopoutState = { lesson: null, panel: null }
+  /** Writes of the remembered places, one after another: two windows closing together must not lose each other's. */
+  private saving: Promise<void> = Promise.resolve()
 
   constructor(private readonly host: PopoutHost) {}
 
@@ -93,12 +95,14 @@ export class Popouts implements WindowController {
     this.set(kind, checkClass(classId))
     const open = this.windows.get(kind)
     if (open) return this.raise(open)
+    // A window that has just closed may still be writing where it was.
+    await this.saving
     const saved = (await readJson<Partial<Record<PopoutKind, unknown>>>(this.host.boundsFile, {}))[kind]
     // Asked for twice in a row: the first window is the one.
     if (this.windows.has(kind) || this.shown[kind] === null) return
     const win = this.host.open(kind, POPOUT_SIZES[kind], isBounds(saved) && this.host.onScreen(saved) ? saved : null)
     this.windows.set(kind, win)
-    win.on('close', () => void this.remember(kind, win.getBounds()))
+    win.on('close', () => this.remember(kind, win.getBounds()))
     win.on('closed', () => {
       if (this.windows.get(kind) === win) this.windows.delete(kind)
       this.set(kind, null)
@@ -128,6 +132,11 @@ export class Popouts implements WindowController {
     for (const win of this.windows.values()) if (!win.isDestroyed()) win.close()
   }
 
+  /** Resolves once every remembered place is on disk. */
+  saved(): Promise<void> {
+    return this.saving
+  }
+
   /** Every open window, for whatever must reach them all (the theme of their title bars). */
   all(): BrowserWindow[] {
     return [...this.windows.values()].filter((w) => !w.isDestroyed())
@@ -146,12 +155,14 @@ export class Popouts implements WindowController {
     win.focus()
   }
 
-  private async remember(kind: PopoutKind, bounds: Rectangle): Promise<void> {
-    try {
-      const all = await readJson<Record<string, unknown>>(this.host.boundsFile, {})
-      await writeJson(this.host.boundsFile, { ...all, [kind]: bounds })
-    } catch {
-      // The window opens at its default place next time.
-    }
+  private remember(kind: PopoutKind, bounds: Rectangle): void {
+    this.saving = this.saving.then(async () => {
+      try {
+        const all = await readJson<Record<string, unknown>>(this.host.boundsFile, {})
+        await writeJson(this.host.boundsFile, { ...all, [kind]: bounds })
+      } catch {
+        // The window opens at its default place next time.
+      }
+    })
   }
 }

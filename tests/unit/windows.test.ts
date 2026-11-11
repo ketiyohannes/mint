@@ -53,9 +53,6 @@ function setup(visible = true) {
   return { popouts: new Popouts(host), opened, states, relayed, main, boundsFile }
 }
 
-/** Lets a fire-and-forget write (the remembered bounds) land. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
-
 describe('windows of the lesson and the panel', () => {
   it('opens one window per part, and closing it puts the part back', async () => {
     const { popouts, opened, states } = setup()
@@ -93,18 +90,29 @@ describe('windows of the lesson and the panel', () => {
     await popouts.detach('lesson', 'class_a')
     opened[0].win.bounds = { x: 300, y: 120, width: 640, height: 700 }
     await popouts.attach('lesson')
-    await settle()
+    await popouts.saved()
     expect(JSON.parse(readFileSync(boundsFile, 'utf8'))).toEqual({ lesson: { x: 300, y: 120, width: 640, height: 700 } })
     await popouts.detach('lesson', 'class_a')
     expect(opened[1].at).toEqual({ x: 300, y: 120, width: 640, height: 700 })
     await popouts.attach('lesson')
-    await settle()
+    await popouts.saved()
 
     writeFileSync(boundsFile, JSON.stringify({ lesson: { x: 5000, y: 0, width: 640, height: 700 }, panel: 'nonsense' }))
     await popouts.detach('lesson', 'class_a')
     await popouts.detach('panel', 'class_a')
     expect(opened[2].at).toBeNull()
     expect(opened[3].at).toBeNull()
+  })
+
+  it('remembers both places when both windows close together', async () => {
+    const { popouts, opened, boundsFile } = setup()
+    await popouts.detach('lesson', 'class_a')
+    await popouts.detach('panel', 'class_a')
+    opened[0].win.bounds = { x: 40, y: 50, width: 600, height: 700 }
+    opened[1].win.bounds = { x: 700, y: 60, width: 900, height: 800 }
+    popouts.closeAll() // the main window went
+    await popouts.saved()
+    expect(JSON.parse(readFileSync(boundsFile, 'utf8'))).toEqual({ lesson: { x: 40, y: 50, width: 600, height: 700 }, panel: { x: 700, y: 60, width: 900, height: 800 } })
   })
 
   it('brings windows forward, but never during tests that keep them hidden', async () => {
