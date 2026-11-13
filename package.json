@@ -1,6 +1,6 @@
 {
   "name": "mint",
-  "version": "0.1.0-alpha.15",
+  "version": "0.1.0-alpha.16",
   "description": "mint: an agent harness for self-study. Bring your own materials; the tutor plans, teaches and checks you, then steps back.",
   "private": true,
   "type": "module",
