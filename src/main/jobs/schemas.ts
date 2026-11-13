@@ -64,7 +64,8 @@ export const BriefSchema = z.object({
   questions: z.array(z.string())
 })
 
-export const CheckPromptSchema = z.object({ prompt: z.string() })
+/** `language` is "" for a written answer; a name the app does not know becomes plain text. */
+export const CheckPromptSchema = z.object({ prompt: z.string(), answer: z.enum(['text', 'code']), language: z.string() })
 
 export const VerdictSchema = z.object({
   result: z.enum(['pass', 'partial', 'fail']),

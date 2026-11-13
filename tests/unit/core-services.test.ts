@@ -216,6 +216,13 @@ describe('mint core with the demo runtime', () => {
       expect(s.attempts.at(-1)?.verdict?.result).toBe('pass')
     }
     await expect(core.handlers.sessions.submitCheck(classId, s.id, 'explain', '   ')).rejects.toThrow(/answer first/)
+    // An answer is never cut short: half a code block would be judged as prose.
+    await expect(core.handlers.sessions.submitCheck(classId, s.id, 'explain', 'x'.repeat(12_001))).rejects.toThrow(/too long/)
+    // Linear algebra is not done in code: every check asks for a written answer. Code in one is kept as written.
+    expect(s.codeChecks).toBeUndefined()
+    const coded = `${answer}\n\n\`\`\`python\ndef scale(v, k):\n    return [k * x for x in v]\n\`\`\``
+    s = await core.handlers.sessions.submitCheck(classId, s.id, 'distinguish', coded)
+    expect(s.attempts.at(-1)?.answer).toBe(coded)
     s = await core.handlers.sessions.setPhase(classId, s.id, 'wrap')
     expect(s.wrap?.records.length).toBeGreaterThan(0)
     s = await core.handlers.sessions.finish(classId, s.id, [0], [0])

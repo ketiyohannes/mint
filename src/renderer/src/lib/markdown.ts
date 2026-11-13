@@ -2,8 +2,25 @@ import { Marked } from 'marked'
 import DOMPurify from 'dompurify'
 import katex from 'katex'
 import { splitDirectives, type Directive } from '@shared/directives'
+import { highlightHtml } from './codeLanguages'
 
-const marked = new Marked({ gfm: true, breaks: false })
+/**
+ * Fenced code of the text being rendered. The renderer leaves a @@Cn@@ token in
+ * its place, and the coloured code goes in after sanitizing (which drops
+ * every class, the ones that colour code included).
+ */
+let fenced: { code: string; lang: string }[] = []
+
+const marked = new Marked({
+  gfm: true,
+  breaks: false,
+  renderer: {
+    code({ text, lang }) {
+      fenced.push({ code: text, lang: (lang ?? '').trim().split(/\s+/)[0] })
+      return `<pre><code>@@C${fenced.length - 1}@@</code></pre>\n`
+    }
+  }
+})
 
 export interface RenderedMarkdown {
   html: string
@@ -82,12 +99,20 @@ export function renderMarkdown(text: string, labelForSource?: (sourceId: string)
   prepared = extractMath(prepared, math)
 
   // Inline text (option labels, titles) renders without paragraph wrappers.
+  fenced = []
   const raw = (opts.inline ? marked.parseInline(prepared, { async: false }) : marked.parse(prepared, { async: false })) as string
+  const code = fenced
   // No class, id or data-* from the model: with them its HTML could dress up as the app's own controls
   // (chips, KaTeX, arrays and copy buttons are added after this, so they keep theirs).
   let html: string = String(DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, FORBID_TAGS: ['style', 'form', 'input', 'iframe'], FORBID_ATTR: ['style', 'class', 'id'], ALLOW_DATA_ATTR: false }))
   if (!opts.inline) html = html.replace(/<pre>[\s\S]*?<\/pre>/g, (pre) => `<div class="code-block">${pre}${COPY_BUTTON}</div>`)
 
+  html = html.replace(/@@C(\d+)@@/g, (_m, i: string) => {
+    const block = code[Number(i)]
+    if (!block) return ''
+    // A chip's token inside the code must stay whole for the step that fills it in: such a block is not coloured.
+    return /@@[DAM]\d+@@/.test(block.code) ? escapeHtml(block.code) : highlightHtml(block.code, block.lang)
+  })
   html = html.replace(/@@M(\d+)@@/g, (_m, i: string) => {
     const item = math[Number(i)]
     return item ? renderMath(item.tex, item.display) : ''

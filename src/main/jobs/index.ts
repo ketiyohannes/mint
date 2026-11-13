@@ -1,4 +1,5 @@
 import { PHASE_LABEL } from '@shared/depth'
+import { CODE_LANGUAGES, languageFromName, languageLabel, type LanguageId } from '@shared/languages'
 import type {
   Anchor,
   CodeExercise,
@@ -178,28 +179,45 @@ Read the planned sections, then write the brief.`,
   })
 }
 
-export async function checkPrompt(env: JobEnv, topic: Topic, brief: Brief | undefined, kind: CheckKind): Promise<string> {
+/** A check's question, and the language to answer in when it asks for code (null: a written answer). */
+export interface CheckQuestion {
+  prompt: string
+  language: LanguageId | null
+}
+
+/** What a check asks for depends on the subject: prose is one form of answer, not the only one. */
+const CHECK_FORM = `Fit the task to the subject. A written paragraph is one form of answer, not the default:
+- Programming, algorithms, data structures, systems, or anything the learner will do in code: ask for code. A small function to write, a bug to find and fix, a snippet to complete, or output to predict and then explain. Use the language of their materials or their mission. It must be solvable in about 25 lines with only the standard library, and readable without running it. Put any code you give in a fenced block with its language.
+- Mathematics and other quantitative subjects: ask for a worked calculation, a derivation step or a short proof, with concrete numbers.
+- Anything else: a short written answer.
+Fields:
+- "prompt": the task, in 1 to 4 sentences (plus a short code block or formula when the task needs one). Do not include the answer or hints.
+- "answer": "code" when the learner should answer mainly in code, otherwise "text".
+- "language": for a code answer, one of ${CODE_LANGUAGES.map((l) => `"${l.id}"`).join(', ')} ("plain" for pseudocode or any other language). For a text answer, "".`
+
+export async function checkPrompt(env: JobEnv, topic: Topic, brief: Brief | undefined, kind: CheckKind): Promise<CheckQuestion> {
   if (kind === 'explain' && brief?.questions.length) {
     // Explain-back uses the brief's own questions: the learner read with them in mind.
-    return `Without looking back at the text, explain in your own words:\n\n${brief.questions.map((q) => `- ${q}`).join('\n')}`
+    return { prompt: `Without looking back at the text, explain in your own words:\n\n${brief.questions.map((q) => `- ${q}`).join('\n')}`, language: null }
   }
   const what =
     kind === 'explain'
       ? 'an explain-back prompt: ask the learner to explain the core idea in their own words, as if teaching a friend'
       : kind === 'apply'
-        ? 'an application task: a NEW concrete case (numbers, a scenario, a small problem, or the next step of their project) that requires using the idea, not restating it. Not a case from the reading.'
-        : 'a distinguish prompt: ask how this idea differs from one or two nearby ideas it is easily confused with (name them), and when each applies'
+        ? 'an application task: a NEW concrete case (numbers, a scenario, a small problem, a piece of code to write or fix, or the next step of their project) that requires using the idea, not restating it. Not a case from the reading.'
+        : 'a distinguish prompt: ask how this idea differs from one or two nearby ideas it is easily confused with (name them), and when each applies. For a subject done in code, the difference may be shown with two short snippets.'
   const out = await runStructured(env.runtime, {
     ...base(env),
     purpose: `check-prompt-${kind}`,
     readFiles: true,
     effort: 'low',
-    system: `${tutor('practice', 'diagnostics')}\n\nYour job now: write ${what}. Keep it to 1 to 4 sentences. Answerable in a short paragraph. Do not include the answer or hints.`,
+    system: `${tutor('practice', 'diagnostics')}\n\nYour job now: write ${what}.\n\n${CHECK_FORM}`,
     prompt: `${describeClass(env.ctx)}\n\n${describeTopic(env.ctx, topic)}\n\nWrite the prompt now.`,
     schema: CheckPromptSchema,
-    demo: () => ({ prompt: demo.checkPrompt(topic, kind) })
+    demo: () => demo.checkPrompt(topic, kind)
   })
-  return out.prompt.trim()
+  // The model names a language; code decides which of ours it is. One we do not know is written as plain text.
+  return { prompt: out.prompt.trim(), language: out.answer === 'code' ? (languageFromName(out.language) ?? 'plain') : null }
 }
 
 /**
@@ -227,6 +245,8 @@ Your job now: judge one ${kind === 'explain' ? 'explain-back' : kind === 'apply'
 - "fail": wrong, missing the core idea, or just restating the question. "I don't know" is fail (that is fine and useful).
 - feedback (markdown, at most 120 words): name what was right, then the single most important gap or misconception, and send them to the exact passage to fix it with a [[cite:...]] directive. Do not give a full model answer; the learner should do the repair.
 - misconceptions: short phrases for any wrong beliefs you can see (empty if none).
+- Code in the answer comes in fenced blocks. You cannot run it: read it, and trace it by hand on one small input and on any edge case the task names. Judge whether it does what the task asks. A slip a compiler would catch at once (a missing semicolon, a misspelled name) is a small slip unless the task is about syntax; style is not a reason to fail. To point at a line, quote that line in a fenced block; never write the corrected solution.
+- When the task asked for code and the answer is only prose (or the other way round), judge what it shows and say which form the task needs.
 When there are earlier tries, this answer is the learner's repair after your feedback. Judge what they understand now, reading it together with their earlier tries: credit what they already got right (they need not repeat it), and judge whether they fixed the gap you named. Make your feedback continue from your earlier feedback: acknowledge the repair, and do not repeat a pointer they have already acted on. Misconceptions are the ones still present.
 Be honest; never pass an answer just to be encouraging.`,
     prompt: `${describeClass(env.ctx, { includeRecords: false })}
@@ -355,6 +375,8 @@ export function describeStudyBox(ctx: ClassContext, session: Session, topic: Top
     const passed = attempts.some((a) => a.verdict?.result === 'pass')
     lines.push('', `### ${STEP_LABEL[kind]} check (${passed ? 'passed' : 'not passed yet'})`)
     if (prompt) lines.push(`Question: ${prompt}`)
+    const language = session.codeChecks?.[kind]
+    if (language) lines.push(`The answer box is a code editor (${languageLabel(language)}); the learner can add text to it.`)
     attempts.forEach((a, i) => {
       lines.push(`Attempt ${i + 1}: ${quoted(a.answer, 1500)}`)
       if (a.verdict) {

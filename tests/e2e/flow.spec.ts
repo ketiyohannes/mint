@@ -483,6 +483,8 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   const dockBody = (await dock.getByTestId('lesson-dock-body').boundingBox())!
   expect(dockSide.x).toBeGreaterThanOrEqual(dockBody.x + dockBody.width)
   expect(dockSide.width).toBeGreaterThanOrEqual(6)
+  // Scroll bars are a thin thumb on every system, and the lesson keeps room for its own so the text never shifts.
+  expect(await dock.getByTestId('lesson-dock-body').evaluate((el) => (el as HTMLElement).offsetWidth - el.clientWidth)).toBe(6)
   await page.mouse.move(dockSide.x + dockSide.width / 2, dockSide.y + dockSide.height / 2)
   await page.mouse.down()
   await page.mouse.move(dockSide.x - 100, dockSide.y + dockSide.height / 2, { steps: 6 })
@@ -531,13 +533,72 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('panel-popout')).toBeVisible()
 
   const long = 'An eigenvector is a direction the matrix does not rotate: multiplying it by the matrix only scales it, and the scale factor is the eigenvalue, so A x equals lambda x for that vector.'
-  for (const next of ['distinguish', 'wrap']) {
-    await dock.getByTestId('check-answer').fill(long)
-    await dock.getByTestId('check-submit').click()
-    await expect(dock.getByTestId('verdict').last()).toContainText('Pass')
-    await dock.getByTestId('phase-next').click()
-    await expect(dock.getByTestId(`phase-${next}`)).toHaveClass(/active/)
+
+  // --- Code in an answer -------------------------------------------------------------------------
+  // "Code" adds a block under the text, in any of the languages, coloured as it is typed.
+  await dock.getByTestId('check-answer').fill(long)
+  await dock.getByTestId('answer-add-code').click()
+  const codeBlocks = dock.getByTestId('answer-code')
+  await expect(codeBlocks).toHaveCount(1)
+  await expect(dock.getByTestId('check-answer')).toHaveValue(long)
+  await expect(codeBlocks.locator('.cm-content')).toBeFocused() // the new block takes the caret
+  await codeBlocks.getByTestId('answer-code-lang').selectOption('zig')
+  await codeBlocks.locator('.cm-content').click()
+  await page.keyboard.type('const std = @import("std");')
+  await expect(codeBlocks.locator('.cm-content .tok-keyword')).toHaveText('const')
+  await expect(codeBlocks.locator('.cm-content .tok-string')).toHaveText('"std"')
+  // More text goes below it; a fence typed on its own line, then Enter, starts a block in that language.
+  await dock.getByTestId('answer-add-text').click()
+  await expect(dock.getByTestId('check-answer').nth(1)).toBeFocused()
+  await page.keyboard.type('And in Rust:\n```rust\n')
+  await expect(codeBlocks).toHaveCount(2)
+  await expect(dock.getByTestId('check-answer').nth(1)).toHaveValue('And in Rust:')
+  await expect(codeBlocks.nth(1).getByTestId('answer-code-lang')).toHaveValue('rust')
+  await page.keyboard.type('fn main() {}')
+  await expect(codeBlocks.nth(1).locator('.cm-content .tok-keyword')).toHaveText('fn')
+  // A block can be taken out again; the next one starts in the language picked last.
+  await dock.getByTestId('answer-add-code').click()
+  await expect(codeBlocks.nth(2).getByTestId('answer-code-lang')).toHaveValue('zig')
+  await codeBlocks.nth(2).getByTestId('answer-code-remove').click()
+  await expect(codeBlocks).toHaveCount(2)
+  // The buttons that add text and code share the line of the button that checks the answer.
+  const checkButton = (await dock.getByTestId('check-submit').boundingBox())!
+  for (const id of ['answer-add-text', 'answer-add-code']) {
+    const add = (await dock.getByTestId(id).boundingBox())!
+    expect(Math.abs(add.y + add.height / 2 - (checkButton.y + checkButton.height / 2))).toBeLessThan(4)
   }
+  // In a short window the code stays compact: the editor scrolls inside itself.
+  expect((await codeBlocks.first().boundingBox())!.height).toBeLessThanOrEqual(380)
+  await shot(page, 'answer-code')
+  // The whole answer, code and all, is kept while the lesson is off screen.
+  await dock.getByTestId('lesson-dock-close').click()
+  await expect(dock).toHaveCount(0)
+  await page.getByTestId('tab-lessons').click()
+  await page.getByTestId('resume-session').click()
+  await expect(codeBlocks).toHaveCount(2)
+  await expect(codeBlocks.first().getByTestId('answer-code-lang')).toHaveValue('zig')
+  await expect(codeBlocks.first().locator('.cm-content')).toHaveText('const std = @import("std");')
+  await expect(dock.getByTestId('check-answer').first()).toHaveValue(long)
+  // ⌘/Ctrl+Enter checks from inside the code too, and the answer is shown as it was written.
+  await codeBlocks.nth(1).locator('.cm-content').click()
+  await page.keyboard.press('ControlOrMeta+Enter')
+  await expect(dock.getByTestId('verdict').last()).toContainText('Pass')
+  const sent = dock.getByTestId('answer-shown').last()
+  await expect(sent).toContainText('And in Rust:')
+  await expect(sent.getByTestId('code-shown')).toHaveCount(2)
+  await expect(sent.getByTestId('code-shown').first()).toHaveAttribute('data-language', 'zig')
+  await expect(sent.getByTestId('code-shown').first()).toContainText('Zig')
+  await expect(sent.getByTestId('code-shown').first().locator('.tok-keyword')).toHaveText('const')
+  await expect(sent.getByTestId('code-shown').nth(1).locator('pre')).toHaveText('fn main() {}')
+  await shot(page, 'answer-code-sent')
+  await dock.getByTestId('phase-next').click()
+  await expect(dock.getByTestId('phase-distinguish')).toHaveClass(/active/)
+
+  await dock.getByTestId('check-answer').fill(long)
+  await dock.getByTestId('check-submit').click()
+  await expect(dock.getByTestId('verdict').last()).toContainText('Pass')
+  await dock.getByTestId('phase-next').click()
+  await expect(dock.getByTestId('phase-wrap')).toHaveClass(/active/)
   await dock.getByTestId('finish-session').click()
   await expect(dock).toContainText('Session complete')
   await expect(page.locator('.status-dot.mastered').first()).toBeVisible()

@@ -9,6 +9,8 @@ import { userError } from './kernel'
 import { appendRecords } from './records'
 
 const CHECK_PHASES: Partial<Record<Phase, CheckKind>> = { explain: 'explain', apply: 'apply', distinguish: 'distinguish' }
+/** Room for a few paragraphs and a few dozen lines of code. */
+const MAX_ANSWER = 12_000
 
 export class SessionService {
   constructor(private readonly k: Kernel) {}
@@ -104,8 +106,9 @@ export class SessionService {
       const ctx = await this.k.context(classId)
       const topic = findTopic(ctx.curriculum, session.topicId)
       if (!topic) throw userError('That topic is not in the curriculum anymore.')
-      const prompt = await this.k.job(classId, 'Preparing a check', async () => checkPrompt({ runtime: await this.k.runtime(), ctx }, topic, session.brief, kind))
-      session.prompts = { ...session.prompts, [kind]: prompt }
+      const question = await this.k.job(classId, 'Preparing a check', async () => checkPrompt({ runtime: await this.k.runtime(), ctx }, topic, session.brief, kind))
+      session.prompts = { ...session.prompts, [kind]: question.prompt }
+      if (question.language) session.codeChecks = { ...session.codeChecks, [kind]: question.language }
     }
     if (phase === 'wrap' && !session.wrap) {
       const ctx = await this.k.context(classId)
@@ -123,7 +126,8 @@ export class SessionService {
     await this.k.repo.lock(classId, async () => {
       // Re-read under the lock and merge only what this call owns.
       const fresh = await this.load(classId, sessionId)
-      const next = { ...fresh, phase, prompts: { ...fresh.prompts, ...session.prompts }, wrap: fresh.wrap ?? session.wrap }
+      const next: Session = { ...fresh, phase, prompts: { ...fresh.prompts, ...session.prompts }, wrap: fresh.wrap ?? session.wrap }
+      if (fresh.codeChecks || session.codeChecks) next.codeChecks = { ...fresh.codeChecks, ...session.codeChecks }
       await this.save(classId, next)
       // The depth may have changed since the lesson started: the topic asks for the checks the lesson has now.
       await this.k.repo.update(classId, 'progress', (p) => ({ ...p, [next.topicId]: this.required(p[next.topicId], next, depth) }))
@@ -135,8 +139,10 @@ export class SessionService {
 
   async submitCheck(classId: string, sessionId: string, kind: CheckKind, answer: string): Promise<Session> {
     if (!CHECK_KINDS.includes(kind)) throw userError('Unknown check.')
-    const text = answer.trim().slice(0, 6000)
+    const text = answer.trim()
     if (!text) throw userError('Write your answer first. "I don\'t know" is a fine answer too.')
+    // Cutting it short could cut a code block in half, and the judge would read the rest as prose.
+    if (text.length > MAX_ANSWER) throw userError('That answer is too long to check. Keep it to the part that answers the question.')
     const session = await this.load(classId, sessionId)
     if (session.endedAt) throw userError('This session has ended.')
     const prompt = session.prompts[kind]

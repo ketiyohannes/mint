@@ -8,6 +8,7 @@ import { Icon } from '../../components/Icon'
 import { RichText } from '../../components/RichText'
 import { useStudy } from './context'
 import { clearSessionDrafts, hideCheckDraft, savedDraft, setCheckDraft } from './drafts'
+import { AnswerEditor, AnswerView } from './Answer'
 import { shortcutLabel } from '../../lib/shortcuts'
 
 /** A lesson's steps at the study depth in Settings, and where the lesson is in them ("Explain · 3 of 6"). */
@@ -179,10 +180,12 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
   const { toast } = useApp()
   const study = useStudy()
   // An answer started earlier (before another step, a closed dock, another class) is still here.
-  const [answer, setAnswer] = useState(() => savedDraft(session.id, kind))
+  const [draft, setDraft] = useState(() => savedDraft(session.id, kind))
+  /** What would be sent: the draft without the code blocks that are still empty. */
+  const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
   // Every tutor in the class sees what is being written here, while it is on screen.
-  useEffect(() => setCheckDraft(session.id, kind, answer), [session.id, kind, answer])
+  useEffect(() => setCheckDraft(session.id, kind, draft), [session.id, kind, draft])
   useEffect(() => () => hideCheckDraft(session.id, kind), [session.id, kind])
   const prompt = session.prompts[kind]
   const attempts = session.attempts.filter((a) => a.kind === kind)
@@ -192,11 +195,12 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
   const readings = kind !== 'explain' || attempts.length > 0 ? (session.brief?.readings ?? []) : []
 
   async function submit() {
+    if (busy || !answer.trim()) return
     setBusy(true)
     try {
       const next = await api.sessions.submitCheck(study.classId, session.id, kind, answer)
       // Not passed yet: the answer stays, to revise or add to; the judge sees the earlier tries.
-      if (next.attempts.at(-1)?.verdict?.result === 'pass') setAnswer('')
+      if (next.attempts.at(-1)?.verdict?.result === 'pass') setDraft('')
     } catch (err) {
       toast(errorMessage(err), 'error')
     } finally {
@@ -226,9 +230,7 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
       </div>
       {attempts.map((a) => (
         <div key={a.id} className="stack" style={{ gap: 6 }}>
-          <div className="msg user" style={{ alignSelf: 'stretch', maxWidth: '100%' }}>
-            {a.answer}
-          </div>
+          <AnswerView answer={a.answer} />
           {a.verdict && (
             <div className={`verdict ${a.verdict.result}`} data-testid="verdict">
               <div className="row" style={{ marginBottom: 4 }}>
@@ -245,26 +247,21 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
         </div>
       ))}
       {(!last || last.verdict?.result !== 'pass') && (
-        <div className="stack" style={{ gap: 8 }}>
-          <textarea
-            className="textarea check-answer"
-            placeholder={last ? 'Try again, after re-reading the passage it pointed you to. Your earlier tries count…' : 'Your answer…'}
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.nativeEvent.isComposing) return
-              e.preventDefault()
-              if (!busy && answer.trim()) void submit()
-            }}
-            data-testid="check-answer"
-          />
-          <div className="row">
-            <button className="btn primary" disabled={busy || !answer.trim()} onClick={submit} title={`Check my answer (${shortcutLabel('checkAnswer')})`} data-testid="check-submit">
-              {busy ? <span className="spinner" /> : <Icon name="check" />} Check my answer
-            </button>
-            <span className="hint">{shortcutLabel('checkAnswer')} to check. "I don't know" is a fine answer.</span>
-          </div>
-        </div>
+        <AnswerEditor
+          initial={draft}
+          codeLanguage={session.codeChecks?.[kind]}
+          placeholder={last ? 'Try again, after re-reading the passage it pointed you to. Your earlier tries count…' : 'Your answer…'}
+          onChange={(sent, kept) => {
+            setAnswer(sent)
+            setDraft(kept)
+          }}
+          onSubmit={() => void submit()}
+        >
+          <button className="btn primary" disabled={busy || !answer.trim()} onClick={submit} title={`Check my answer (${shortcutLabel('checkAnswer')})`} data-testid="check-submit">
+            {busy ? <span className="spinner" /> : <Icon name="check" />} Check my answer
+          </button>
+          <span className="hint">{shortcutLabel('checkAnswer')} to check. "I don't know" is a fine answer.</span>
+        </AnswerEditor>
       )}
     </div>
   )

@@ -9,6 +9,7 @@
 
 import type { FocusSpec } from './focus'
 import type { StudyDepth } from './depth'
+import type { LanguageId } from './languages'
 
 export type ID = string
 
@@ -333,6 +334,7 @@ export interface CheckAttempt {
   id: ID
   kind: CheckKind
   prompt: string
+  /** Prose, with any code in fenced blocks (see shared/answer.ts). */
   answer: string
   at: string
   verdict?: Verdict
@@ -354,6 +356,8 @@ export interface Session {
   endedAt?: string
   brief?: Brief
   prompts: Partial<Record<CheckKind, string>>
+  /** The checks that ask for code, and in which language; the others ask for a written answer. */
+  codeChecks?: Partial<Record<CheckKind, LanguageId>>
   attempts: CheckAttempt[]
   wrap?: SessionWrap
 }

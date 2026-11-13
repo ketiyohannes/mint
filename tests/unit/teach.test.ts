@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentRuntime, AgentTurnRequest } from '../../src/main/agents/types'
 import type { ClassContext } from '../../src/main/jobs/context'
 import type { CheckAttempt, Session, Topic } from '../../src/shared/types'
-import { intakeQuestions, judgeCheck, makeQuiz, tutorReply } from '../../src/main/jobs'
+import { checkPrompt, describeStudyBox, intakeQuestions, judgeCheck, makeQuiz, tutorReply } from '../../src/main/jobs'
 import { parseSections, teach, TEACH_SECTIONS } from '../../src/main/pedagogy/teach'
 
 /** Runs every turn on its demo answer and keeps the requests for inspection. */
@@ -224,5 +224,68 @@ describe('teach skill (mint edition)', () => {
     await judgeCheck({ runtime: fresh, ctx }, topic, 'explain', 'Explain eigenvalues.', 'A first answer here.', '')
     expect(fresh.requests[0].prompt).not.toContain('Earlier tries')
     expect(fresh.requests[0].prompt).toContain("Learner's answer:")
+  })
+
+  it('asks for code when the subject is done in code, in a language mint can show', async () => {
+    const topic = { id: 'bs', title: 'Binary search', objective: 'Write a binary search function in Rust', prerequisites: [], sources: [], practice: '' } as unknown as Topic
+    /** A model that answers a check prompt as given. */
+    const answering = (structured: unknown): AgentRuntime & { requests: AgentTurnRequest[] } => {
+      const runtime = capturingRuntime()
+      runtime.run = async (req) => {
+        runtime.requests.push(req)
+        return { text: JSON.stringify(structured), structured }
+      }
+      return runtime
+    }
+
+    const cpp = answering({ prompt: ' Write `lower_bound`. ', answer: 'code', language: 'C++' })
+    expect(await checkPrompt({ runtime: cpp, ctx }, topic, undefined, 'apply')).toEqual({ prompt: 'Write `lower_bound`.', language: 'cpp' })
+    const system = cpp.requests[0].system
+    expect(system).toContain('Fit the task to the subject')
+    expect(system).toContain('ask for code')
+    for (const id of ['python', 'c', 'cpp', 'typescript', 'rust', 'zig']) expect(system).toContain(`"${id}"`)
+    expect(system).toContain('## Writing') // the plain-English rules still apply to the question
+
+    // A language mint has no grammar for is still code, written as plain text.
+    expect((await checkPrompt({ runtime: answering({ prompt: 'p', answer: 'code', language: 'OCaml' }), ctx }, topic, undefined, 'apply')).language).toBe('plain')
+    // A written answer has no language, whatever the field says.
+    expect((await checkPrompt({ runtime: answering({ prompt: 'p', answer: 'text', language: 'python' }), ctx }, topic, undefined, 'distinguish')).language).toBeNull()
+
+    // Explain-back is the brief's own questions: no model, and a written answer.
+    const none = capturingRuntime()
+    const explain = await checkPrompt({ runtime: none, ctx }, topic, { win: '', whyItMatters: '', readings: [], questions: ['Why halve the range?'] }, 'explain')
+    expect(explain).toEqual({ prompt: 'Without looking back at the text, explain in your own words:\n\n- Why halve the range?', language: null })
+    expect(none.requests).toHaveLength(0)
+
+    // The scripted tutor asks for code on a topic about code, in the language it names.
+    const demo = capturingRuntime()
+    expect((await checkPrompt({ runtime: demo, ctx }, topic, undefined, 'apply')).language).toBe('rust')
+    const prose = { ...topic, title: 'Eigenvalues', objective: 'Compute eigenvalues of 2x2 matrices' } as Topic
+    expect((await checkPrompt({ runtime: demo, ctx }, prose, undefined, 'apply')).language).toBeNull()
+  })
+
+  it('tells the judge how to read code, and the chat tutor that a check is answered in code', async () => {
+    const runtime = capturingRuntime()
+    const topic = { id: 'bs', title: 'Binary search', objective: 'Write a binary search', prerequisites: [], sources: [] } as unknown as Topic
+    const answer = 'Halve the range each step.\n\n```rust\nfn find(xs: &[i32], x: i32) -> Option<usize> { xs.binary_search(&x).ok() }\n```'
+    await judgeCheck({ runtime, ctx }, topic, 'apply', 'Write a binary search.', answer, '')
+    expect(runtime.requests[0].system).toContain('You cannot run it')
+    expect(runtime.requests[0].system).toContain('never write the corrected solution')
+    expect(runtime.requests[0].prompt).toContain('```rust\nfn find')
+
+    const session = {
+      id: 's1',
+      classId: 'c1',
+      topicId: 'bs',
+      type: 'learn',
+      phase: 'apply',
+      startedAt: '',
+      prompts: { apply: 'Write a binary search.' },
+      codeChecks: { apply: 'rust' },
+      attempts: []
+    } as Session
+    const box = describeStudyBox(ctx, session, topic, { kind: 'apply', text: '```rust\nfn find() {}\n```' })
+    expect(box).toContain('The answer box is a code editor (Rust)')
+    expect(box).toContain('fn find() {}')
   })
 })

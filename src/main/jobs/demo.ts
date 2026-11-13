@@ -123,10 +123,22 @@ export function brief(ctx: ClassContext, topic: Topic): Brief {
   }
 }
 
-export function checkPrompt(topic: Topic, kind: CheckKind): string {
-  if (kind === 'explain') return `Explain "${topic.title}" in your own words, as if to a friend who has not read it.`
-  if (kind === 'apply') return `Here is a new situation: think of a concrete example from your own life or work where "${topic.title}" applies. Walk through how it applies, step by step.`
-  return `"${topic.title}" is easy to confuse with nearby ideas. Name one, and explain how they differ and when each applies.`
+/** A topic that is done in code: its application check asks for code, in the language it names (Python otherwise). */
+function codeLanguage(topic: Topic): string | null {
+  const about = `${topic.title} ${topic.objective} ${topic.practice}`
+  if (!/\b(code|coding|program\w*|function|algorithm|python|javascript|typescript|rust|zig)\b/i.test(about)) return null
+  return /\b(javascript|typescript|rust|zig)\b/i.exec(about)?.[1].toLowerCase() ?? 'python'
+}
+
+export function checkPrompt(topic: Topic, kind: CheckKind): { prompt: string; answer: 'text' | 'code'; language: string } {
+  const text = (prompt: string) => ({ prompt, answer: 'text' as const, language: '' })
+  if (kind === 'explain') return text(`Explain "${topic.title}" in your own words, as if to a friend who has not read it.`)
+  if (kind === 'apply') {
+    const language = codeLanguage(topic)
+    if (language) return { prompt: `Write a small function that puts "${topic.title}" to work on one concrete input, and say in a comment what it returns.`, answer: 'code', language }
+    return text(`Here is a new situation: think of a concrete example from your own life or work where "${topic.title}" applies. Walk through how it applies, step by step.`)
+  }
+  return text(`"${topic.title}" is easy to confuse with nearby ideas. Name one, and explain how they differ and when each applies.`)
 }
 
 /** Scripted judging. A retry counts what the earlier tries already said, as the real judge does. */

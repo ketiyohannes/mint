@@ -1,11 +1,12 @@
 import { useEffect, useRef, type JSX } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
-import { EditorState, Prec } from '@codemirror/state'
-import { keymap } from '@codemirror/view'
+import { Compartment, EditorState, Prec } from '@codemirror/state'
+import { keymap, placeholder as placeholderText } from '@codemirror/view'
 import { indentWithTab } from '@codemirror/commands'
-import { javascript } from '@codemirror/lang-javascript'
-import { python } from '@codemirror/lang-python'
-import type { CodeLanguage } from '@shared/types'
+import { indentUnit, syntaxHighlighting } from '@codemirror/language'
+import { classHighlighter } from '@lezer/highlight'
+import type { LanguageId } from '@shared/languages'
+import { codeLanguage, indentSize } from '../lib/codeLanguages'
 
 const theme = EditorView.theme({
   '&': { fontSize: '12.5px', backgroundColor: 'var(--surface-2)', color: 'var(--fg)' },
@@ -13,24 +14,34 @@ const theme = EditorView.theme({
   '.cm-gutters': { backgroundColor: 'var(--surface-2)', color: 'var(--muted)', border: 'none' },
   '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'color-mix(in srgb, var(--surface-3) 60%, transparent)' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.55' }
+  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.55' },
+  '.cm-placeholder': { color: 'var(--muted)' }
 })
 
 interface Props {
-  language: CodeLanguage
+  language: LanguageId
   value: string
   onChange: (code: string) => void
   readOnly?: boolean
-  /** Mod-Enter runs the code. */
+  /** Mod-Enter: run the code, or send the answer it is part of. */
   onRun?: () => void
+  placeholder?: string
+  /** Take the caret when the editor appears (a block the learner has just added). */
+  autoFocus?: boolean
+  testId?: string
 }
 
-/** A small code editor (CodeMirror 6) for exercises inside the chat. */
-export function CodeEditor({ language, value, onChange, readOnly, onRun }: Props): JSX.Element {
+/** The grammar and the indent step of a language. Colours come from the classes in styles.css (".tok-*"). */
+const languageSetup = (id: LanguageId) => [codeLanguage(id) ?? [], indentUnit.of(' '.repeat(indentSize(id)))]
+
+/** A small code editor (CodeMirror 6): exercises in the chat, and code in a lesson's answers. */
+export function CodeEditor({ language, value, onChange, readOnly, onRun, placeholder, autoFocus, testId = 'code-editor' }: Props): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const callbacks = useRef({ onChange, onRun })
   callbacks.current = { onChange, onRun }
+  // Reconfigured in place: changing the language keeps the code, the caret and the undo history.
+  const languageSlot = useRef(new Compartment())
 
   useEffect(() => {
     const state = EditorState.create({
@@ -40,8 +51,10 @@ export function CodeEditor({ language, value, onChange, readOnly, onRun }: Props
         // Above the basic setup's own Mod-Enter (insert a blank line), which would otherwise win.
         Prec.highest(keymap.of([{ key: 'Mod-Enter', run: () => (callbacks.current.onRun?.(), true) }])),
         keymap.of([indentWithTab]),
-        language === 'python' ? python() : javascript(),
+        languageSlot.current.of(languageSetup(language)),
+        syntaxHighlighting(classHighlighter),
         theme,
+        placeholder ? placeholderText(placeholder) : [],
         EditorState.readOnly.of(Boolean(readOnly)),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) callbacks.current.onChange(u.state.doc.toString())
@@ -49,13 +62,18 @@ export function CodeEditor({ language, value, onChange, readOnly, onRun }: Props
       ]
     })
     view.current = new EditorView({ state, parent: host.current! })
+    if (autoFocus) view.current.focus()
     return () => {
       view.current?.destroy()
       view.current = null
     }
-    // The editor owns its document after mount; external resets go through the effect below.
+    // The editor owns its document after mount; external resets and the language go through the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language, readOnly])
+  }, [readOnly])
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: languageSlot.current.reconfigure(languageSetup(language)) })
+  }, [language])
 
   // Replace the document when the value is reset from outside (e.g. "Reset to starter").
   useEffect(() => {
@@ -63,5 +81,5 @@ export function CodeEditor({ language, value, onChange, readOnly, onRun }: Props
     if (v && v.state.doc.toString() !== value) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } })
   }, [value])
 
-  return <div className="code-editor" ref={host} data-testid="code-editor" />
+  return <div className="code-editor" ref={host} data-testid={testId} data-language={language} />
 }
