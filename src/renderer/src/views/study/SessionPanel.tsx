@@ -181,8 +181,6 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
   const study = useStudy()
   // An answer started earlier (before another step, a closed dock, another class) is still here.
   const [draft, setDraft] = useState(() => savedDraft(session.id, kind))
-  /** What would be sent: the draft without the code blocks that are still empty. */
-  const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
   // Every tutor in the class sees what is being written here, while it is on screen.
   useEffect(() => setCheckDraft(session.id, kind, draft), [session.id, kind, draft])
@@ -194,7 +192,7 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
   // Explain is from memory: its readings show only once a first try sends you back to them.
   const readings = kind !== 'explain' || attempts.length > 0 ? (session.brief?.readings ?? []) : []
 
-  async function submit() {
+  async function submit(answer: string) {
     if (busy || !answer.trim()) return
     setBusy(true)
     try {
@@ -251,16 +249,17 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
           initial={draft}
           codeLanguage={session.codeChecks?.[kind]}
           placeholder={last ? 'Try again, after re-reading the passage it pointed you to. Your earlier tries count…' : 'Your answer…'}
-          onChange={(sent, kept) => {
-            setAnswer(sent)
-            setDraft(kept)
-          }}
-          onSubmit={() => void submit()}
+          onDraft={setDraft}
+          onSubmit={(answer) => void submit(answer)}
         >
-          <button className="btn primary" disabled={busy || !answer.trim()} onClick={submit} title={`Check my answer (${shortcutLabel('checkAnswer')})`} data-testid="check-submit">
-            {busy ? <span className="spinner" /> : <Icon name="check" />} Check my answer
-          </button>
-          <span className="hint">{shortcutLabel('checkAnswer')} to check. "I don't know" is a fine answer.</span>
+          {({ empty, send }) => (
+            <>
+              <button className="btn primary" disabled={busy || empty} onClick={send} title={`Check my answer (${shortcutLabel('checkAnswer')})`} data-testid="check-submit">
+                {busy ? <span className="spinner" /> : <Icon name="check" />} Check my answer
+              </button>
+              <span className="hint">{shortcutLabel('checkAnswer')} to check. "I don't know" is a fine answer.</span>
+            </>
+          )}
         </AnswerEditor>
       )}
     </div>

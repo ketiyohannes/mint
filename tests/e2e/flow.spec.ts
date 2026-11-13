@@ -525,7 +525,14 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('composer-quote')).toHaveCount(0)
   // An answer written in the lesson's window is the one the dock shows when the lesson comes back.
   await lessonWindow.getByTestId('check-answer').fill('written in the window')
-  await Promise.all([lessonWindow.waitForEvent('close'), lessonWindow.getByTestId('lesson-window-dock').click()])
+  // The button closes the window it is in, so the click may not live to report back: the window closing is the proof.
+  await Promise.all([
+    lessonWindow.waitForEvent('close'),
+    lessonWindow
+      .getByTestId('lesson-window-dock')
+      .click()
+      .catch(() => undefined)
+  ])
   await expect(dock.getByTestId('check-answer')).toHaveValue('written in the window')
   // The panel comes back from the main window's own button.
   await Promise.all([panelWindow.waitForEvent('close'), page.getByTestId('toggle-panel').click()])

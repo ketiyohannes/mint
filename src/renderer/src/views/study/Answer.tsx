@@ -43,12 +43,12 @@ interface EditorProps {
   /** The check asks for code in this language: the box starts as a code editor. */
   codeLanguage?: LanguageId
   placeholder: string
-  /** `answer` is what would be sent; `draft` also keeps a code block that is still empty. */
-  onChange: (answer: string, draft: string) => void
-  /** Mod-Enter, from the text or the code. */
-  onSubmit: () => void
-  /** The submit button and its hint, shown on the same line as the buttons that add parts. */
-  children: ReactNode
+  /** What to keep while the answer is unsent: the answer, with any code block that is still empty. */
+  onDraft: (draft: string) => void
+  /** Mod-Enter, from the text or the code, with the answer as it is at that moment. */
+  onSubmit: (answer: string) => void
+  /** The submit button and its hint, shown on the line of the buttons that add parts. `send` submits the answer. */
+  children: (state: { empty: boolean; send: () => void }) => ReactNode
 }
 
 /**
@@ -56,7 +56,7 @@ interface EditorProps {
  * the order the learner wants them. "Code" adds a block; so does typing ```
  * (or ```rust) on a line of its own and pressing Enter.
  */
-export function AnswerEditor({ initial, codeLanguage, placeholder, onChange, onSubmit, children }: EditorProps): JSX.Element {
+export function AnswerEditor({ initial, codeLanguage, placeholder, onDraft, onSubmit, children }: EditorProps): JSX.Element {
   const keys = useRef(0)
   const nextKey = () => ++keys.current
   const [parts, setParts] = useState<Part[]>(() => {
@@ -64,36 +64,43 @@ export function AnswerEditor({ initial, codeLanguage, placeholder, onChange, onS
     if (saved.length) return saved
     return [codeLanguage ? { type: 'code', language: codeLanguage, code: '', key: nextKey() } : { type: 'text', text: '', key: nextKey() }]
   })
+  /**
+   * The parts as of the last keystroke. What is sent is read from here: the
+   * rendered state can be a moment behind the keys, and Mod-Enter straight
+   * after the last one would send the answer without it.
+   */
+  const latest = useRef(parts)
+  const change = (to: (list: Part[]) => Part[]): void => {
+    latest.current = to(latest.current)
+    setParts(latest.current)
+  }
+  const submit = () => onSubmit(formatAnswer(latest.current))
   /** The part that was just added takes the caret. */
   const [focus, setFocus] = useState<number | null>(null)
-  const changed = useRef(onChange)
-  changed.current = onChange
+  const drafted = useRef(onDraft)
+  drafted.current = onDraft
 
   useEffect(() => {
-    const answer = formatAnswer(parts)
-    changed.current(answer, answer ? formatAnswer(parts, { keepEmpty: true }) : '')
+    drafted.current(formatAnswer(parts) ? formatAnswer(parts, { keepEmpty: true }) : '')
   }, [parts])
 
-  const update = (key: number, change: Partial<AnswerPart>) => setParts((list) => list.map((p) => (p.key === key ? ({ ...p, ...change } as Part) : p)))
+  const update = (key: number, to: Partial<AnswerPart>) => change((list) => list.map((p) => (p.key === key ? ({ ...p, ...to } as Part) : p)))
 
   function addCode(): void {
     const block: Part = { type: 'code', language: codeLanguage ?? lastLanguage(), code: '', key: nextKey() }
-    setParts((list) => {
-      const at = list.length
-      // A text box left empty next to the new block would only be in the way ("Text" adds one back).
-      return [...list.slice(0, at), block, ...list.slice(at)].filter((p) => p.type === 'code' || p.text.trim())
-    })
+    // A text box left empty next to the new block would only be in the way ("Text" adds one back).
+    change((list) => [...list, block].filter((p) => p.type === 'code' || p.text.trim()))
     setFocus(block.key)
   }
 
   function addText(): void {
     const text: Part = { type: 'text', text: '', key: nextKey() }
-    setParts((list) => tidy([...list, text], nextKey))
+    change((list) => tidy([...list, text], nextKey))
     setFocus(text.key)
   }
 
   function remove(key: number): void {
-    setParts((list) =>
+    change((list) =>
       tidy(
         list.filter((p) => p.key !== key),
         nextKey
@@ -113,7 +120,7 @@ export function AnswerEditor({ initial, codeLanguage, placeholder, onChange, onS
     const before = part.text.slice(0, lineStart).trimEnd()
     const after = part.text.slice(lineEnd < 0 ? part.text.length : lineEnd + 1).trimStart()
     const block: Part = { type: 'code', language: languageFromName(fence[1]) ?? codeLanguage ?? lastLanguage(), code: '', key: nextKey() }
-    setParts((list) =>
+    change((list) =>
       list.flatMap((p): Part[] => {
         if (p.key !== part.key) return [p]
         return [...(before ? [{ ...part, text: before }] : []), block, ...(after ? [{ type: 'text' as const, text: after, key: nextKey() }] : [])]
@@ -127,7 +134,7 @@ export function AnswerEditor({ initial, codeLanguage, placeholder, onChange, onS
     if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
     if (e.metaKey || e.ctrlKey) {
       e.preventDefault()
-      onSubmit()
+      submit()
     } else if (!e.shiftKey && !e.altKey && fenceToBlock(e, part)) {
       e.preventDefault()
     }
@@ -179,7 +186,7 @@ export function AnswerEditor({ initial, codeLanguage, placeholder, onChange, onS
               language={part.language}
               value={part.code}
               onChange={(code) => update(part.key, { code })}
-              onRun={onSubmit}
+              onRun={submit}
               placeholder="Your code…"
               autoFocus={focus === part.key}
               testId="answer-code-editor"
@@ -188,7 +195,7 @@ export function AnswerEditor({ initial, codeLanguage, placeholder, onChange, onS
         )
       )}
       <div className="row answer-actions">
-        {children}
+        {children({ empty: !formatAnswer(parts), send: submit })}
         {parts[parts.length - 1].type === 'code' && (
           <button className="btn ghost sm" onClick={addText} title="Add text below the code" data-testid="answer-add-text">
             <Icon name="term" size={13} /> Text
