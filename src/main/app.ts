@@ -12,7 +12,10 @@ import { NotebookService } from './services/notebook'
 import { DiagramService } from './services/diagrams'
 import { SetupService } from './services/setup'
 import { ChatService } from './services/chat'
+import { ContentsService } from './services/contents'
+import { QuickCourseService } from './services/quick'
 import { join } from 'node:path'
+import { classMode } from '@shared/mode'
 
 /** Host capabilities the core needs from Electron (injected so tests can run headless). */
 export interface HostBridge {
@@ -62,8 +65,10 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
   const threads = new ThreadService(kernel)
   const notebook = new NotebookService(kernel)
   const diagrams = new DiagramService(kernel)
-  const setup = new SetupService(kernel, classes, sources, intake)
-  const chat = new ChatService(kernel, threads, classes, sessions, setup, sources, diagrams)
+  const contents = new ContentsService(kernel)
+  const quick = new QuickCourseService(kernel)
+  const setup = new SetupService(kernel, classes, sources, intake, contents)
+  const chat = new ChatService(kernel, threads, classes, sessions, setup, sources, diagrams, quick)
 
   /** Models each harness offers, asked once per session (the list rarely changes). */
   const modelCache = new Map<ProviderId, ModelOption[]>()
@@ -110,12 +115,23 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       list: () => classes.list(),
       get: async (id) => {
         await sources.recoverInterrupted(id)
+        await quick.recover(id)
         return classes.get(id)
       },
       create: (input) => classes.create(input),
       start: (input) => setup.start(input ?? {}),
-      update: (id, patch) => classes.update(id, patch),
-      remove: (id) => classes.remove(id),
+      update: async (id, patch) => {
+        const before = await repo.requireMeta(id)
+        const meta = await classes.update(id, patch ?? {})
+        // A class that just became simple gets its list; one that became a course gets its plan once the intake is done.
+        if (classMode(meta) !== classMode(before)) await setup.sourcesChanged(id)
+        return meta
+      },
+      remove: async (id) => {
+        // A course still being written stops first, so nothing writes into a folder that is going away.
+        await quick.stop(id).catch(() => undefined)
+        await classes.remove(id)
+      },
       activate: (id) => classes.activate(id)
     },
     sources: {
@@ -124,22 +140,25 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
         const picked = given.length ? given : await opts.host.pickFiles()
         if (!picked.length) return { added: [], errors: [] }
         const out = await sources.addFiles(classId, picked)
-        if (out.added.length) setup.planIfUnplanned(classId)
+        if (out.added.length) await setup.sourcesChanged(classId)
         return out
       },
       original: (classId, id) => sources.original(classId, id),
       addUrl: async (classId, url) => {
         const out = await sources.addUrl(classId, url, 'user')
-        setup.planIfUnplanned(classId)
+        await setup.sourcesChanged(classId)
         return out
       },
       get: (classId, id) => sources.get(classId, id),
-      remove: (classId, id) => sources.remove(classId, id),
+      remove: async (classId, id) => {
+        await sources.remove(classId, id)
+        await setup.sourcesChanged(classId)
+      },
       setTranscript: (classId, id, text) => sources.setTranscript(classId, id, text),
       proposeTrusted: (classId, focus) => sources.proposeTrusted(classId, focus),
       resolveProposals: async (classId, approve, reject) => {
         await sources.resolveProposals(classId, approve ?? [], reject ?? [])
-        setup.planIfUnplanned(classId)
+        await setup.sourcesChanged(classId)
       }
     },
     intake: {
@@ -193,6 +212,16 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
     },
     records: {
       supersede: (classId, id, title, body) => notebook.supersede(classId, id, String(title ?? ''), String(body ?? ''))
+    },
+    contents: {
+      refresh: async (classId) => {
+        if (!(await repo.read(classId, 'sources')).length) throw userError('Add the material you want to read first.')
+        await contents.refresh(classId)
+      }
+    },
+    quick: {
+      stop: (classId) => quick.stop(classId),
+      resume: (classId) => quick.resume(classId)
     },
     diagrams: {
       create: (classId, prompt, anchor) => diagrams.create(classId, String(prompt ?? ''), anchor),

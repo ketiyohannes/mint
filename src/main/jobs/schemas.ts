@@ -124,6 +124,22 @@ export const ExerciseSchema = z.object({
   hint: z.string()
 })
 
+/** Simple mode: what the materials contain. */
+export const ContentsSchema = z.object({
+  summary: z.string(),
+  items: z.array(z.object({ title: z.string(), summary: z.string(), sources: z.array(z.object({ sourceId: z.string(), section: z.string() })) }))
+})
+
+/** Quick mode: the plan of a short written course. */
+export const QuickPlanSchema = z.object({
+  title: z.string(),
+  summary: z.string(),
+  minutes: z.number(),
+  sections: z.array(z.object({ title: z.string(), covers: z.string(), minutes: z.number() }))
+})
+
+export type ContentsOutput = z.infer<typeof ContentsSchema>
+export type QuickPlanOutput = z.infer<typeof QuickPlanSchema>
 export type CurriculumOutput = z.infer<typeof CurriculumSchema>
 export type DiagramOutput = z.infer<typeof DiagramSchema>
 export type IntakeQuestionsOutput = z.infer<typeof IntakeQuestionsSchema>

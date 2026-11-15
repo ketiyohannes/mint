@@ -8,7 +8,8 @@ import { ClassRepo } from '../store/classRepo'
 import { SettingsStore } from '../store/settingsStore'
 import { appendHistory, computeIndependence, nextTopicId, recomputeProgress, reviewsDue } from '../learning/engine'
 import type { ClassContext } from '../jobs/context'
-import { curriculumMd, glossaryMd, missionMd, noteFileName, noteMd, recordFileName, recordMd, resourcesMd } from '../store/exports'
+import { contentsMd, curriculumMd, glossaryMd, missionMd, noteFileName, noteMd, quickCourseMd, recordFileName, recordMd, resourcesMd } from '../store/exports'
+import { QUICK_COURSE_FILE } from '../jobs/context'
 import type { YouTubeClient } from '../sources'
 import { newId, nowIso } from '../store/fsutil'
 
@@ -89,10 +90,12 @@ export class Kernel {
   /** Everything a job needs to know about a class. */
   async context(classId: string): Promise<ClassContext> {
     const repo = this.repo
-    const [meta, sources, curriculum, progressRaw, records, glossary] = await Promise.all([
+    const [meta, sources, curriculum, contents, quickCourse, progressRaw, records, glossary] = await Promise.all([
       repo.requireMeta(classId),
       repo.read(classId, 'sources'),
       repo.read(classId, 'curriculum'),
+      repo.read(classId, 'contents'),
+      repo.read(classId, 'quickCourse'),
       repo.read(classId, 'progress'),
       repo.read(classId, 'records'),
       repo.read(classId, 'glossary')
@@ -112,6 +115,8 @@ export class Kernel {
       meta,
       sources: outlines,
       curriculum,
+      contents,
+      quickCourse,
       progress: recomputeProgress(curriculum, progressRaw),
       records,
       glossary,
@@ -183,10 +188,12 @@ export class Kernel {
   private async writeExportsUnlocked(classId: string): Promise<void> {
     const meta = await this.repo.readMeta(classId)
     if (!meta) return
-    const [sources, proposals, curriculum, glossary, records, notes] = await Promise.all([
+    const [sources, proposals, curriculum, contents, quickCourse, glossary, records, notes] = await Promise.all([
       this.repo.read(classId, 'sources'),
       this.repo.read(classId, 'proposals'),
       this.repo.read(classId, 'curriculum'),
+      this.repo.read(classId, 'contents'),
+      this.repo.read(classId, 'quickCourse'),
       this.repo.read(classId, 'glossary'),
       this.repo.read(classId, 'records'),
       this.repo.read(classId, 'notes')
@@ -197,6 +204,9 @@ export class Kernel {
       this.repo.writeExport(classId, 'GLOSSARY.md', glossaryMd(meta, glossary))
     ]
     if (curriculum) writes.push(this.repo.writeExport(classId, 'CURRICULUM.md', curriculumMd(curriculum, sources)))
+    // The tutor reads the quick course from its file, so it is written whenever a part is.
+    writes.push(quickCourse ? this.repo.writeExport(classId, QUICK_COURSE_FILE, quickCourseMd(quickCourse)) : this.repo.removeExport(classId, QUICK_COURSE_FILE))
+    writes.push(contents ? this.repo.writeExport(classId, 'CONTENTS.md', contentsMd(meta, contents, sources)) : this.repo.removeExport(classId, 'CONTENTS.md'))
     // Rebuild generated folders from scratch so deleted items disappear.
     await Promise.all(['learning-records', 'notes', 'reference'].map((d) => this.repo.removeExport(classId, d)))
     for (const r of records) writes.push(this.repo.writeExport(classId, recordFileName(r), recordMd(r, records)))

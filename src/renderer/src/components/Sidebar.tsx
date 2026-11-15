@@ -1,10 +1,11 @@
-import { useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ClassBundle, SourceMeta } from '@shared/types'
 import { useApp } from '../state/app'
 import { api, timeAgo } from '../lib/api'
 import { useUpdates } from '../lib/useUpdates'
 import { chatDraftKey, writeDraft } from '../lib/drafts'
 import { IS_MAC, shortcutLabel } from '../lib/shortcuts'
+import { MODE_ICON, NEW_CLASS_KINDS, useNewClass, type NewClassKind } from '../lib/newClass'
 import { Icon, type IconName } from './Icon'
 
 export { IS_MAC }
@@ -24,24 +25,10 @@ export const KIND_ICON: Record<SourceMeta['kind'], IconName> = {
  * the open class lists its chats (lessons are chats too).
  */
 export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; onCollapse: () => void }): JSX.Element {
-  const { route, go, classes, jobs, run, refreshClasses } = useApp()
+  const { route, go, classes, jobs, run } = useApp()
   const activeClass = route.name === 'class' ? route.classId : null
   const activeChat = route.name === 'class' ? route.chatId : undefined
-  const [creating, setCreating] = useState(false)
-
-  async function create(paths: string[]) {
-    setCreating(true)
-    const meta = await run(() => api.classes.start({ paths }))
-    setCreating(false)
-    if (!meta) return
-    await refreshClasses()
-    go({ name: 'class', classId: meta.id, chatId: null })
-  }
-
-  async function openFolder() {
-    const paths = await api.system.pickMaterials()
-    if (paths.length) await create(paths)
-  }
+  const { creating, create } = useNewClass()
 
   const chats = bundle ? bundle.threads.filter((t) => t.anchor.kind === 'general').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : []
 
@@ -56,12 +43,10 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
           mint
         </span>
         <span className="spacer" />
-        <button className="icon-btn" onClick={() => void openFolder()} disabled={creating} title="Open a folder of materials as a new class" aria-label="Open folder" data-testid="open-folder">
+        <button className="icon-btn" onClick={() => void create('course')} disabled={creating} title="Open a folder of materials as a new course" aria-label="Open folder" data-testid="open-folder">
           {creating ? <span className="spinner tiny" /> : <Icon name="folderPlus" size={15} />}
         </button>
-        <button className="icon-btn" onClick={() => void create([])} disabled={creating} title="New class without materials" aria-label="New class" data-testid="new-class">
-          <Icon name="plus" size={15} />
-        </button>
+        <NewClassMenu disabled={creating} onPick={(kind) => void create(kind)} />
       </div>
 
       <div className="side-label">Classes</div>
@@ -73,7 +58,7 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
             <div key={c.id} className="class-group">
               <div className={`class-row ${active ? 'active' : ''}`}>
                 <button className="class-open" onClick={() => go({ name: 'class', classId: c.id })} title={c.title} data-testid="sidebar-class">
-                  <Icon name={active ? 'folderOpen' : 'folder'} size={14} />
+                  <Icon name={c.mode === 'course' ? (active ? 'folderOpen' : 'folder') : MODE_ICON[c.mode]} size={14} />
                   <span className="ellipsis">{c.title}</span>
                 </button>
                 {busy ? (
@@ -137,6 +122,57 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
         </button>
       </div>
     </aside>
+  )
+}
+
+/** The ways to start a class: a course (with or without materials), a simple class, or a quick course. */
+function NewClassMenu({ disabled, onPick }: { disabled: boolean; onPick: (kind: NewClassKind) => void }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      // Back to the button that opened the menu.
+      ref.current?.querySelector('button')?.focus()
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  return (
+    <div className="new-class" ref={ref}>
+      <button className={`icon-btn ${open ? 'on' : ''}`} onClick={() => setOpen((o) => !o)} disabled={disabled} title="New class" aria-label="New class" aria-expanded={open} data-testid="new-class">
+        <Icon name="plus" size={15} />
+      </button>
+      {open && (
+        <div className="menu new-class-menu" role="menu" data-testid="new-class-menu">
+          {NEW_CLASS_KINDS.map((k) => (
+            <button
+              key={k.kind}
+              role="menuitem"
+              className="menu-item tall"
+              onClick={() => {
+                setOpen(false)
+                onPick(k.kind)
+              }}
+              data-testid={`new-${k.kind}`}
+            >
+              <Icon name={k.icon} size={15} />
+              <span className="menu-item-text">
+                <b>{k.label}</b>
+                <span className="muted">{k.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

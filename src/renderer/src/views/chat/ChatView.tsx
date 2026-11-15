@@ -11,6 +11,7 @@ import { checkDraft } from '../study/drafts'
 import { ChatCtx, type ChatApi } from './chatContext'
 import { Composer, parseSlash, SLASH_COMMANDS } from './Composer'
 import { quoteMessage, splitQuoted } from '@shared/quote'
+import { classMode, explainRequest, QUICK_LENGTHS } from '@shared/mode'
 import { splitDirectives } from '@shared/directives'
 import { Widget } from './Widget'
 
@@ -45,6 +46,11 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
   const ladder = settings?.tutorStyle === 'coach'
   const study = useStudy()
   const classId = bundle.meta.id
+  const mode = classMode(bundle.meta)
+  /** A quick class before its course: the next message is the request the course is written from. */
+  const awaitingRequest = mode === 'quick' && !bundle.quickCourse
+  /** The reading time to ask for (null: mint picks it from the request). */
+  const [minutes, setMinutes] = useState<number | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
   const [local, setLocal] = useState<Thread | undefined>(thread)
   const [follow, setFollow] = useState<{ messageId: string; quote: string; x: number; y: number } | null>(null)
@@ -161,16 +167,22 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
       const text = attached ? quoteMessage(attached.text, attached.source, input || 'Can you help me understand this passage?') : input
       // The tutor also sees the answer being written for the open lesson, from any chat.
       const studyDraft = checkDraft(study.sessionId)
-      void run('Thinking', text, (streamId) => api.chat.send({ classId, threadId: shown?.id, message: text, streamId, studyDraft }))
+      void run(awaitingRequest ? 'Planning your course' : 'Thinking', text, (streamId) =>
+        api.chat.send({ classId, threadId: shown?.id, message: text, streamId, studyDraft, minutes: awaitingRequest ? (minutes ?? undefined) : undefined })
+      )
     },
-    [run, classId, shown?.id, study.sessionId, quote]
+    [run, classId, shown?.id, study.sessionId, quote, awaitingRequest, minutes]
   )
 
+  const contents = bundle.contents
   const command = useCallback(
     (cmd: ChatCommand, arg?: string) => {
-      void run(TOOL_LABEL[cmd], `/${cmd}${arg ? ` ${arg}` : ''}`, (streamId) => api.chat.command({ classId, threadId: shown?.id, command: cmd, arg, streamId }))
+      // An item of the contents is asked for by name, in the words its chat opens with.
+      const item = cmd === 'explain' ? contents?.items.find((i) => i.id === arg) : undefined
+      const call = item ? explainRequest(item.title) : `/${cmd}${arg ? ` ${arg}` : ''}`
+      void run(TOOL_LABEL[cmd], call, (streamId) => api.chat.command({ classId, threadId: shown?.id, command: cmd, arg, streamId }))
     },
-    [run, classId, shown?.id]
+    [run, classId, shown?.id, contents]
   )
 
   // Requests from outside the chat (offer chips, lesson buttons, quotes). Each runs once.
@@ -258,6 +270,24 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
   }
   const job = jobs.filter((j) => j.classId === classId).at(-1)
 
+  /** A course before its plan: the first message starts the intake. */
+  const intake = mode === 'course' && bundle.meta.stage === 'intake'
+  const listing = jobs.some((j) => j.classId === classId && /^Listing/.test(j.label))
+  const chips: { text: string; run: () => void; icon?: IconName }[] = awaitingRequest
+    ? QUICK_EXAMPLES.map((text) => ({ text, run: () => submit(text) }))
+    : mode === 'simple'
+      ? [
+          // The first things in the material, one click from an explanation.
+          ...(contents?.items.slice(0, 4) ?? []).map((item) => ({ text: item.title, icon: 'list' as const, run: () => study.command('explain', item.id) })),
+          { text: 'Explain the main idea in plain words', run: () => submit('Explain the main idea in plain words') }
+        ]
+      : (intake
+          ? ['I want to understand this deeply', 'I have an exam coming up', 'I need this for a project at work']
+          : mode === 'quick'
+            ? ['Explain the main idea in plain words', '/quiz', 'What should I read next?']
+            : ['/lesson', '/quiz', 'Explain the main idea in plain words', '/code']
+        ).map((text) => ({ text: text.startsWith('/') ? TOOL_CHIP[text] : text, icon: text.startsWith('/') ? commandIcon(text) : undefined, run: () => submit(text) }))
+
   const composer = (
     <Composer
       draft={draft}
@@ -273,8 +303,19 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
             }
           : undefined
       }
-      placeholder={empty ? (bundle.meta.stage === 'intake' ? 'What do you want to learn from this?' : 'Ask anything, or type / for tools') : 'Reply…  (/ for tools)'}
+      placeholder={
+        awaitingRequest
+          ? 'Describe what you want to learn, and how much you already know…'
+          : empty
+            ? intake
+              ? 'What do you want to learn from this?'
+              : mode === 'simple'
+                ? 'Ask anything about this material, or type / for tools'
+                : 'Ask anything, or type / for tools'
+            : 'Reply…  (/ for tools)'
+      }
       centered={empty}
+      mode={mode}
       autoFocus
       onAddMaterials={onAddMaterials}
       recall={recall}
@@ -288,14 +329,26 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
       {empty ? (
         <div className="chat-hero" data-testid="chat-hero">
           <div className="hero-inner">
-            <h1 className="hero-title">{bundle.meta.stage === 'intake' ? 'What do you want to learn?' : bundle.meta.title}</h1>
+            <h1 className="hero-title">{intake || awaitingRequest ? 'What do you want to learn?' : bundle.meta.title}</h1>
             <div className="hero-sub">
               {bundle.sources.length ? (
                 <span>
                   <Icon name="folderOpen" size={13} /> {bundle.meta.title} · {bundle.sources.length} source{bundle.sources.length === 1 ? '' : 's'}
+                  {mode === 'simple' && contents ? ` · ${contents.items.length} thing${contents.items.length === 1 ? '' : 's'} to pick from` : ''}
                 </span>
+              ) : awaitingRequest ? (
+                <span>Describe it, and mint writes you a short course to read. No lessons, no plan.</span>
+              ) : mode === 'quick' ? (
+                <span>Your course is open beside the chat. Ask anything about it.</span>
+              ) : mode === 'simple' ? (
+                <span>Add the paper or book you want to read. mint lists what is in it and explains what you pick.</span>
               ) : (
                 <span>No materials yet: I will find trusted sources, or add your own.</span>
+              )}
+              {mode === 'simple' && listing && !job && (
+                <span className="hero-job">
+                  <span className="spinner tiny" /> Listing what is in your material…
+                </span>
               )}
               {job && (
                 <span className="hero-job">
@@ -304,14 +357,26 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
               )}
             </div>
             {composer}
+            {awaitingRequest && (
+              <div className="hero-length" data-testid="quick-length">
+                <span className="muted small">Length</span>
+                <div className="seg" role="group" aria-label="Length of the course">
+                  <button className={minutes === null ? 'on' : ''} onClick={() => setMinutes(null)} title="mint picks a length from what you ask for" data-testid="quick-length-auto">
+                    Auto
+                  </button>
+                  {QUICK_LENGTHS.map((l) => (
+                    <button key={l.minutes} className={minutes === l.minutes ? 'on' : ''} onClick={() => setMinutes(l.minutes)} data-testid={`quick-length-${l.minutes}`}>
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="hero-chips">
-              {(bundle.meta.stage === 'intake'
-                ? ['I want to understand this deeply', 'I have an exam coming up', 'I need this for a project at work']
-                : ['/lesson', '/quiz', 'Explain the main idea in plain words', '/code']
-              ).map((s) => (
-                <button key={s} className="hero-chip" onClick={() => submit(s)} data-testid="hero-chip">
-                  {s.startsWith('/') && <Icon name={commandIcon(s)} size={13} />}
-                  {s.startsWith('/') ? TOOL_CHIP[s] : s}
+              {chips.map((c) => (
+                <button key={c.text} className="hero-chip" onClick={c.run} disabled={Boolean(pending)} data-testid="hero-chip">
+                  {c.icon && <Icon name={c.icon} size={13} />}
+                  {c.text}
                 </button>
               ))}
             </div>
@@ -401,8 +466,12 @@ const TOOL_LABEL: Record<ChatCommand, string> = {
   code: 'Writing a code exercise',
   diagram: 'Drawing a diagram',
   lesson: 'Preparing the lesson',
-  plan: 'Re-planning'
+  plan: 'Re-planning',
+  explain: 'Reading the passage'
 }
+
+/** Requests to try, in a quick class that has no course yet. */
+const QUICK_EXAMPLES = ['How public-key cryptography works, for a programmer', 'A 10-minute introduction to Bayesian reasoning', 'Rust ownership, coming from Python']
 
 const TOOL_CHIP: Record<string, string> = { '/lesson': 'Start the next lesson', '/quiz': 'Quiz me', '/code': 'Give me a code exercise' }
 

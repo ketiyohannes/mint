@@ -1,4 +1,5 @@
 import { PHASE_LABEL } from '@shared/depth'
+import { classMode, readingTime } from '@shared/mode'
 import { CODE_LANGUAGES, languageFromName, languageLabel, type LanguageId } from '@shared/languages'
 import type {
   Anchor,
@@ -12,6 +13,7 @@ import type {
   DiagramSpec,
   Explorable,
   NoteDoc,
+  QuickCourse,
   Rung,
   Session,
   Thread,
@@ -25,6 +27,7 @@ import { runStructured, runText } from './run'
 import {
   BriefSchema,
   CheckPromptSchema,
+  ContentsSchema,
   CurriculumSchema,
   DiagnosticQuestionsSchema,
   DiagnosticResultSchema,
@@ -32,14 +35,17 @@ import {
   ExerciseSchema,
   GlossaryCheckSchema,
   IntakeQuestionsSchema,
+  QuickPlanSchema,
   QuizSchema,
   ReferenceDraftSchema,
   SourceProposalsSchema,
   VerdictSchema,
   WrapSchema,
+  type ContentsOutput,
   type CurriculumOutput,
   type ExerciseOutput,
   type IntakeQuestionsOutput,
+  type QuickPlanOutput,
   type QuizOutput
 } from './schemas'
 import * as demo from './demo'
@@ -148,6 +154,114 @@ Reason for this plan: ${reason}
 Write the curriculum now.`,
     schema: CurriculumSchema,
     demo: () => demo.curriculum(env.ctx)
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Simple mode: list what the materials contain
+// ---------------------------------------------------------------------------
+
+export function listContents(env: JobEnv): Promise<ContentsOutput> {
+  const previous = env.ctx.contents
+  return runStructured(env.runtime, {
+    ...base(env),
+    purpose: 'list-contents',
+    readFiles: true,
+    effort: 'medium',
+    maxTurns: 30,
+    system: `${tutor('sources')}
+
+Your job now: the learner opened this material to learn from it quickly, without a course. List what is in it: the things worth understanding, so they can pick any one and have it explained.
+- One item per idea, method, result, definition, argument, experiment or technique the material actually develops. Name it the way the material does. Never a chapter title for its own sake, never "Introduction" or "Conclusion", never housekeeping (references, acknowledgements, an author list).
+- Follow the order of the material. One paper or article gives 6 to 20 items; a book or several sources give up to 40, favoring the ideas the rest depends on.
+- "title": a short plain-text name, 2 to 7 words.
+- "summary" of an item: one or two plain sentences on what it is and what it is for in this material. No citations here.
+- "sources": where it is developed. sourceId is a real source id, and section is a section label exactly as written in the "## [label]" headings of that source's content.md. One place is usual; at most three.
+- "summary" at the top: one or two sentences on what the material as a whole is about and what it sets out to do.
+Read the files before you list; never list from the titles alone.`,
+    prompt: `${describeClass(env.ctx, { includeRecords: false })}
+${previous?.items.length ? `\nThe list so far (keep the title of every item that still applies, so the learner's chats stay with it):\n${previous.items.map((i) => `- ${i.title}`).join('\n')}\n` : ''}
+Write the list now.`,
+    schema: ContentsSchema,
+    demo: () => demo.contents(env.ctx)
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Quick mode: a short written course, planned once and written part by part
+// ---------------------------------------------------------------------------
+
+/** How a quick course reads: one piece of writing, not a set of lessons. */
+const QUICK_VOICE = `It reads like a good long blog post by someone who knows the subject and likes explaining it: one continuous piece of writing, read start to finish. It is NOT a set of lessons: no learning objectives, no "in this part you will", no recap lists, no quiz after each part.`
+
+export function planQuickCourse(env: JobEnv, request: string, minutes: number | null): Promise<QuickPlanOutput> {
+  return runStructured(env.runtime, {
+    ...base(env),
+    purpose: 'quick-plan',
+    readFiles: env.ctx.sources.length > 0,
+    effort: 'medium',
+    system: `${tutor('help')}
+
+Your job now: plan a short written course for the learner, from their description of what they want to learn. ${QUICK_VOICE}
+- "minutes": the reading time of the whole course. ${
+      minutes
+        ? `The learner asked for about ${readingTime(minutes)}.`
+        : 'Take it from what they asked: a length they named wins. Otherwise one idea is 5 to 10 minutes, a topic is 15 to 40, and working knowledge of a subject is 60 to 180.'
+    }
+- "title": 2 to 7 plain words naming the subject.
+- "summary": one or two sentences on what the reader will understand or be able to do at the end.
+- "sections": the parts, in reading order. One part per 5 to 20 minutes of reading, so a 5-minute course is one part and a 3-hour course is about twelve; never more than 14. For each:
+  - "title": plain and specific, the way a blog would head it ("Why a hash table is fast"), never "Introduction" or "Part 2".
+  - "covers": 2 or 3 sentences for the writer: the question this part answers, the ideas and the one example it uses, and where it stops.
+  - "minutes": its reading time. The parts add up to the whole.
+- Order it as one story (the method under "How to explain an idea"): start from the problem that makes the subject worth learning, and let each part need only what came before it. Pitch it to what the learner said about themselves.`,
+    prompt: `${describeClass(env.ctx, { includeRecords: false })}
+
+What the learner wants to learn, in their words:
+${request}
+
+Plan the course now.`,
+    schema: QuickPlanSchema,
+    demo: () => demo.quickPlan(request, minutes)
+  })
+}
+
+/** Reading speed the lengths are planned at. */
+const WORDS_PER_MINUTE = 200
+
+export function writeQuickSection(env: JobEnv, course: QuickCourse, index: number, onDelta: (d: string) => void): Promise<string> {
+  const section = course.sections[index]
+  const last = index === course.sections.length - 1
+  const before = course.sections.slice(0, index)
+  // The end of the part before, so this one picks up where it stopped.
+  const tail = before.at(-1)?.body?.slice(-900)
+  return runText(env.runtime, {
+    ...base(env),
+    purpose: 'quick-section',
+    readFiles: env.ctx.sources.length > 0,
+    effort: 'medium',
+    onDelta,
+    system: `${tutor('help')}
+
+Your job now: write one part of a short written course. ${QUICK_VOICE}
+- Write this part only, as markdown, starting straight with the prose. mint shows the part's title itself: do not write it, and do not open with a heading.
+- About ${section.minutes * WORDS_PER_MINUTE} words (${readingTime(section.minutes)} of reading). Reach that with substance (the reasoning, a worked example, what goes wrong and why), never with padding.
+- Teach from the problem (the method under "How to explain an idea"): what was needed, the natural first try and where it breaks, the idea as the fix, the exact statement last.
+- Work through at least one small, concrete example in full. For a subject done in code, show real code in fenced blocks with the language, and say what each piece does. For a quantitative subject, use real numbers.
+- Use "###" subheadings only where a long part changes subject. Bold a term where it is first named. No bullet lists where sentences read better.
+- Do not repeat what earlier parts explained; build on it. ${index === 0 ? "This is the first part: open with the problem or question that makes the subject worth the reader's time, not with a definition." : 'Pick up from where the part before stopped, without announcing it.'}
+- ${last ? 'This is the last part: end with a short closing paragraph on what the reader can now do, and one or two concrete things to try or read next.' : 'End where the next part can pick up. No summary, no preview of what comes next.'}
+- No [[cite:...]] directives unless the class lists source materials.`,
+    prompt: `${describeClass(env.ctx, { includeRecords: false })}
+
+The course: "${course.title}". ${course.summary}
+The learner asked for: ${course.request}
+
+All parts, in order:
+${course.sections.map((s, i) => `${i + 1}. ${s.title}${i === index ? '  <- write this one' : ''}\n   ${s.covers}`).join('\n')}
+${tail ? `\nHow part ${index} ended:\n…${tail}\n` : ''}
+Write part ${index + 1} of ${course.sections.length} now: "${section.title}".`,
+    demo: () => demo.quickSection(course, index)
   })
 }
 
@@ -316,8 +430,13 @@ const RUNG_RULES: Record<Rung, string> = {
 Take the space the idea needs and no more: short paragraphs, headings or numbered steps only for longer answers, no padding, and a short answer for a small question. End with one short question that checks understanding.`
 }
 
-const MAIN_CHAT_RULES = `You are the tutor in the class's main chat. The learner's materials are open in a viewer beside the chat.
-You have tools you can OFFER as buttons (the learner clicks to run them); offer at most one per reply, and only when it would genuinely help practice or see the idea:
+/** What is open beside the chat depends on the class's mode. */
+const mainChatRules = (
+  ctx: ClassContext
+) => `You are the tutor in the class's main chat. ${classMode(ctx.meta) === 'quick' ? 'The course mint wrote for the learner is open beside the chat.' : "The learner's materials are open in a viewer beside the chat."}
+${MAIN_CHAT_TOOLS}`
+
+const MAIN_CHAT_TOOLS = `You have tools you can OFFER as buttons (the learner clicks to run them); offer at most one per reply, and only when it would genuinely help practice or see the idea:
 - [[offer:quiz|<focus>]] a short multiple-choice quiz on <focus>
 - [[offer:code|<focus>]] a small coding exercise on <focus> (only if the subject involves code, algorithms or computation)
 - [[offer:diagram|<what to draw>]] an interactive diagram`
@@ -407,6 +526,8 @@ export function tutorReply(env: JobEnv, t: ThreadContext, onDelta: (d: string) =
 Point at parts while you talk: put [[highlight:<elementId>]] right where you mention a part, and [[set:<paramId>=<value>]] where moving a slider helps. Use only the ids above.`
     : ''
   const studyBox = t.session ? `\n\n${describeStudyBox(env.ctx, t.session, t.sessionTopic, t.studyDraft, t.sessionSteps)}` : ''
+  // A quick course is written from the tutor's own knowledge: there are no materials for a question to fall outside of.
+  const noMaterials = classMode(env.ctx.meta) === 'quick' && !env.ctx.sources.length
   return runText(env.runtime, {
     ...base(env),
     purpose: `tutor-rung-${rung}`,
@@ -415,8 +536,8 @@ Point at parts while you talk: put [[highlight:<elementId>]] right where you men
     onDelta,
     system: `${tutor('help', 'wisdom')}
 
-${thread.anchor.kind === 'general' ? MAIN_CHAT_RULES : 'You are answering in a small Ask popover next to what the learner is reading.'} ${RUNG_RULES[rung]}
-If the materials do not cover the question, say so in one sentence, then teach it anyway from general knowledge, labeled "outside your materials".${diagramRules}${t.session ? `\n${STUDY_BOX_RULES}` : ''}`,
+${thread.anchor.kind === 'general' ? mainChatRules(env.ctx) : 'You are answering in a small Ask popover next to what the learner is reading.'} ${RUNG_RULES[rung]}
+${noMaterials ? 'This class has no source materials, so answer from your own knowledge and from the course mint wrote.' : 'If the materials do not cover the question, say so in one sentence, then teach it anyway from general knowledge, labeled "outside your materials".'}${diagramRules}${t.session ? `\n${STUDY_BOX_RULES}` : ''}`,
     prompt: `${describeClass(env.ctx)}${studyBox}
 
 ${anchor}

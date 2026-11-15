@@ -41,6 +41,8 @@ const ctx: ClassContext = {
   },
   sources: [],
   curriculum: null,
+  contents: null,
+  quickCourse: null,
   progress: {},
   records: [],
   glossary: [],

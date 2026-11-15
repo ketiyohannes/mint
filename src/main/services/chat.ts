@@ -1,8 +1,21 @@
-import { UNNAMED_CLASS, type ChatCommand, type ChoiceQuestion, type CodeLanguage, type CodeRunResult, type QuizQuestion, type Thread, type ThreadMessage, type WidgetAnswer } from '@shared/types'
+import {
+  CHAT_COMMANDS,
+  UNNAMED_CLASS,
+  type ChatCommand,
+  type ChoiceQuestion,
+  type CodeLanguage,
+  type CodeRunResult,
+  type QuizQuestion,
+  type Thread,
+  type ThreadMessage,
+  type WidgetAnswer
+} from '@shared/types'
 import { allTopics, findTopic } from '@shared/curriculum'
+import { classMode, explainRequest, readingTime } from '@shared/mode'
 import { intakeQuestions, makeExercise, makeQuiz, reviewCode, type StudyDraft } from '../jobs'
 import type { ClassService } from './classes'
 import type { DiagramService } from './diagrams'
+import type { QuickCourseService } from './quick'
 import type { SessionService } from './sessions'
 import type { SetupService } from './setup'
 import type { SourceService } from './sources'
@@ -10,6 +23,7 @@ import type { ThreadService } from './threads'
 import type { Kernel } from './kernel'
 import { notice, userError, userMessage } from './kernel'
 import { AgentError } from '../agents/types'
+import { cleanMinutes } from '../learning/quick'
 
 export interface ChatSendInput {
   classId: string
@@ -19,9 +33,10 @@ export interface ChatSendInput {
   streamId: string
   /** An unsent answer in the lesson's study box, for the tutor to see. */
   studyDraft?: StudyDraft
+  /** The reading time asked for, when the message is the request for a quick course. */
+  minutes?: number
 }
 
-const COMMANDS: ChatCommand[] = ['quiz', 'code', 'diagram', 'lesson', 'plan']
 const clip = (s: string, n: number) =>
   String(s ?? '')
     .replace(/\s+/g, ' ')
@@ -36,6 +51,10 @@ const clip = (s: string, n: number) =>
  * before it plans). After that, messages go to the tutor (with the help
  * ladder), and tools (quiz, code exercise, diagram, lesson, plan) post
  * interactive widgets into the conversation.
+ *
+ * A class that is not a course has no intake: a simple class goes straight
+ * to the tutor (and `explain` answers about one item of its contents), and
+ * the first message of a quick class is the request its course is written from.
  */
 export class ChatService {
   constructor(
@@ -45,7 +64,8 @@ export class ChatService {
     private readonly sessions: SessionService,
     private readonly setup: SetupService,
     private readonly sources: SourceService,
-    private readonly diagrams: DiagramService
+    private readonly diagrams: DiagramService,
+    private readonly quick: QuickCourseService
   ) {
     // The first plan is announced in the chat where the intake happened.
     setup.onPlanned = (classId) => this.announcePlan(classId)
@@ -59,8 +79,12 @@ export class ChatService {
     if (!message) throw userError('Type (or say) your message first.')
     const meta = await this.k.repo.requireMeta(classId)
     if (input.threadId) await this.requireChat(classId, input.threadId)
+    const mode = classMode(meta)
 
-    if (meta.stage === 'intake') {
+    // A quick class with no course yet: this message says what the course is about.
+    if (mode === 'quick' && !(await this.k.repo.read(classId, 'quickCourse'))) return this.startQuickCourse(input, message)
+
+    if (mode === 'course' && meta.stage === 'intake') {
       const all = await this.k.repo.read(classId, 'threads')
       const pending = findPendingQuestions(all)
       // Typing instead of picking options answers the open questions in the learner's own words.
@@ -113,11 +137,20 @@ export class ChatService {
   async command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string; streamId?: string }): Promise<Thread> {
     const { classId } = input
     const command = input.command
-    if (!COMMANDS.includes(command)) throw userError('Unknown command.')
+    if (!CHAT_COMMANDS.includes(command)) throw userError('Unknown command.')
     const arg = clip(input.arg ?? '', 600)
     const meta = await this.k.repo.requireMeta(classId)
     if (input.threadId) await this.requireChat(classId, input.threadId)
 
+    if (command === 'explain') return this.explain(classId, arg, input.streamId)
+    // Lessons and the plan belong to a course.
+    if ((command === 'lesson' || command === 'plan') && classMode(meta) !== 'course') {
+      throw userError(
+        classMode(meta) === 'quick'
+          ? 'A quick course has no lessons: it is one piece to read.'
+          : 'This class is in Simple mode, which has no lessons. Switch it to Course in the class menu to get a plan.'
+      )
+    }
     if (command === 'lesson') return this.threads.track(input.streamId, (signal) => this.startLesson(classId, input.threadId, arg, signal))
 
     const focus = arg || (await this.currentFocus(classId)) || meta.mission.topic || meta.title
@@ -138,7 +171,7 @@ export class ChatService {
     }
   }
 
-  private async runTool(classId: string, threadId: string, command: Exclude<ChatCommand, 'lesson'>, focus: string, arg: string, signal: AbortSignal): Promise<Thread> {
+  private async runTool(classId: string, threadId: string, command: Exclude<ChatCommand, 'lesson' | 'explain'>, focus: string, arg: string, signal: AbortSignal): Promise<Thread> {
     const runtime = await this.k.runtime()
     switch (command) {
       case 'quiz': {
@@ -173,6 +206,53 @@ export class ChatService {
         await this.setup.plan(classId, arg || 'Revise the plan based on my recent evidence and any new materials.')
         return this.appendPlan(classId, threadId, 'Updated plan:')
       }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Simple mode: explain one item of the contents, in a chat of its own
+  // -------------------------------------------------------------------------
+
+  /**
+   * Each item has one chat: the first time it is picked the tutor explains it
+   * there, and picking it again opens that chat instead of explaining twice.
+   */
+  private async explain(classId: string, itemId: string, streamId: string | undefined): Promise<Thread> {
+    const [contents, threads, sources] = await Promise.all([this.k.repo.read(classId, 'contents'), this.k.repo.read(classId, 'threads'), this.k.repo.read(classId, 'sources')])
+    const item = contents?.items.find((i) => i.id === itemId)
+    if (!item) throw userError('That item is no longer in the list.')
+    const existing = threads.find((t) => t.itemId === item.id)
+    if (existing) return existing
+    const where = item.sources.map((s) => `${sources.find((x) => x.id === s.sourceId)?.title ?? s.sourceId} [${s.section}] (sourceId ${s.sourceId})`).join('; ')
+    const context = `The learner picked "${item.title}" from the list of what their materials contain, to have it explained. In the list it reads: ${item.summary}${where ? ` It is developed in: ${where}.` : ''} Read those passages first.`
+    const thread = await this.threads.createChat(classId, item.title, [{ role: 'user', text: explainRequest(item.title) }], undefined, { itemId: item.id, context })
+    return this.threads.answer(classId, thread.id, streamId ?? `explain-${thread.id}`)
+  }
+
+  // -------------------------------------------------------------------------
+  // Quick mode: the first message is the request the course is written from
+  // -------------------------------------------------------------------------
+
+  private async startQuickCourse(input: ChatSendInput, message: string): Promise<Thread> {
+    const { classId } = input
+    const thread = input.threadId
+      ? await this.threads.append(classId, input.threadId, [{ role: 'user', text: message }])
+      : await this.threads.createChat(classId, message, [{ role: 'user', text: message }])
+    try {
+      const course = await this.threads.track(input.streamId, (signal) => this.quick.plan(classId, message, cleanMinutes(input.minutes), signal))
+      // The parts are written in the background; the chat is free for questions meanwhile.
+      this.quick.write(classId)
+      const parts = course.sections.length
+      return await this.threads.append(classId, thread.id, [
+        {
+          role: 'tutor',
+          text: `**${course.title}.** ${course.summary}\n\nI am writing it now: about ${readingTime(course.minutes)} to read, in ${parts} part${parts === 1 ? '' : 's'}. It opens beside the chat as it is written. Ask me anything about it here.`,
+          widget: { kind: 'course' }
+        }
+      ])
+    } catch (err) {
+      if (isStopped(err)) return this.threads.append(classId, thread.id, [{ role: 'tutor', text: '_Stopped._ Send another message when you are ready.' }])
+      return this.threads.append(classId, thread.id, [{ role: 'tutor', text: `Sorry, I could not plan the course: ${userMessage(err)}\n\nSend another message to try again.`, error: true }])
     }
   }
 

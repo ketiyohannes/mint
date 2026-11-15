@@ -1,7 +1,7 @@
-import type { Brief, CheckAttempt, CheckKind, Diagnostic, NoteDoc, Session, Topic, Verdict } from '@shared/types'
+import type { Brief, CheckAttempt, CheckKind, Diagnostic, NoteDoc, QuickCourse, Session, Topic, Verdict } from '@shared/types'
 import type { ClassContext } from './context'
 import type { ThreadContext } from './index'
-import type { CurriculumOutput, DiagramOutput, ExerciseOutput, IntakeQuestionsOutput, QuizOutput } from './schemas'
+import type { ContentsOutput, CurriculumOutput, DiagramOutput, ExerciseOutput, IntakeQuestionsOutput, QuickPlanOutput, QuizOutput } from './schemas'
 import { UNNAMED_CLASS, type CodeLanguage } from '@shared/types'
 import { slugify } from '../store/fsutil'
 
@@ -107,6 +107,71 @@ export function curriculum(ctx: ClassContext): CurriculumOutput {
     cadence: ctx.meta.intake.timePerWeek ? `Sessions spread across ${ctx.meta.intake.timePerWeek}.` : 'Two or three short sessions per week.',
     milestones
   }
+}
+
+/** One item per meaningful section, in reading order. */
+export function contents(ctx: ClassContext): ContentsOutput {
+  const items: ContentsOutput['items'] = []
+  for (const s of ctx.sources) {
+    const labels = s.sectionLabels.filter((l) => l && !/^(introduction|contents|references|bibliography)$/i.test(l))
+    ;(labels.length ? labels : s.sectionLabels).slice(0, 6).forEach((label, i) => {
+      items.push({
+        title: GENERIC_LABEL.test(label) ? `${s.meta.title}: part ${i + 1}` : label,
+        summary: `What "${label}" says in ${s.meta.title}, and what the rest builds on it.`,
+        sources: [{ sourceId: s.meta.id, section: label }]
+      })
+    })
+  }
+  const first = ctx.sources[0]?.meta.title ?? ctx.meta.title
+  return { summary: `${ctx.sources.length > 1 ? `${ctx.sources.length} sources, starting with` : 'This is'} "${first}". The list follows the reading order.`, items: items.slice(0, 12) }
+}
+
+/** The subject of a request: its first few words, without the "teach me" around them. */
+function quickSubject(request: string): string {
+  const subject = request
+    .replace(/^(please\s+)?(i want to |i'd like to |teach me |help me |explain |write me )?(a (short |quick )?course (on|about) |learn |understand |study |about |how )?/i, '')
+    .split(/[.?!\n]/)[0]
+    .trim()
+    .split(/\s+/)
+    .slice(0, 6)
+    .join(' ')
+  return subject || 'your topic'
+}
+
+export function quickPlan(request: string, minutes: number | null): QuickPlanOutput {
+  const subject = quickSubject(request)
+  const total = minutes ?? 12
+  const titles = total <= 6 ? [`What ${subject} is for`] : [`The problem behind ${subject}`, `How ${subject} works`, `Putting ${subject} to use`]
+  return {
+    title: subject.charAt(0).toUpperCase() + subject.slice(1),
+    summary: `A short read that takes you from why ${subject} matters to using it once yourself.`,
+    minutes: total,
+    sections: titles.map((title, i) => ({
+      title,
+      covers:
+        i === 0
+          ? `The question ${subject} answers, shown on one small example.`
+          : i === 1
+            ? 'The idea itself, built step by step, with the exact statement last.'
+            : 'One worked case, the usual mistake, and what to try next.',
+      minutes: total / titles.length
+    }))
+  }
+}
+
+export function quickSection(course: QuickCourse, index: number): string {
+  const section = course.sections[index]
+  const subject = course.title.toLowerCase()
+  const last = index === course.sections.length - 1
+  return [
+    `Start with a small case. Suppose you meet ${subject} for the first time and nobody has told you its name. What would you need it for? That question is what **${section.title.toLowerCase()}** is about.`,
+    `Here is the idea in one line. If doing something once costs $c$, doing it $n$ times costs about $n \\cdot c$, and most of ${subject} is a way to pay less than that.`,
+    '```python\ndef total_cost(n, c):\n    # The plain way: pay the full price every time.\n    return n * c\n```',
+    `The plain way works, and it is where everybody starts. It breaks when $n$ gets large, and seeing why it breaks is what makes the better way feel obvious instead of clever.`,
+    last
+      ? `That is the whole of it. You can now say what ${subject} is for and use it on a small case. Next, try it on a problem of your own.`
+      : `So far so good. What is still missing is the reason this holds in general.`
+  ].join('\n\n')
 }
 
 export function brief(ctx: ClassContext, topic: Topic): Brief {

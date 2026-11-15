@@ -1,7 +1,9 @@
-import { UNNAMED_CLASS, type ClassMeta } from '@shared/types'
+import { CLASS_MODES, UNNAMED_CLASS, type ClassMeta, type ClassMode } from '@shared/types'
+import { classMode } from '@shared/mode'
 import { titleFromPaths } from '../sources/expand'
 import { domainOf } from '../sources'
 import type { ClassService } from './classes'
+import type { ContentsService } from './contents'
 import type { IntakeService } from './intake'
 import type { SourceService } from './sources'
 import type { Kernel } from './kernel'
@@ -12,13 +14,17 @@ export interface StartClassInput {
   goal?: string
   paths?: string[]
   urls?: string[]
+  /** How the class teaches (a course when omitted). */
+  mode?: ClassMode
 }
 
 /**
  * Project-style class creation: open a folder (or nothing) and start.
- * Materials import in the background; the intake happens in the chat
- * (ChatService), which then asks for a plan. The plan is applied directly
- * and stays adjustable.
+ * Materials import in the background. What follows depends on the mode:
+ * - course: the intake happens in the chat (ChatService), which then asks for
+ *   a plan. The plan is applied directly and stays adjustable.
+ * - simple: the materials are listed as soon as they are imported.
+ * - quick: nothing, until the learner says in the chat what they want to learn.
  */
 export class SetupService {
   private planning = new Map<string, Promise<void>>()
@@ -31,7 +37,8 @@ export class SetupService {
     private readonly k: Kernel,
     private readonly classes: ClassService,
     private readonly sources: SourceService,
-    private readonly intake: IntakeService
+    private readonly intake: IntakeService,
+    private readonly contents: ContentsService
   ) {}
 
   async start(input: StartClassInput): Promise<ClassMeta> {
@@ -45,12 +52,16 @@ export class SetupService {
     const goal = String(input?.goal ?? '').trim()
     const title = String(input?.title ?? '').trim() || (await titleFromPaths(paths)) || (urls[0] ? domainOf(urls[0]) : '') || goal.slice(0, 80) || UNNAMED_CLASS
     const hasMaterials = paths.length > 0 || urls.length > 0
+    const mode = CLASS_MODES.includes(input?.mode as ClassMode) ? (input.mode as ClassMode) : 'course'
     const meta = await this.classes.create({
       title,
+      mode,
       mission: { topic: title, why: goal, successLooksLike: [], constraints: [], outOfScope: [] },
       intake: { timeline: '', timePerWeek: '', sessionLength: '30 minutes', priorExperience: '', preferences: '', materialsMode: hasMaterials ? 'own' : 'trusted' }
     })
     const run = this.bootstrap(meta.id, paths, urls)
+      // A simple class is listed as soon as its materials are in. A course waits for the intake.
+      .then(() => (mode === 'simple' ? this.sourcesChanged(meta.id) : undefined))
       .catch((err) => notice(this.k, meta.id, 'Setting up the class', err))
       .finally(() => this.importing.delete(meta.id))
     this.importing.set(meta.id, run)
@@ -78,6 +89,16 @@ export class SetupService {
         notice(this.k, classId, 'Import', err)
       }
     }
+  }
+
+  /**
+   * The class's materials changed (or its mode did): a simple class is listed
+   * again, and a course that was waiting for its first sources gets its plan.
+   */
+  async sourcesChanged(classId: string): Promise<void> {
+    const mode = classMode(await this.k.repo.requireMeta(classId))
+    if (mode === 'simple') this.contents.refreshSoon(classId)
+    else if (mode === 'course') this.planIfUnplanned(classId)
   }
 
   /** Plan (or re-plan) and apply the result. Concurrent requests for a class share one run. */

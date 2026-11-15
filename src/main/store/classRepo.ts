@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type {
   Annotation,
   ClassMeta,
+  Contents,
   Curriculum,
   CurriculumProposal,
   Diagnostic,
@@ -11,6 +12,7 @@ import type {
   HelpEvent,
   LearningRecord,
   NoteDoc,
+  QuickCourse,
   Session,
   SourceDoc,
   SourceMeta,
@@ -29,6 +31,8 @@ export interface ClassFiles {
   diagnostic: Diagnostic | null
   curriculum: Curriculum | null
   curriculumProposals: CurriculumProposal[]
+  contents: Contents | null
+  quickCourse: QuickCourse | null
   progress: Record<string, TopicProgress>
   sessions: Session[]
   threads: Thread[]
@@ -47,6 +51,8 @@ const DEFAULTS: { [K in keyof ClassFiles]: () => ClassFiles[K] } = {
   diagnostic: () => null,
   curriculum: () => null,
   curriculumProposals: () => [],
+  contents: () => null,
+  quickCourse: () => null,
   progress: () => ({}),
   sessions: () => [],
   threads: () => [],
@@ -69,6 +75,7 @@ const DEFAULTS: { [K in keyof ClassFiles]: () => ClassFiles[K] } = {
  *   classes/<id>/sources/<sid>/content.md agent-readable text with block ids
  *   classes/<id>/sources/<sid>/original.* imported original
  *   classes/<id>/MISSION.md, CURRICULUM.md, RESOURCES.md, GLOSSARY.md,
+ *   classes/<id>/CONTENTS.md (simple mode), COURSE.md (quick mode),
  *   classes/<id>/learning-records/*.md, notes/*.md, reference/*.md  (exports)
  */
 export class ClassRepo {

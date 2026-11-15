@@ -23,7 +23,7 @@ export interface StudyApi {
   command: (command: ChatCommand, arg?: string) => void
   /** Open a lesson over the current chat (or in the Study tab), or bring the open one into view. */
   openLesson: (sessionId: string) => void
-  /** Show the Lessons tab (the plan). */
+  /** Show the class's guide tab: a course's lessons, a simple class's contents, or the quick course. */
   openLessons: () => void
   /** Diagrams register so tutor directives can point at their parts. */
   registerDiagram: (explorableId: string, controller: DiagramController | null) => void

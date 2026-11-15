@@ -56,12 +56,13 @@ Settings → Data folder opens the folder of the profile in use.
 ## Tests
 
 - **Unit tests** (`tests/unit`, Vitest) cover the main process and the shared logic: importers, the curriculum and mastery rules, the services, the Codex protocol, the updater's pure parts. They run headless against the Demo runtime, with no Electron.
-- **The end-to-end test** (`tests/e2e/flow.spec.ts`, Playwright) is one long flow through the whole product. It fails on any console error. It finds controls by `data-testid`, so give every new control one and extend the flow when you add a feature.
+- **The end-to-end test** (`tests/e2e/flow.spec.ts`, Playwright) drives the whole product in two long flows: a course from start to finish, then a simple class and a quick course. It fails on any console error. It finds controls by `data-testid`, so give every new control one and extend the flow when you add a feature.
 - **Live tests** call a real model and are skipped unless asked for:
 
   ```bash
   MINT_LIVE=claude npx vitest run tests/unit/live-harness.test.ts   # Claude Agent SDK, on your account
   MINT_LIVE=codex  npx vitest run tests/unit/live-harness.test.ts   # Codex app-server
+  MINT_LIVE=claude npx vitest run tests/unit/modes.live.test.ts     # simple mode and quick mode
   MINT_LIVE_CODEX=1 npx vitest run tests/unit/codex.live.test.ts
   ```
 

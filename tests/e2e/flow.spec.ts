@@ -756,6 +756,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
 
   // --- No materials: the tutor finds trusted sources in the chat --------------------------------
   await page.getByTestId('new-class').click()
+  await page.getByTestId('new-course-empty').click()
   await expect(page.getByTestId('chat-hero')).toContainText('What do you want to learn?')
   await say(page, 'I want to learn linear algebra')
   await expect(page.getByTestId('sidebar-class').first()).toContainText('Linear algebra')
@@ -832,6 +833,136 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('tutor-message')).toHaveCount(2)
   await page.getByTestId('nav-settings').click()
   await page.getByTestId('tutor-teach').click()
+
+  expect(m.errors.filter((e) => !/Download the React DevTools|Electron Security Warning/.test(e))).toEqual([])
+})
+
+test('a learner has their material explained in a simple class, and a quick course written on a topic', async () => {
+  m = await launch({ pick: [materialsFolder()] })
+  const { page } = m
+  page.on('dialog', (d) => void d.accept())
+  await page.getByTestId('nav-settings').click()
+  await page.getByTestId('provider-demo').click()
+
+  // --- The ways to start a class ---------------------------------------------------------------
+  await page.getByTestId('new-class').click()
+  const menu = page.getByTestId('new-class-menu')
+  await expect(menu).toContainText('Simple class')
+  await expect(menu).toContainText('Quick course')
+  await shot(page, 'new-class-menu')
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+
+  // --- Simple: no intake and no plan, a list of what the material contains ------------------------
+  await page.getByTestId('new-class').click()
+  await page.getByTestId('new-simple').click()
+  await expect(page.getByTestId('sidebar-class')).toContainText('Linear Algebra')
+  // The prompt is ready at once: nothing asks what you want to learn first.
+  await expect(page.locator('.hero-title')).toHaveText('Linear Algebra')
+  await expect(page.getByTestId('tab-lessons')).toContainText('Contents')
+  await expect(page.getByTestId('tab-study')).toHaveCount(0)
+  await page.getByTestId('tab-lessons').click()
+  const items = page.getByTestId('contents-item')
+  await expect(items.first()).toBeVisible({ timeout: 20_000 })
+  expect(await items.count()).toBeGreaterThan(1)
+  const firstTitle = await items.first().locator('.plan-topic-title').innerText()
+  const secondTitle = await items.nth(1).locator('.plan-topic-title').innerText()
+  // The first things in the material are one click away from the new chat, too.
+  await expect(page.getByTestId('hero-chip').first()).toHaveText(firstTitle)
+  await expectShellInPlace(page)
+  await shot(page, 'simple-contents')
+
+  // A simple class has no lessons to start.
+  await page.getByTestId('ask-input').fill('/')
+  await expect(page.getByTestId('slash-menu')).toContainText('/quiz')
+  await expect(page.getByTestId('slash-menu')).not.toContainText('/lesson')
+  await page.getByTestId('ask-input').fill('')
+  await page.getByTestId('composer-actions').click()
+  await expect(page.getByTestId('action-quiz')).toBeVisible()
+  await expect(page.getByTestId('action-lesson')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // Pick an item: the tutor explains it in a chat of its own.
+  await items.first().getByTestId('contents-explain').click()
+  await expect(page.getByTestId('chat-title')).toHaveText(firstTitle)
+  await expect(page.getByTestId('user-message')).toHaveText(`Explain: ${firstTitle}`)
+  await expect(page.getByTestId('tutor-message')).toHaveCount(1)
+  await expect(page.getByTestId('tutor-streaming')).toHaveCount(0)
+  await expect(page.getByTestId('sidebar-chat')).toHaveCount(1)
+  await expect(items.first().getByTestId('contents-explain')).toHaveText('Open')
+  await expect(page.getByTestId('contents-explained')).toHaveText('1 explained')
+  // Another item gets another chat, not a place in the middle of this one.
+  await items.nth(1).getByTestId('contents-explain').click()
+  await expect(page.getByTestId('chat-title')).toHaveText(secondTitle)
+  await expect(page.getByTestId('tutor-message')).toHaveCount(1)
+  await expect(page.getByTestId('sidebar-chat')).toHaveCount(2)
+  // An item that was explained opens its chat again: nothing is explained twice.
+  await items.first().getByTestId('contents-explain').click()
+  await expect(page.getByTestId('chat-title')).toHaveText(firstTitle)
+  await expect(page.getByTestId('sidebar-chat')).toHaveCount(2)
+  await expect(page.getByTestId('tutor-message')).toHaveCount(1)
+  await shot(page, 'simple-explained')
+  // The chip on an item opens the passage it comes from.
+  await items.first().getByTestId('contents-source').first().click()
+  await expect(page.getByTestId('page-sources')).toHaveClass(/active/)
+  await expect(page.getByTestId('reader').or(page.getByTestId('pdf-view')).first()).toBeVisible()
+
+  // The mode belongs to the class: it can become a course, and go back.
+  await page.getByTestId('class-menu').click()
+  await expect(page.getByTestId('mode-simple')).toHaveClass(/on/)
+  await page.getByTestId('mode-course').click()
+  await expect(page.getByTestId('tab-lessons')).toContainText('Lessons')
+  await page.getByTestId('class-menu').click()
+  await expect(page.getByTestId('mode-course')).toHaveClass(/on/)
+  await page.getByTestId('mode-simple').click()
+  await expect(page.getByTestId('tab-lessons')).toContainText('Contents')
+  await page.getByTestId('tab-lessons').click()
+  await expect(page.getByTestId('contents-explained')).toHaveText('2 explained')
+
+  // --- Quick: describe what you want, read the course mint writes ---------------------------------
+  await page.getByTestId('new-class').click()
+  await page.getByTestId('new-quick').click()
+  await expect(page.getByTestId('chat-hero')).toContainText('What do you want to learn?')
+  await expect(page.getByTestId('tab-lessons')).toContainText('Course')
+  await expect(page.getByTestId('course-empty')).toBeVisible()
+  await page.getByTestId('quick-length-20').click()
+  await expect(page.getByTestId('quick-length-20')).toHaveClass(/on/)
+  await shot(page, 'quick-new')
+  await say(page, 'Teach me binary search')
+  // The chat keeps a pointer to the course; the course itself is read beside it.
+  await expect(page.getByTestId('course-widget')).toBeVisible()
+  await expect(page.getByTestId('course-title')).toHaveText('Binary search')
+  await expect(page.getByTestId('sidebar-class').first()).toContainText('Binary search')
+  await expect(page.getByTestId('course-part')).toHaveCount(3)
+  await expect(page.getByTestId('course-toc-item')).toHaveCount(3)
+  // Written part by part, then done: nothing is left to stop or to continue.
+  await expect(page.getByTestId('course-status')).toHaveCount(0, { timeout: 20_000 })
+  await expect(page.getByTestId('course-pending')).toHaveCount(0)
+  await expect(page.getByTestId('course-widget-status')).toHaveText('20 min to read · 3 parts')
+  // It is the tutor's text like any other: code is coloured and formulas are set.
+  await expect(page.locator('.course-part .tok-keyword').first()).toBeVisible()
+  await expect(page.locator('.course-part .katex').first()).toBeVisible()
+  await expectShellInPlace(page)
+  await shot(page, 'quick-course')
+  // The list of parts jumps down the page.
+  await page.getByTestId('course-toc-item').nth(2).click()
+  await expect.poll(() => page.getByTestId('course').evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
+  // A passage of the course goes to the chat with the question about it.
+  await selectText(page, '.course-part', 'The plain way works')
+  await page.getByTestId('course-quote').click()
+  await expect(page.getByTestId('composer-quote')).toContainText('The plain way works')
+  await say(page, 'Why does it break?')
+  await expect(page.getByTestId('tutor-message')).toHaveCount(2)
+  await expect(page.getByTestId('tutor-streaming')).toHaveCount(0)
+  // The card in the chat brings the course back when another tab is showing.
+  await page.getByTestId('tab-notes').click()
+  await page.getByTestId('open-course').click()
+  await expect(page.getByTestId('page-lessons')).toHaveClass(/active/)
+  // A quick course stays one: its menu offers no other mode.
+  await page.getByTestId('class-menu').click()
+  await expect(page.getByTestId('delete-class')).toBeVisible()
+  await expect(page.getByTestId('class-mode')).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   expect(m.errors.filter((e) => !/Download the React DevTools|Electron Security Warning/.test(e))).toEqual([])
 })

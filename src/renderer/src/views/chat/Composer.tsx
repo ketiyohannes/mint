@@ -1,10 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
-import type { ChatCommand } from '@shared/types'
+import type { ChatCommand, ClassMode } from '@shared/types'
 import { Icon, type IconName } from '../../components/Icon'
 import { ModelPicker } from '../../components/ModelPicker'
 import { isTypingTarget } from '../../lib/shortcuts'
 
-export const SLASH_COMMANDS: { command: ChatCommand; args: string; description: string; icon: IconName }[] = [
+type SlashCommand = Exclude<ChatCommand, 'explain'>
+
+/** Lessons and the plan belong to a course: a simple class and a quick course do not offer them. */
+const COURSE_ONLY: readonly ChatCommand[] = ['lesson', 'plan']
+
+export const SLASH_COMMANDS: { command: SlashCommand; args: string; description: string; icon: IconName }[] = [
   { command: 'lesson', args: '[topic]', description: 'Start the next lesson (or a named one)', icon: 'lesson' },
   { command: 'quiz', args: '[focus]', description: 'A short quiz on what you are studying', icon: 'quiz' },
   { command: 'code', args: '[focus] [python|js]', description: 'A small coding exercise with tests', icon: 'code' },
@@ -13,7 +18,7 @@ export const SLASH_COMMANDS: { command: ChatCommand; args: string; description: 
 ]
 
 /** Parse "/quiz eigenvalues" into a command; null for ordinary text. */
-export function parseSlash(text: string): { command: ChatCommand; arg: string } | null {
+export function parseSlash(text: string): { command: SlashCommand; arg: string } | null {
   const m = /^\/(\w+)\b\s*([\s\S]*)$/.exec(text.trim())
   if (!m) return null
   const hit = SLASH_COMMANDS.find((c) => c.command === m[1].toLowerCase())
@@ -38,11 +43,14 @@ interface Props {
   /** A highlighted passage attached to the next message. */
   quote?: { text: string; source: string } | null
   onClearQuote?: () => void
+  /** How the class teaches: it decides which tools the box offers. */
+  mode?: ClassMode
 }
 
 /** The prompt box: auto-growing input, slash commands, actions menu, model picker, send/stop. */
 export function Composer(props: Props): JSX.Element {
-  const { draft, onDraft, inputRef, onSubmit, busy, onStop, placeholder, centered, autoFocus, onAddMaterials, recall, quote, onClearQuote } = props
+  const { draft, onDraft, inputRef, onSubmit, busy, onStop, placeholder, centered, autoFocus, onAddMaterials, recall, quote, onClearQuote, mode = 'course' } = props
+  const tools = mode === 'course' ? SLASH_COMMANDS : SLASH_COMMANDS.filter((c) => !COURSE_ONLY.includes(c.command))
   const [menu, setMenu] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
   /** Esc puts the tools list away until the text changes. */
@@ -99,7 +107,7 @@ export function Composer(props: Props): JSX.Element {
   }, [menu])
 
   const slashQuery = /^\/(\w*)$/.exec(draft)?.[1]
-  const matches = slashQuery !== undefined ? SLASH_COMMANDS.filter((c) => c.command.startsWith(slashQuery.toLowerCase())) : []
+  const matches = slashQuery !== undefined ? tools.filter((c) => c.command.startsWith(slashQuery.toLowerCase())) : []
   const showSlash = matches.length > 0 && !slashOff
 
   const send = () => {
@@ -109,7 +117,7 @@ export function Composer(props: Props): JSX.Element {
     onDraft('')
   }
 
-  const complete = (command: ChatCommand) => {
+  const complete = (command: SlashCommand) => {
     onDraft(`/${command} `)
     setSlashIndex(0)
     inputRef.current?.focus()
@@ -223,9 +231,11 @@ export function Composer(props: Props): JSX.Element {
               >
                 <Icon name="upload" size={14} /> Add materials…
               </button>
-              <button className="menu-item" disabled={busy} onClick={() => action('/lesson')} data-testid="action-lesson">
-                <Icon name="lesson" size={14} /> Start the next lesson
-              </button>
+              {mode === 'course' && (
+                <button className="menu-item" disabled={busy} onClick={() => action('/lesson')} data-testid="action-lesson">
+                  <Icon name="lesson" size={14} /> Start the next lesson
+                </button>
+              )}
               <button className="menu-item" disabled={busy} onClick={() => action('/quiz')} data-testid="action-quiz">
                 <Icon name="quiz" size={14} /> Quiz me
               </button>

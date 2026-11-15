@@ -11,6 +11,7 @@ import {
   ArrowSquareOutIcon,
   ArrowsOutSimpleIcon,
   ArrowUpIcon,
+  ArticleIcon,
   BookOpenIcon,
   CaretDownIcon,
   ChatCircleIcon,
@@ -33,7 +34,9 @@ import {
   GraduationCapIcon,
   HighlighterIcon,
   LifebuoyIcon,
+  LightningIcon,
   LinkSimpleIcon,
+  ListBulletsIcon,
   ListChecksIcon,
   MagnifyingGlassIcon,
   MinusIcon,
@@ -132,7 +135,10 @@ const ICONS = {
   search: MagnifyingGlassIcon,
   quote: QuotesIcon,
   splitH: SquareSplitHorizontalIcon,
-  splitV: SquareSplitVerticalIcon
+  splitV: SquareSplitVerticalIcon,
+  list: ListBulletsIcon,
+  bolt: LightningIcon,
+  article: ArticleIcon
 } satisfies Record<string, PhosphorIcon>
 
 export type IconName = keyof typeof ICONS

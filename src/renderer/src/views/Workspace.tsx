@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { Anchor, Annotation, ChatCommand, ClassBundle, Thread, WindowMessage } from '@shared/types'
+import type { Anchor, Annotation, ChatCommand, ClassBundle, ClassMode, Thread, WindowMessage } from '@shared/types'
 import type { Directive } from '@shared/directives'
 import { findTopic } from '@shared/curriculum'
+import { classMode } from '@shared/mode'
 import { useApp } from '../state/app'
 import { useSourceDoc } from '../state/useClass'
 import { api } from '../lib/api'
@@ -19,6 +20,8 @@ import { AskPopover, NotePopover, SelectionToolbar, TermPopover, placeExpanded, 
 import { StudyCtx, type DiagramController, type StudyApi } from './study/context'
 import { ChatView } from './chat/ChatView'
 import { LessonsPanel } from './LessonsPanel'
+import { ContentsPanel } from './ContentsPanel'
+import { QuickCoursePanel, forgetQuickPosition } from './QuickCoursePanel'
 import { StudyTab } from './study/StudyTab'
 import { LessonDock } from './study/LessonDock'
 import { LessonWindow } from './study/LessonWindow'
@@ -63,6 +66,18 @@ const PANEL_TABS: { id: PanelTab; label: string; icon: IconName }[] = [
   { id: 'notes', label: 'Notes', icon: 'notebook' }
 ]
 
+/**
+ * The second tab is the class's guide, and what it holds depends on how the
+ * class teaches: a course's lessons, a simple class's list of contents, or
+ * the quick course to read. It keeps one id, so layouts and messages that
+ * name it work in every mode.
+ */
+const GUIDE_TAB: Record<ClassMode, { label: string; icon: IconName }> = {
+  course: { label: 'Lessons', icon: 'lesson' },
+  simple: { label: 'Contents', icon: 'list' },
+  quick: { label: 'Course', icon: 'article' }
+}
+
 /** Whether the panel is showing, and its tab. */
 const PANEL_KEY = 'mint.panel'
 
@@ -106,7 +121,10 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
   const lessonOut = popouts.lesson !== null
   /** The open lesson docks over the chat unless Settings puts it in the Study tab (otherwise there is no Study tab). */
   const docked = (settings?.lessonView ?? 'dock') === 'dock'
-  const panelTabs = useMemo(() => (docked ? PANEL_TABS.filter((t) => t.id !== 'study') : PANEL_TABS), [docked])
+  const mode = classMode(bundle.meta)
+  /** Only a course has lessons, so only a course can have a Study tab. */
+  const studyTab = !docked && mode === 'course'
+  const panelTabs = useMemo(() => PANEL_TABS.filter((t) => studyTab || t.id !== 'study').map((t) => (t.id === 'lessons' ? { ...t, ...GUIDE_TAB[mode] } : t)), [studyTab, mode])
   const classId = bundle.meta.id
 
   // --- chats ---------------------------------------------------------------------
@@ -201,12 +219,12 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
   // (Not before Settings load: a Study tab remembered from the last run must survive the start.)
   const settingsLoaded = Boolean(settings)
   useEffect(() => {
-    if (!docked || !settingsLoaded) return
+    if (studyTab || !settingsLoaded) return
     if (panelTab === 'study') {
       setPanelTab(splitTab ?? 'lessons')
       if (splitTab) setSplit((s) => ({ ...s, tab: null }))
     } else if (split.tab === 'study') setSplit((s) => ({ ...s, tab: null }))
-  }, [docked, settingsLoaded, panelTab, splitTab, split.tab])
+  }, [studyTab, settingsLoaded, panelTab, splitTab, split.tab])
 
   const [dockFolded, setDockFolded] = useState(() => localStorage.getItem(DOCK_FOLDED_KEY) === '1')
   useEffect(() => localStorage.setItem(DOCK_FOLDED_KEY, dockFolded ? '1' : '0'), [dockFolded])
@@ -383,15 +401,31 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
 
   // --- chat tools ------------------------------------------------------------------
   const [commandRequest, setCommandRequest] = useState<{ command: ChatCommand; arg?: string; nonce: number } | null>(null)
+  /**
+   * Run a tool in this window's chat. An item of the contents has a chat of
+   * its own: one that was explained before opens that chat, and a new one is
+   * explained in a new chat (never in the middle of another conversation).
+   */
+  const runInChat = useCallback(
+    (cmd: ChatCommand, arg?: string) => {
+      if (cmd === 'explain') {
+        const explained = bundle.threads.find((t) => t.itemId && t.itemId === arg)
+        if (explained) return go({ name: 'class', classId, chatId: explained.id })
+        if (chatId !== null) go({ name: 'class', classId, chatId: null })
+      }
+      setCommandRequest({ command: cmd, arg, nonce: Date.now() })
+    },
+    [bundle.threads, chatId, classId, go]
+  )
   // Tools run in the chat that is showing (a new one from the class home); a lesson started there opens over every chat.
   const command = useCallback(
     (cmd: ChatCommand, arg?: string) => {
-      if (isMain) return setCommandRequest({ command: cmd, arg, nonce: Date.now() })
+      if (isMain) return runInChat(cmd, arg)
       // The chat is in the main window.
       sendToWindows({ type: 'command', classId, command: cmd, arg })
       focusWindow('main')
     },
-    [isMain, classId]
+    [isMain, classId, runInChat]
   )
   /**
    * Resume a lesson where you are: it becomes the class's open lesson, over
@@ -443,7 +477,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
   const onMessage = (m: WindowMessage) => {
     if (m.type === 'settings' || m.classId !== classId) return
     if (m.type === 'command') {
-      if (isMain) setCommandRequest({ command: m.command, arg: m.arg, nonce: Date.now() })
+      if (isMain) runInChat(m.command, m.arg)
     } else if (m.type === 'quote') {
       if (isMain) setQuoteRequest({ text: m.text, source: m.source, nonce: Date.now() })
     } else if (m.type === 'reveal-lesson') {
@@ -453,7 +487,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
     } else if (m.type === 'open-source') {
       if (bundle.sources.some((x) => x.id === m.sourceId)) showSource(m.sourceId, m.section, m.quote, false)
     } else if (m.tab === 'study') {
-      if (!docked) showStudyTab()
+      if (studyTab) showStudyTab()
     } else if (panelTabs.some((t) => t.id === m.tab)) {
       showPanel(m.tab as PanelTab)
     }
@@ -465,6 +499,17 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
     if (waiting) onMessage(waiting)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMain, classId])
+
+  // A quick course that was just planned comes into view: it is what the class is for.
+  const hadCourse = useRef(Boolean(bundle.quickCourse))
+  useEffect(() => {
+    const has = Boolean(bundle.quickCourse)
+    const planned = has && !hadCourse.current
+    hadCourse.current = has
+    if (!planned || !isMain) return
+    if (panelHere) showPanel('lessons')
+    else sendToWindows({ type: 'show-tab', classId, tab: 'lessons' })
+  }, [bundle.quickCourse, isMain, panelHere, classId, showPanel])
 
   // --- popovers (side chats) -------------------------------------------------------
   const [selection, setSelection] = useState<(SelectionAnchor & { sourceId: string }) | null>(null)
@@ -640,6 +685,8 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
         </button>
         <ClassMenu
           title={bundle.meta.title}
+          mode={mode}
+          onMode={(next) => void run(() => api.classes.update(classId, { mode: next }))}
           onRename={(title) => void run(() => api.classes.update(classId, { title }))}
           onDelete={async () => {
             if (!window.confirm(`Delete "${bundle.meta.title}" and everything in it? This cannot be undone.`)) return
@@ -650,6 +697,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
             if (!ok) return
             clearClassDrafts(classId)
             forgetPositions(classId)
+            forgetQuickPosition(classId)
             forgetBrowserPage(classId)
             const nextClass = classes.find((c) => c.id !== classId)
             go(nextClass ? { name: 'class', classId: nextClass.id } : { name: 'home' })
@@ -937,7 +985,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
           </div>
         )}
         {/* The study box stays mounted, so a half-written answer survives a tab switch. */}
-        {!docked && (
+        {studyTab && (
           <div className={pageClass('study', 'scroll')} data-testid="page-study">
             <ErrorBoundary label="the study box">
               {lessonOut ? (
@@ -974,13 +1022,26 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
             </ErrorBoundary>
           </div>
         )}
-        {slot('lessons') && (
-          <div className={pageClass('lessons', 'scroll')} data-testid="page-lessons">
-            <ErrorBoundary label="lessons">
-              <LessonsPanel bundle={bundle} onStart={(topicId) => command('lesson', topicId)} onResume={openLessonById} openSource={(sid, sec) => openSource(sid, sec)} />
-            </ErrorBoundary>
-          </div>
-        )}
+        {mode === 'quick'
+          ? // The course stays mounted, so switching tabs keeps your place in it.
+            visited.has('lessons') && (
+              <div className={pageClass('lessons')} data-testid="page-lessons">
+                <ErrorBoundary label="the course">
+                  <QuickCoursePanel bundle={bundle} onQuote={quoteToChat} />
+                </ErrorBoundary>
+              </div>
+            )
+          : slot('lessons') && (
+              <div className={pageClass('lessons', 'scroll')} data-testid="page-lessons">
+                <ErrorBoundary label={mode === 'simple' ? 'the contents' : 'lessons'}>
+                  {mode === 'simple' ? (
+                    <ContentsPanel bundle={bundle} onExplain={(itemId) => command('explain', itemId)} openSource={(sid, sec) => openSource(sid, sec)} onAddMaterials={() => void addMaterials()} />
+                  ) : (
+                    <LessonsPanel bundle={bundle} onStart={(topicId) => command('lesson', topicId)} onResume={openLessonById} openSource={(sid, sec) => openSource(sid, sec)} />
+                  )}
+                </ErrorBoundary>
+              </div>
+            )}
         {/* Notes stay mounted too, so a half-written note survives a tab switch. */}
         <div className={pageClass('notes')} data-testid="page-notes">
           <ErrorBoundary label="notes">
@@ -1121,7 +1182,16 @@ function EmptySources({ bundle, onPick }: { bundle: ClassBundle; onPick: () => v
   )
 }
 
-function ClassMenu({ title, onRename, onDelete }: { title: string; onRename: (title: string) => void; onDelete: () => void }): JSX.Element {
+interface ClassMenuProps {
+  title: string
+  mode: ClassMode
+  /** Move the class between Course and Simple. */
+  onMode: (mode: ClassMode) => void
+  onRename: (title: string) => void
+  onDelete: () => void
+}
+
+function ClassMenu({ title, mode, onMode, onRename, onDelete }: ClassMenuProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(title)
   const ref = useRef<HTMLDivElement>(null)
@@ -1161,6 +1231,28 @@ function ClassMenu({ title, onRename, onDelete }: { title: string; onRename: (ti
             </label>
             <input id="rename-class" className="input sm" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           </form>
+          {/* A quick course has no materials to plan lessons from or to list, so it stays what it is. */}
+          {mode !== 'quick' && (
+            <div>
+              <div className="dlabel">Mode</div>
+              <div className="seg" role="group" aria-label="Mode" data-testid="class-mode">
+                {(['course', 'simple'] as const).map((m) => (
+                  <button
+                    key={m}
+                    className={mode === m ? 'on' : ''}
+                    title={m === 'course' ? 'A plan of lessons with checks' : 'No lessons: a list of what is in your material, explained when you pick'}
+                    onClick={() => {
+                      setOpen(false)
+                      if (m !== mode) onMode(m)
+                    }}
+                    data-testid={`mode-${m}`}
+                  >
+                    {m === 'course' ? 'Course' : 'Simple'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <button
             className="menu-item danger"
             onClick={() => {

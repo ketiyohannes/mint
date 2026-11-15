@@ -6,6 +6,7 @@ import type {
   CheckKind,
   ClassBundle,
   ClassMeta,
+  ClassMode,
   ClassSummary,
   Explorable,
   GlossaryTerm,
@@ -51,8 +52,9 @@ export interface MintApi {
      * Returns at once; importing and planning continue in the background.
      * With no materials, mint proposes trusted sources for the topic instead.
      */
-    start(input: { title?: string; goal?: string; paths?: string[]; urls?: string[] }): Promise<ClassMeta>
-    update(classId: string, patch: { title?: string; mission?: Mission; intake?: Intake; trustedDomains?: string[] }): Promise<ClassMeta>
+    start(input: { title?: string; goal?: string; paths?: string[]; urls?: string[]; mode?: ClassMode }): Promise<ClassMeta>
+    /** `mode` moves a class between course and simple (a quick course stays one). */
+    update(classId: string, patch: { title?: string; mission?: Mission; intake?: Intake; trustedDomains?: string[]; mode?: ClassMode }): Promise<ClassMeta>
     remove(classId: string): Promise<void>
     activate(classId: string): Promise<void>
   }
@@ -88,9 +90,12 @@ export interface MintApi {
   }
   /** The class chat: intake, tutor replies, and tools that post interactive widgets. */
   chat: {
-    /** Omit threadId to start a new chat. */
-    /** studyDraft: an unsent answer in the open lesson's study box, so the tutor sees it too. */
-    send(input: { classId: string; threadId?: string; message: string; streamId: string; studyDraft?: { kind: CheckKind; text: string } }): Promise<Thread>
+    /**
+     * Omit threadId to start a new chat.
+     * studyDraft: an unsent answer in the open lesson's study box, so the tutor sees it too.
+     * minutes: the reading time asked for, when the message is the request for a quick course.
+     */
+    send(input: { classId: string; threadId?: string; message: string; streamId: string; studyDraft?: { kind: CheckKind; text: string }; minutes?: number }): Promise<Thread>
     answer(input: { classId: string; threadId: string; messageId: string; answer: WidgetAnswer }): Promise<Thread>
     /** streamId lets the composer's stop button cancel the tool (threads.cancel). */
     command(input: { classId: string; threadId?: string; command: ChatCommand; arg?: string; streamId?: string }): Promise<Thread>
@@ -124,6 +129,18 @@ export interface MintApi {
   }
   records: {
     supersede(classId: string, recordId: string, title: string, body: string): Promise<void>
+  }
+  /** Simple mode: the list of what the materials contain. */
+  contents: {
+    /** List the materials again (after they changed, or to try for a better list). */
+    refresh(classId: string): Promise<void>
+  }
+  /** Quick mode: the course being written. */
+  quick: {
+    /** Stop writing. The parts already written stay. */
+    stop(classId: string): Promise<void>
+    /** Write the parts that are still missing. */
+    resume(classId: string): Promise<void>
   }
   diagrams: {
     create(classId: string, prompt: string, anchor?: Anchor): Promise<Explorable>
@@ -184,6 +201,8 @@ export const API_GROUPS = {
   notes: ['save', 'remove', 'draftReference', 'review', 'fromThread'],
   glossary: ['propose', 'update', 'remove'],
   records: ['supersede'],
+  contents: ['refresh'],
+  quick: ['stop', 'resume'],
   diagrams: ['create', 'repair', 'setKept', 'remove'],
   system: ['pickMaterials', 'openExternal', 'platform', 'windowTheme'],
   updates: ['status', 'check', 'download', 'install'],

@@ -108,6 +108,17 @@ export interface Intake {
 
 export type ClassStage = 'intake' | 'active'
 
+/**
+ * How a class teaches. It is set per class, never for the whole app.
+ * - course: an intake, then a plan of lessons with checks, built on the materials.
+ * - simple: no plan and no lessons. mint lists what the materials contain and
+ *   explains whichever part the learner picks.
+ * - quick: no materials. The learner describes what they want to learn and
+ *   mint writes a short course to read, start to finish.
+ */
+export type ClassMode = 'course' | 'simple' | 'quick'
+export const CLASS_MODES: readonly ClassMode[] = ['course', 'simple', 'quick']
+
 /** Placeholder name of a class until the intake conversation names it. */
 export const UNNAMED_CLASS = 'New class'
 
@@ -116,7 +127,10 @@ export interface ClassMeta {
   title: string
   createdAt: string
   updatedAt: string
+  /** Only a course has stages: the intake, then the plan. */
   stage: ClassStage
+  /** Absent in classes made before modes existed: those are courses (shared/mode.ts). */
+  mode?: ClassMode
   mission: Mission
   intake: Intake
   /** Allowlist for this class (starts as a copy of Settings.trustedDomains). */
@@ -135,6 +149,7 @@ export interface ClassSummary {
   id: ID
   title: string
   stage: ClassStage
+  mode: ClassMode
   topic: string
   createdAt: string
   updatedAt: string
@@ -264,6 +279,60 @@ export interface CurriculumProposal {
   status: 'pending' | 'accepted' | 'rejected'
   /** Problems code found and repaired while validating the model's plan. */
   repairs: string[]
+}
+
+// ---------------------------------------------------------------------------
+// Simple mode: what the materials contain, as a list to pick from
+// ---------------------------------------------------------------------------
+
+export interface ContentsItem {
+  /** Stable across refreshes while the title stays, so the chat that explains an item stays with it. */
+  id: ID
+  title: string
+  /** One or two plain sentences: what it is and what it is for in the material. */
+  summary: string
+  /** Where the material develops it. */
+  sources: SourceRef[]
+}
+
+export interface Contents {
+  updatedAt: string
+  /** What the material as a whole is about. */
+  summary: string
+  items: ContentsItem[]
+}
+
+// ---------------------------------------------------------------------------
+// Quick mode: a short course mint writes from a description, read like an article
+// ---------------------------------------------------------------------------
+
+export interface QuickSection {
+  id: ID
+  title: string
+  /** What this part answers and uses: the writer's brief, not shown to the learner. */
+  covers: string
+  /** Reading time. */
+  minutes: number
+  /** Markdown. Absent until the part is written. */
+  body?: string
+}
+
+/** writing: parts are being written. stopped: the learner stopped it, or mint quit meanwhile. */
+export type QuickStatus = 'writing' | 'ready' | 'stopped' | 'failed'
+
+export interface QuickCourse {
+  title: string
+  summary: string
+  /** What the learner asked for, in their words. */
+  request: string
+  /** Reading time of the whole course. */
+  minutes: number
+  sections: QuickSection[]
+  status: QuickStatus
+  /** Why the writing failed. */
+  error?: string
+  createdAt: string
+  updatedAt: string
 }
 
 export type CheckKind = 'explain' | 'apply' | 'distinguish'
@@ -457,6 +526,8 @@ export type Widget =
   | { kind: 'code'; exercise: CodeExercise; submission?: { code: string; passed: number; total: number } }
   | { kind: 'diagram'; explorableId: ID }
   | { kind: 'sources' }
+  /** A pointer to the class's quick course, which is read in the panel. */
+  | { kind: 'course' }
 
 /** The learner's response to a widget. */
 export type WidgetAnswer =
@@ -465,8 +536,13 @@ export type WidgetAnswer =
   | { kind: 'quiz'; choices: number[] }
   | { kind: 'code'; code: string; result: CodeRunResult; streamId: string }
 
-/** Tools the learner (or a tutor offer chip) can invoke in a chat. */
-export type ChatCommand = 'quiz' | 'code' | 'diagram' | 'lesson' | 'plan'
+/**
+ * Tools the learner (or a tutor offer chip) can invoke in a chat. `explain`
+ * takes the id of an item of the class's contents (simple mode) and answers
+ * in that item's own chat.
+ */
+export type ChatCommand = 'quiz' | 'code' | 'diagram' | 'lesson' | 'plan' | 'explain'
+export const CHAT_COMMANDS: readonly ChatCommand[] = ['quiz', 'code', 'diagram', 'lesson', 'plan', 'explain']
 
 export interface Thread {
   id: ID
@@ -477,6 +553,8 @@ export interface Thread {
   rung: Rung
   pinned: boolean
   sessionId?: ID
+  /** The item of the class's contents this chat explains (simple mode): one chat per item. */
+  itemId?: ID
   createdAt: string
   updatedAt: string
 }
@@ -623,6 +701,10 @@ export interface ClassBundle {
   diagnostic: Diagnostic | null
   curriculum: Curriculum | null
   curriculumProposals: CurriculumProposal[]
+  /** Simple mode: what the materials contain. Null until it is listed. */
+  contents: Contents | null
+  /** Quick mode: the written course. Null until the learner asks for one. */
+  quickCourse: QuickCourse | null
   progress: Record<ID, TopicProgress>
   sessions: Session[]
   threads: Thread[]

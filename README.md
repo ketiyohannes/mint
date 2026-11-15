@@ -59,10 +59,11 @@ The tutor follows a modified version of [teach-skills](https://github.com/ketiyo
 - **Mastery, not coverage.** A topic counts as learned when you can explain it, apply it to a new case, and tell it apart from nearby ideas. Mastered topics come back as spaced reviews.
 - **Records of what you know.** Learning records and a glossary hold only what you have shown you understand. They set what to teach next.
 
-Every class is also a plain folder you own, in the `/teach` workspace format: `MISSION.md`, `CURRICULUM.md`, `RESOURCES.md`, `GLOSSARY.md`, `learning-records/`, `notes/` and `sources/`.
+Every class is also a plain folder you own, in the `/teach` workspace format: `MISSION.md`, `CURRICULUM.md`, `RESOURCES.md`, `GLOSSARY.md`, `learning-records/`, `notes/` and `sources/`. A simple class adds `CONTENTS.md`, and a quick course is kept as `COURSE.md`.
 
 ## Features
 
+- **Three ways to learn, chosen per class.** A **course** is the full method: an intake, a plan of lessons, checks and reviews. A **simple** class skips all of that: open a paper or a book and mint lists what is in it, in reading order; pick anything and the tutor explains it in a chat of its own, with the passage one click away. A **quick course** needs no materials: describe what you want to learn (and how long you have, from a few minutes to a few hours) and mint writes one continuous piece to read, like a long blog post, which you can question as you go. The **+** in the sidebar starts each kind, and a class can move between Course and Simple from its menu.
 - **Rich rendering everywhere.** Markdown, LaTeX, code, and arrays or matrices as cells look the same in the chat, side chats, lesson briefs, checks and quizzes.
 - **Notes.** A notepad with headings, lists and checklists, highlights, code, links and LaTeX formulas (type `$x^2$`). It saves as you type.
 - **Layout.** Swap the chat and the panel, resize them, or split the panel into two tabs, side by side or stacked. The open lesson can be dragged anywhere over the chat and resized from its sides and bottom.
@@ -122,8 +123,9 @@ src/main             Electron main process: owns all state
   agents/            AgentRuntime: claude.ts (Agent SDK), codex/ (app-server JSON-RPC), demo.ts
   jobs/              every prompt, zod schema and demo answer; format.ts is the shared formatting contract
   pedagogy/          the teach skill (mint edition) and its section loader
-  learning/          deterministic rules: curriculum validation, mastery, reviews, independence
-  services/          chat (intake, tools, widgets), classes, sources, sessions, threads, notebook, diagrams
+  learning/          deterministic rules: curriculum, contents and quick-course validation, mastery, reviews, independence
+  services/          chat (intake, tools, widgets), classes, sources, sessions, threads, notebook, diagrams,
+                     contents (simple mode's list), quick (the written course)
   sources/           importers: PDF, HTML (Readability), Markdown, text, Word, YouTube
   store/             atomic JSON state, settings, keychain-encrypted secrets, /teach exports
   windows.ts         the lesson and the panel in windows of their own

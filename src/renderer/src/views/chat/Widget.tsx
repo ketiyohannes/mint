@@ -2,6 +2,7 @@ import { useState, type JSX } from 'react'
 import type { ThreadMessage } from '@shared/types'
 import { allTopics, findTopic } from '@shared/curriculum'
 import { DEFAULT_STUDY_DEPTH, sessionChecks } from '@shared/depth'
+import { readingTime } from '@shared/mode'
 import { api, errorMessage } from '../../lib/api'
 import { useApp } from '../../state/app'
 import { Icon } from '../../components/Icon'
@@ -77,6 +78,32 @@ export function Widget({ message }: { message: ThreadMessage }): JSX.Element | n
               {isOpen ? 'Show' : 'Resume'} <Icon name="arrow" size={12} />
             </button>
           )}
+        </div>
+      )
+    }
+    case 'course': {
+      // The course is read in the panel; the chat keeps a pointer to it.
+      const course = study.bundle.quickCourse
+      if (!course) return <div className="widget muted small">This course is no longer available.</div>
+      const written = course.sections.filter((x) => x.body !== undefined).length
+      const total = course.sections.length
+      return (
+        <div className="widget lesson-card" data-testid="course-widget">
+          <Icon name="article" size={18} />
+          <div className="lesson-card-body">
+            <RichText text={course.title} inline className="lesson-card-title" />
+            <div className="small muted" data-testid="course-widget-status">
+              {readingTime(course.minutes)} to read ·{' '}
+              {course.status === 'ready'
+                ? `${total} part${total === 1 ? '' : 's'}`
+                : course.status === 'writing'
+                  ? `writing part ${Math.min(written + 1, total)} of ${total}`
+                  : `${written} of ${total} parts written`}
+            </div>
+          </div>
+          <button className="btn sm" onClick={() => study.openLessons()} data-testid="open-course">
+            Read <Icon name="arrow" size={12} />
+          </button>
         </div>
       )
     }

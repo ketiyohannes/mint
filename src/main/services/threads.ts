@@ -2,6 +2,7 @@ import { sessionPhases } from '@shared/depth'
 import { CHECK_KINDS, type Anchor, type HelpEvent, type Rung, type Thread, type ThreadMessage, type Widget } from '@shared/types'
 import { titleText } from '@shared/quote'
 import { findTopic } from '@shared/curriculum'
+import { classMode } from '@shared/mode'
 import { tutorReply, type StudyDraft, type ThreadContext } from '../jobs'
 import { AgentError } from '../agents/types'
 import { newId, nowIso } from '../store/fsutil'
@@ -110,14 +111,21 @@ export class ThreadService {
     return this.reply(classId, threadId, rung, input)
   }
 
+  /** Answer the last message of a chat that code started (a tool that asks on the learner's behalf). */
+  async answer(classId: string, threadId: string, streamId: string): Promise<Thread> {
+    const { rung } = await this.startRung(classId)
+    return this.reply(classId, threadId, rung, { classId, streamId })
+  }
+
   /**
    * Where a new question starts. Teach (the default): a full, in-depth
    * explanation. Coach: the learner's rung on the help ladder, which climbs on
    * request and is logged as evidence of independence.
    */
   private async startRung(classId: string): Promise<{ rung: Rung; defaultRung: Rung; ladder: boolean }> {
-    const [settings, independence] = await Promise.all([this.k.settings.get(), this.k.independence(classId)])
-    const ladder = settings.tutorStyle === 'coach'
+    const [settings, independence, meta] = await Promise.all([this.k.settings.get(), this.k.independence(classId), this.k.repo.requireMeta(classId)])
+    // Only a course coaches: a simple class and a quick course are there to explain.
+    const ladder = settings.tutorStyle === 'coach' && classMode(meta) === 'course'
     return { rung: ladder ? independence.defaultRung : 4, defaultRung: independence.defaultRung, ladder }
   }
 
@@ -189,20 +197,24 @@ export class ThreadService {
     return this.append(classId, threadId, [{ role: 'tutor', text, rung, error: failed || undefined }])
   }
 
-  /** A new top-level chat (general anchor) that starts with the given messages. */
-  async createChat(classId: string, title: string, messages: NewMessage[] = [], sessionId?: string): Promise<Thread> {
+  /**
+   * A new top-level chat (general anchor) that starts with the given messages.
+   * `about` ties it to an item of the class's contents, with what the tutor should know about that item.
+   */
+  async createChat(classId: string, title: string, messages: NewMessage[] = [], sessionId?: string, about?: { itemId: string; context: string }): Promise<Thread> {
     const { rung } = await this.startRung(classId)
     const now = nowIso()
     const t = titleText(title)
     const thread: Thread = {
       id: newId('thr'),
       classId,
-      anchor: { kind: 'general' },
+      anchor: about ? { kind: 'general', context: about.context.slice(0, 2000) } : { kind: 'general' },
       title: (t.length > 70 ? `${t.slice(0, 67)}…` : t) || 'New chat',
       messages: messages.map(toMessage),
       rung,
       pinned: false,
       sessionId,
+      itemId: about?.itemId,
       createdAt: now,
       updatedAt: now
     }

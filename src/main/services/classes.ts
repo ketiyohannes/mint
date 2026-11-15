@@ -1,5 +1,6 @@
-import type { ClassBundle, ClassMeta, ClassSummary, Intake, Mission } from '@shared/types'
+import { CLASS_MODES, type ClassBundle, type ClassMeta, type ClassMode, type ClassSummary, type Intake, type Mission } from '@shared/types'
 import { allTopics } from '@shared/curriculum'
+import { classMode } from '@shared/mode'
 import { newId, nowIso } from '../store/fsutil'
 import { normalizeDomain } from '../store/settingsStore'
 import type { Kernel } from './kernel'
@@ -53,6 +54,7 @@ export class ClassService {
           id: meta.id,
           title: meta.title,
           stage: meta.stage,
+          mode: classMode(meta),
           topic: meta.mission.topic,
           createdAt: meta.createdAt,
           updatedAt: meta.updatedAt,
@@ -70,11 +72,13 @@ export class ClassService {
   async get(classId: string): Promise<ClassBundle> {
     const repo = this.k.repo
     const meta = await repo.requireMeta(classId)
-    const [sources, sourceProposals, diagnostic, curriculumProposals, sessions, threads, annotations, records, glossary, notes, explorables, helpEvents] = await Promise.all([
+    const [sources, sourceProposals, diagnostic, curriculumProposals, contents, quickCourse, sessions, threads, annotations, records, glossary, notes, explorables, helpEvents] = await Promise.all([
       repo.read(classId, 'sources'),
       repo.read(classId, 'proposals'),
       repo.read(classId, 'diagnostic'),
       repo.read(classId, 'curriculumProposals'),
+      repo.read(classId, 'contents'),
+      repo.read(classId, 'quickCourse'),
       repo.read(classId, 'sessions'),
       repo.read(classId, 'threads'),
       repo.read(classId, 'annotations'),
@@ -92,6 +96,8 @@ export class ClassService {
       diagnostic,
       curriculum,
       curriculumProposals,
+      contents,
+      quickCourse,
       progress,
       sessions,
       threads,
@@ -107,7 +113,7 @@ export class ClassService {
     }
   }
 
-  async create(input: { title: string; mission: Mission; intake: Intake }): Promise<ClassMeta> {
+  async create(input: { title: string; mission: Mission; intake: Intake; mode?: ClassMode }): Promise<ClassMeta> {
     const mission = sanitizeMission(input.mission)
     const title = clean(input.title, 120) || mission.topic
     if (!title) throw userError('Give the class a name or a topic.')
@@ -119,6 +125,7 @@ export class ClassService {
       createdAt: now,
       updatedAt: now,
       stage: 'intake',
+      mode: CLASS_MODES.includes(input.mode as ClassMode) ? input.mode : 'course',
       mission,
       intake: sanitizeIntake(input.intake),
       trustedDomains: [...settings.trustedDomains],
@@ -129,11 +136,17 @@ export class ClassService {
     return meta
   }
 
-  async update(classId: string, patch: { title?: string; mission?: Mission; intake?: Intake; trustedDomains?: string[] }): Promise<ClassMeta> {
+  async update(classId: string, patch: { title?: string; mission?: Mission; intake?: Intake; trustedDomains?: string[]; mode?: ClassMode }): Promise<ClassMeta> {
     return this.k.repo.lock(classId, async () => {
       const meta = await this.k.repo.requireMeta(classId)
+      const mode = classMode(meta)
+      if (patch.mode !== undefined && patch.mode !== mode) {
+        // A quick course has no materials to plan lessons from or to list, and the others have no course to read.
+        if (mode === 'quick' || !['course', 'simple'].includes(patch.mode)) throw userError('A class can change between Course and Simple only.')
+      }
       const next: ClassMeta = {
         ...meta,
+        mode: patch.mode ?? mode,
         title: patch.title !== undefined ? clean(patch.title, 120) || meta.title : meta.title,
         mission: patch.mission ? sanitizeMission(patch.mission) : meta.mission,
         intake: patch.intake ? sanitizeIntake(patch.intake) : meta.intake,

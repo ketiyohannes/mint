@@ -1,5 +1,5 @@
 import type { BrowserWindow, Rectangle } from 'electron'
-import { POPOUT_KINDS, WINDOW_MESSAGE_TYPES, type ChatCommand, type PopoutKind, type PopoutState, type WindowMessage } from '@shared/types'
+import { CHAT_COMMANDS, POPOUT_KINDS, WINDOW_MESSAGE_TYPES, type ChatCommand, type PopoutKind, type PopoutState, type WindowMessage } from '@shared/types'
 import type { WindowController } from './app'
 import { userError } from './services/kernel'
 import { readJson, writeJson } from './store/fsutil'
@@ -32,7 +32,6 @@ export interface PopoutHost {
   visible: boolean
 }
 
-const CHAT_COMMANDS: readonly ChatCommand[] = ['quiz', 'code', 'diagram', 'lesson', 'plan']
 const isId = (v: unknown): v is string => typeof v === 'string' && /^[\w-]{1,80}$/.test(v)
 const text = (v: unknown, max: number): string | undefined => (typeof v === 'string' ? v.slice(0, max) : undefined)
 

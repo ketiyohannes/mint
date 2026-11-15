@@ -1,4 +1,5 @@
-import type { ClassMeta, Curriculum, GlossaryTerm, LearningRecord, NoteDoc, SourceMeta, SourceProposal } from '@shared/types'
+import type { ClassMeta, Contents, Curriculum, GlossaryTerm, LearningRecord, NoteDoc, QuickCourse, SourceMeta, SourceProposal } from '@shared/types'
+import { readingTime } from '@shared/mode'
 import { slugify } from './fsutil'
 
 /**
@@ -43,6 +44,19 @@ export function curriculumMd(c: Curriculum, sources: SourceMeta[]): string {
     }
   })
   return lines.join('\n')
+}
+
+/** Simple mode: the list of what the materials contain. */
+export function contentsMd(meta: ClassMeta, c: Contents, sources: SourceMeta[]): string {
+  const title = (id: string) => sources.find((s) => s.id === id)?.title ?? id
+  const items = c.items.map((i) => `- **${i.title}**: ${i.summary}${i.sources.length ? `\n  Read: ${i.sources.map((s) => `${title(s.sourceId)} (${s.section})`).join('; ')}` : ''}`)
+  return `# ${meta.title} Contents\n\n${c.summary}\n\n${items.join('\n') || '(nothing listed yet)'}\n`
+}
+
+/** Quick mode: the written course, as one document. The tutor reads this file too. */
+export function quickCourseMd(c: QuickCourse): string {
+  const parts = c.sections.map((s, i) => `## ${i + 1}. ${s.title}\n\n${s.body ?? '(not written yet)'}`)
+  return `# ${c.title}\n\n${c.summary}\n\n_${readingTime(c.minutes)} to read. Written by mint from this request: ${c.request.replace(/\s+/g, ' ')}_\n\n${parts.join('\n\n')}\n`
 }
 
 export function resourcesMd(meta: ClassMeta, sources: SourceMeta[], proposals: SourceProposal[]): string {
