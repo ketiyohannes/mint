@@ -3,6 +3,9 @@ import { formatAnswer, parseAnswer, type AnswerPart } from '@shared/answer'
 import { CODE_LANGUAGES, languageFromName, type LanguageId } from '@shared/languages'
 import { CodeBlock } from '../../components/CodeBlock'
 import { CodeEditor } from '../../components/CodeEditor'
+import { Expandable, useExpansion } from '../../components/Expandable'
+import { RichText } from '../../components/RichText'
+import { shortcutLabel } from '../../lib/shortcuts'
 import { Icon } from '../../components/Icon'
 
 /** The language of the last code block the learner wrote: the next one starts in it. */
@@ -43,6 +46,8 @@ interface EditorProps {
   /** The check asks for code in this language: the box starts as a code editor. */
   codeLanguage?: LanguageId
   placeholder: string
+  /** What is being answered: shown beside the code when a block is opened in the larger editor. */
+  question?: string
   /** What to keep while the answer is unsent: the answer, with any code block that is still empty. */
   onDraft: (draft: string) => void
   /** Mod-Enter, from the text or the code, with the answer as it is at that moment. */
@@ -56,7 +61,7 @@ interface EditorProps {
  * the order the learner wants them. "Code" adds a block; so does typing ```
  * (or ```rust) on a line of its own and pressing Enter.
  */
-export function AnswerEditor({ initial, codeLanguage, placeholder, onDraft, onSubmit, children }: EditorProps): JSX.Element {
+export function AnswerEditor({ initial, codeLanguage, placeholder, question, onDraft, onSubmit, children }: EditorProps): JSX.Element {
   const keys = useRef(0)
   const nextKey = () => ++keys.current
   const [parts, setParts] = useState<Part[]>(() => {
@@ -157,41 +162,7 @@ export function AnswerEditor({ initial, codeLanguage, placeholder, onDraft, onSu
             data-testid="check-answer"
           />
         ) : (
-          <div key={part.key} className="answer-code" data-testid="answer-code">
-            <div className="answer-code-head">
-              <Icon name="code" size={13} />
-              <select
-                className="answer-code-lang"
-                value={part.language}
-                aria-label="Language"
-                onChange={(e) => {
-                  const language = languageFromName(e.target.value) ?? 'plain'
-                  rememberLanguage(language)
-                  update(part.key, { language })
-                }}
-                data-testid="answer-code-lang"
-              >
-                {CODE_LANGUAGES.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-              <span className="spacer" />
-              <button className="icon-btn" aria-label="Remove this code block" title="Remove this code block" onClick={() => remove(part.key)} data-testid="answer-code-remove">
-                <Icon name="x" size={12} />
-              </button>
-            </div>
-            <CodeEditor
-              language={part.language}
-              value={part.code}
-              onChange={(code) => update(part.key, { code })}
-              onRun={submit}
-              placeholder="Your code…"
-              autoFocus={focus === part.key}
-              testId="answer-code-editor"
-            />
-          </div>
+          <AnswerCode key={part.key} part={part} question={question} autoFocus={focus === part.key} onChange={(to) => update(part.key, to)} onRemove={() => remove(part.key)} onSubmit={submit} />
         )
       )}
       <div className="row answer-actions">
@@ -206,6 +177,89 @@ export function AnswerEditor({ initial, codeLanguage, placeholder, onDraft, onSu
         </button>
       </div>
     </div>
+  )
+}
+
+interface CodeProps {
+  part: Part & { type: 'code' }
+  question?: string
+  autoFocus: boolean
+  onChange: (to: Partial<AnswerPart>) => void
+  onRemove: () => void
+  onSubmit: () => void
+}
+
+/** A code block in an answer: its language and its editor, which opens into a window over the app for more room. */
+function AnswerCode({ part, question, autoFocus, onChange, onRemove, onSubmit }: CodeProps): JSX.Element {
+  const expansion = useExpansion()
+  const { open } = expansion
+  return (
+    <Expandable open={open} onClose={expansion.close} label="Code editor">
+      <div className={`answer-code ${open ? 'expanded' : ''}`} onKeyDown={expansion.onKeyDown} data-testid="answer-code">
+        <div className="answer-code-head">
+          <Icon name="code" size={13} />
+          <select
+            className="answer-code-lang"
+            value={part.language}
+            aria-label="Language"
+            onChange={(e) => {
+              const language = languageFromName(e.target.value) ?? 'plain'
+              rememberLanguage(language)
+              onChange({ language })
+            }}
+            data-testid="answer-code-lang"
+          >
+            {CODE_LANGUAGES.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          <span className="spacer" />
+          <button
+            className="icon-btn"
+            onClick={expansion.toggle}
+            aria-label={open ? 'Back to the lesson' : 'Open in a larger editor'}
+            title={open ? 'Back to the lesson (Esc)' : `Open in a larger editor (${shortcutLabel('expandCode')})`}
+            data-testid="answer-code-expand"
+          >
+            <Icon name={open ? 'collapse' : 'expand'} size={12} />
+          </button>
+          {!open && (
+            <button className="icon-btn" aria-label="Remove this code block" title="Remove this code block" onClick={onRemove} data-testid="answer-code-remove">
+              <Icon name="x" size={12} />
+            </button>
+          )}
+        </div>
+        {open && question && (
+          <div className="answer-code-question" data-testid="answer-code-question">
+            <RichText text={question} />
+          </div>
+        )}
+        <CodeEditor
+          ref={expansion.editor}
+          language={part.language}
+          value={part.code}
+          onChange={(code) => onChange({ code })}
+          onRun={() => {
+            // The verdict arrives in the lesson, which the window covers.
+            expansion.close()
+            onSubmit()
+          }}
+          placeholder="Your code…"
+          autoFocus={autoFocus}
+          testId="answer-code-editor"
+        />
+        {open && (
+          <div className="answer-code-foot">
+            <button className="btn sm primary" onClick={expansion.close} data-testid="answer-code-done">
+              Done
+            </button>
+            <span className="hint">Esc goes back to the lesson. {shortcutLabel('checkAnswer')} checks your answer.</span>
+          </div>
+        )}
+      </div>
+    </Expandable>
   )
 }
 

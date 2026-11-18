@@ -27,6 +27,7 @@ const COMBOS = {
   shortcuts: { key: '/', code: 'Slash', mod: true },
   foldLesson: { key: 'l', mod: true },
   runTests: { key: 'Enter', mod: true },
+  expandCode: { key: 'e', mod: true, shift: true },
   checkAnswer: { key: 'Enter', mod: true },
   saveSticky: { key: 'Enter', mod: true },
   bold: { key: 'b', mod: true },
@@ -116,9 +117,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     ]
   },
   {
-    title: 'Code exercises',
+    title: 'Code',
     rows: [
-      { keys: shortcutLabel('runTests'), label: 'Run the tests' },
+      { keys: shortcutLabel('runTests'), label: 'Run the tests of an exercise' },
+      { keys: shortcutLabel('expandCode'), label: 'Open the code in a larger editor, or put it back' },
       { keys: 'Tab', label: 'Indent' }
     ]
   },

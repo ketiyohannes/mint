@@ -26,7 +26,7 @@ mint has no agent loop of its own. Every model turn runs in the **Claude Agent S
 
 1. **Open a folder.** The folder button in the sidebar (hide it with ⌘B / Ctrl+B) turns a folder of PDFs, Markdown, Word files, web links or YouTube lectures into a class. No materials? mint searches trusted sites and imports only what you approve.
 2. **Say what you want.** A new chat opens with the prompt in the middle. The tutor asks two to four quick multiple-choice questions (goal, background, time, style), like a coding agent clarifying a task, then posts a plan.
-3. **Learn in the chat.** Quizzes, code exercises and diagrams appear as cards in the conversation; a lesson floats over the top of the chat. Type `/` for tools:
+3. **Learn in the chat.** Quizzes, code exercises and diagrams appear as cards in the conversation; a lesson floats over the top of the chat. Wherever you write code, the editor opens into a larger window over the app (`⌘⇧E` / `Ctrl+Shift+E`). Type `/` for tools:
 
    | Tool | What it does |
    | --- | --- |

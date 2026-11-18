@@ -1693,6 +1693,140 @@ a {
   color: var(--danger);
 }
 
+/* In the chat the exercise is one column: the task, the code, the buttons, then the hint and the results. */
+.code-side,
+.code-main {
+  display: contents;
+}
+
+.widget.code:not(.expanded) .code-hint {
+  order: 1;
+}
+
+.widget.code:not(.expanded) .run-output {
+  order: 2;
+}
+
+/* A code editor opened over the app. Its content is moved here from the page
+   and back (components/Expandable.tsx), so on the page it must lay out as if
+   the element it is moved in were not there. */
+.expand-node {
+  display: contents;
+}
+
+.expand-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Over menus and popovers, under the toasts. */
+  z-index: 900;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  /* Clear of the window's own buttons at the top. */
+  padding: 38px 28px 28px;
+  background: color-mix(in srgb, #000 36%, transparent);
+  -webkit-app-region: no-drag;
+  animation: fade-in-only 0.12s ease-out;
+}
+
+.expand-window {
+  flex: 1;
+  min-width: 0;
+  max-width: 1240px;
+  display: flex;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  outline: none;
+}
+
+.expand-window > .expand-node {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The editor fills what the window leaves it, and scrolls inside itself. */
+.expand-window .code-editor {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  display: flex;
+  overflow: hidden;
+}
+
+.expand-window .code-editor .cm-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  font-size: 13.5px;
+}
+
+.expand-window .code-editor .cm-scroller {
+  overflow: auto;
+}
+
+/* The exercise in the window: the task on the left, the code and its results on the right. */
+.widget.code.expanded {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 16px 16px;
+  display: grid;
+  grid-template-columns: minmax(240px, 34%) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px 18px;
+}
+
+.widget.code.expanded .widget-head {
+  grid-column: 1 / -1;
+  font-size: 14px;
+}
+
+.widget.code.expanded .code-side,
+.widget.code.expanded .code-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.widget.code.expanded .code-side {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  font-size: 13.5px;
+}
+
+.widget.code.expanded .run-output {
+  flex: none;
+  max-height: 34%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* A narrow window: the task above the code. */
+@media (max-width: 820px) {
+  .expand-backdrop {
+    padding: 38px 12px 12px;
+  }
+
+  .widget.code.expanded {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .widget.code.expanded .code-side {
+    max-height: 26vh;
+  }
+}
+
 .code-runner-frame {
   position: fixed;
   width: 0;
@@ -2871,6 +3005,48 @@ button.chip {
 
 .answer-code .code-editor .cm-editor {
   min-height: 66px;
+}
+
+/* The block in the window over the app: the question, the code, the way back. */
+.answer-code.expanded {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: 0;
+}
+
+/* Past the block's own cap on the editor's height, which is for the lesson. */
+.answer-code.expanded .code-editor {
+  max-height: none;
+}
+
+.answer-code.expanded .answer-code-head {
+  flex: none;
+  height: 40px;
+  padding: 0 8px 0 14px;
+}
+
+.answer-code-question {
+  flex: none;
+  max-height: 30%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13.5px;
+}
+
+.answer-code-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 /* The hint gives way first: the buttons that add text and code stay on the line in a narrow lesson. */

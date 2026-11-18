@@ -249,6 +249,7 @@ function CheckCard({ session, kind, onOpenReading }: { session: Session; kind: C
           initial={draft}
           codeLanguage={session.codeChecks?.[kind]}
           placeholder={last ? 'Try again, after re-reading the passage it pointed you to. Your earlier tries count…' : 'Your answer…'}
+          question={prompt}
           onDraft={setDraft}
           onSubmit={(answer) => void submit(answer)}
         >

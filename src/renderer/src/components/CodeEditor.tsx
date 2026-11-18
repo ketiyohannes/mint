@@ -1,4 +1,4 @@
-import { useEffect, useRef, type JSX } from 'react'
+import { useEffect, useImperativeHandle, useRef, type JSX, type Ref } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { Compartment, EditorState, Prec } from '@codemirror/state'
 import { keymap, placeholder as placeholderText } from '@codemirror/view'
@@ -29,19 +29,34 @@ interface Props {
   /** Take the caret when the editor appears (a block the learner has just added). */
   autoFocus?: boolean
   testId?: string
+  ref?: Ref<CodeEditorHandle>
+}
+
+export interface CodeEditorHandle {
+  /** Put the caret back in the code. `reveal` also brings the line it is on into view. */
+  focus: (reveal?: boolean) => void
 }
 
 /** The grammar and the indent step of a language. Colours come from the classes in styles.css (".tok-*"). */
 const languageSetup = (id: LanguageId) => [codeLanguage(id) ?? [], indentUnit.of(' '.repeat(indentSize(id)))]
 
 /** A small code editor (CodeMirror 6): exercises in the chat, and code in a lesson's answers. */
-export function CodeEditor({ language, value, onChange, readOnly, onRun, placeholder, autoFocus, testId = 'code-editor' }: Props): JSX.Element {
+export function CodeEditor({ language, value, onChange, readOnly, onRun, placeholder, autoFocus, testId = 'code-editor', ref }: Props): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const callbacks = useRef({ onChange, onRun })
   callbacks.current = { onChange, onRun }
   // Reconfigured in place: changing the language keeps the code, the caret and the undo history.
   const languageSlot = useRef(new Compartment())
+
+  useImperativeHandle(ref, () => ({
+    focus: (reveal) => {
+      const v = view.current
+      if (!v) return
+      v.focus()
+      if (reveal) v.dispatch({ effects: EditorView.scrollIntoView(v.state.selection.main.head, { y: 'nearest' }) })
+    }
+  }))
 
   useEffect(() => {
     const state = EditorState.create({

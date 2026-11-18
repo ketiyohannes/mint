@@ -204,13 +204,37 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(code).toBeVisible()
   await code.getByTestId('code-run').click()
   await expect(code.getByTestId('code-output')).toContainText('1/3 tests passing', { timeout: 20_000 })
-  await code.locator('.cm-content').click()
+  // The exercise opens into a window over the app, for more room to write in: the caret is in the code.
+  const chatEditorHeight = (await code.getByTestId('code-editor').boundingBox())!.height
+  await code.getByTestId('code-expand').click()
+  const codeWindow = page.getByTestId('code-window')
+  await expect(codeWindow.getByTestId('code-widget')).toBeVisible()
+  await expect(codeWindow.getByTestId('code-output')).toContainText('1/3 tests passing') // the results came along
+  await expect(codeWindow.locator('.cm-content')).toBeFocused()
+  expect((await codeWindow.getByTestId('code-editor').boundingBox())!.height).toBeGreaterThan(chatEditorHeight)
   await page.keyboard.press('ControlOrMeta+A')
   // insertText, like a paste: the editor auto-closes brackets while typing.
   await page.keyboard.insertText('function scale(v, k) {\n  return v.map((x) => x * k)\n}\n')
   await page.keyboard.press('ControlOrMeta+Enter') // runs the tests from the editor
-  await expect(code.getByTestId('code-output')).toContainText('3/3 tests passing')
-  await code.getByTestId('code-submit').click()
+  await expect(codeWindow.getByTestId('code-output')).toContainText('3/3 tests passing')
+  await expect(page.getByTestId('code-window-backdrop')).toHaveCSS('opacity', '1') // faded in
+  await shot(page, 'code-window')
+  // Escape puts it back in the chat. It is the same editor, not a copy: the code, the caret and the undo history are kept.
+  await page.keyboard.press('Escape')
+  await expect(codeWindow).toHaveCount(0)
+  await expect(page.getByTestId('code-widget')).toHaveCount(1)
+  await expect(code.locator('.cm-content')).toBeFocused()
+  await expect(code.locator('.cm-content')).toContainText('return v.map')
+  await page.keyboard.press('ControlOrMeta+Z')
+  await expect(code.locator('.cm-content')).not.toContainText('return v.map')
+  await page.keyboard.press('ControlOrMeta+Shift+Z')
+  await expect(code.locator('.cm-content')).toContainText('return v.map')
+  await page.keyboard.press('ArrowRight') // redo left the code selected
+  // The shortcut opens it from the editor; submitting from the window goes back to the chat, where the review arrives.
+  await page.keyboard.press('ControlOrMeta+Shift+E')
+  await expect(codeWindow.locator('.cm-content')).toBeFocused()
+  await codeWindow.getByTestId('code-submit').click()
+  await expect(codeWindow).toHaveCount(0)
   await expect(page.getByTestId('tutor-message').last()).toContainText('All 3 tests pass', { timeout: 15_000 })
   await shot(page, 'code')
 
@@ -554,6 +578,29 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await page.keyboard.type('const std = @import("std");')
   await expect(codeBlocks.locator('.cm-content .tok-keyword')).toHaveText('const')
   await expect(codeBlocks.locator('.cm-content .tok-string')).toHaveText('"std"')
+  // A block opens into the larger editor too, with the question above the code; "Done" and a click beside the window put it back.
+  await codeBlocks.getByTestId('answer-code-expand').click()
+  const answerWindow = page.getByTestId('code-window')
+  await expect(answerWindow.getByTestId('answer-code-question')).not.toBeEmpty()
+  await expect(answerWindow.locator('.cm-content')).toBeFocused()
+  await expect(answerWindow.getByTestId('answer-code-lang')).toHaveValue('zig')
+  await expect(answerWindow.getByTestId('answer-code-remove')).toHaveCount(0)
+  await page.keyboard.type(' // more room')
+  // The window fills with the editor, down to the way back.
+  const windowBox = (await answerWindow.boundingBox())!
+  const editorBox = (await answerWindow.getByTestId('answer-code-editor').boundingBox())!
+  expect(editorBox.height).toBeGreaterThan(windowBox.height * 0.6)
+  await expect(page.getByTestId('code-window-backdrop')).toHaveCSS('opacity', '1') // faded in
+  await shot(page, 'answer-code-window')
+  await answerWindow.getByTestId('answer-code-done').click()
+  await expect(answerWindow).toHaveCount(0)
+  await expect(codeBlocks.locator('.cm-content')).toHaveText('const std = @import("std"); // more room')
+  await expect(codeBlocks.locator('.cm-content')).toBeFocused()
+  await codeBlocks.getByTestId('answer-code-expand').click()
+  await expect(answerWindow).toBeVisible()
+  await page.getByTestId('code-window-backdrop').click({ position: { x: 6, y: 6 } })
+  await expect(answerWindow).toHaveCount(0)
+  await expect(codeBlocks).toHaveCount(1)
   // More text goes below it; a fence typed on its own line, then Enter, starts a block in that language.
   await dock.getByTestId('answer-add-text').click()
   await expect(dock.getByTestId('check-answer').nth(1)).toBeFocused()
@@ -584,7 +631,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await page.getByTestId('resume-session').click()
   await expect(codeBlocks).toHaveCount(2)
   await expect(codeBlocks.first().getByTestId('answer-code-lang')).toHaveValue('zig')
-  await expect(codeBlocks.first().locator('.cm-content')).toHaveText('const std = @import("std");')
+  await expect(codeBlocks.first().locator('.cm-content')).toHaveText('const std = @import("std"); // more room')
   await expect(dock.getByTestId('check-answer').first()).toHaveValue(long)
   // ⌘/Ctrl+Enter checks from inside the code too, and the answer is shown as it was written.
   await codeBlocks.nth(1).locator('.cm-content').click()
