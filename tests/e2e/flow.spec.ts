@@ -227,7 +227,7 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(code.locator('.cm-content')).toContainText('return v.map')
   await page.keyboard.press('ControlOrMeta+Z')
   await expect(code.locator('.cm-content')).not.toContainText('return v.map')
-  await page.keyboard.press('ControlOrMeta+Shift+Z')
+  await page.keyboard.press(process.platform === 'win32' ? 'Control+Y' : 'ControlOrMeta+Shift+Z') // redo, as each system writes it
   await expect(code.locator('.cm-content')).toContainText('return v.map')
   await page.keyboard.press('ArrowRight') // redo left the code selected
   // The shortcut opens it from the editor; submitting from the window goes back to the chat, where the review arrives.
