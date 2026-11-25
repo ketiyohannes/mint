@@ -6,6 +6,7 @@ import { useUpdates } from '../lib/useUpdates'
 import { chatDraftKey, writeDraft } from '../lib/drafts'
 import { IS_MAC, shortcutLabel } from '../lib/shortcuts'
 import { MODE_ICON, NEW_CLASS_KINDS, useNewClass, type NewClassKind } from '../lib/newClass'
+import { useDeleteClass } from '../lib/deleteClass'
 import { Icon, type IconName } from './Icon'
 
 export { IS_MAC }
@@ -28,7 +29,8 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
   const { route, go, classes, jobs, run } = useApp()
   const activeClass = route.name === 'class' ? route.classId : null
   const activeChat = route.name === 'class' ? route.chatId : undefined
-  const { creating, create } = useNewClass()
+  const { creating, create, dialog: newClassDialog } = useNewClass()
+  const deleteClass = useDeleteClass()
 
   const chats = bundle ? bundle.threads.filter((t) => t.anchor.kind === 'general').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) : []
 
@@ -77,6 +79,9 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
                 >
                   <Icon name="compose" size={12} />
                 </button>
+                <button className="icon-btn ghost-hover" title="Delete class" aria-label={`Delete class ${c.title}`} onClick={() => void deleteClass(c)} data-testid="sidebar-delete-class">
+                  <Icon name="trash" size={12} />
+                </button>
               </div>
               {active && bundle && bundle.meta.id === c.id && (
                 <div className="chat-list">
@@ -96,8 +101,9 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
                           writeDraft(chatDraftKey(c.id, t.id), '')
                           void run(() => api.threads.remove(c.id, t.id))
                         }}
+                        data-testid="sidebar-delete-chat"
                       >
-                        <Icon name="x" size={11} />
+                        <Icon name="trash" size={11} />
                       </button>
                     </div>
                   ))}
@@ -110,6 +116,7 @@ export function Sidebar({ bundle, onCollapse }: { bundle: ClassBundle | null; on
         {!classes.length && <div className="side-empty">Open a folder of materials to start your first class.</div>}
       </nav>
 
+      {newClassDialog}
       <div className="sidebar-foot">
         <UpdateRow />
         <button

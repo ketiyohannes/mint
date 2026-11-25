@@ -816,6 +816,29 @@ test('a learner opens a folder, talks to the tutor, and learns with lessons, qui
   await expect(page.getByTestId('source-tab')).toHaveCount(1)
   await shot(page, 'trusted')
 
+  // A lesson can be taken out of the plan; the others stay.
+  await page.getByTestId('tab-lessons').click()
+  const planned = page.getByTestId('topic-row')
+  const lessonCount = await planned.count()
+  expect(lessonCount).toBeGreaterThan(1)
+  await planned.last().hover()
+  await expect(planned.last().getByTestId('topic-remove')).toBeVisible()
+  await shot(page, 'lesson-remove')
+  await planned.last().getByTestId('topic-remove').click()
+  await expect(planned).toHaveCount(lessonCount - 1)
+  await shot(page, 'lesson-removed')
+
+  // A chat is deleted from its row in the sidebar; the class stays, with a new chat ready.
+  const chatRows = await page.getByTestId('sidebar-chat').count()
+  expect(chatRows).toBeGreaterThan(0)
+  await page.getByTestId('sidebar-class').first().hover()
+  await expect(page.getByTestId('sidebar-delete-class').first()).toBeVisible()
+  await shot(page, 'sidebar-delete')
+  await page.getByTestId('sidebar-chat').first().hover()
+  await page.getByTestId('sidebar-delete-chat').first().click()
+  await expect(page.getByTestId('sidebar-chat')).toHaveCount(chatRows - 1)
+  await expect(page.getByTestId('sidebar-class')).toHaveCount(2)
+
   // Delete it; the other class opens.
   await page.getByTestId('class-menu').click()
   await page.getByTestId('delete-class').click()
@@ -899,6 +922,62 @@ test('a learner has their material explained in a simple class, and a quick cour
   await shot(page, 'new-class-menu')
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
+
+  // --- A class from links: what is on the web is material too ----------------------------------------
+  await expect(page.getByTestId('welcome-links')).toBeVisible()
+  await page.getByTestId('new-class').click()
+  await page.getByTestId('new-links').click()
+  const linksDialog = page.getByTestId('links-dialog')
+  await expect(linksDialog).toBeVisible()
+  await expect(page.getByTestId('links-add')).toBeDisabled()
+  // Pasted in any shape: in a sentence, one per line. A file on GitHub is read as the file, not as the page around it.
+  await page.getByTestId('links-input').fill('Read these: https://en.wikipedia.org/wiki/Linear_algebra,\nhttps://github.com/mint-fixture/notes/blob/main/eigen.md')
+  await expect(page.getByTestId('links-add')).toContainText('Start with 2 links')
+  await page.getByTestId('links-mode-simple').click()
+  await expect(page.getByTestId('links-mode-simple')).toHaveClass(/on/)
+  // Faded in all the way before the picture.
+  await expect(page.getByTestId('links-dialog-backdrop')).toHaveCSS('opacity', '1')
+  await shot(page, 'links-dialog')
+  await page.getByTestId('links-add').click()
+  await expect(linksDialog).toHaveCount(0)
+  await expect(page.getByTestId('source-tab')).toHaveCount(2, { timeout: 20_000 })
+  await expect(page.getByTestId('tab-lessons')).toContainText('Contents')
+  // The class takes its name from the first link.
+  await expect(page.getByTestId('sidebar-class')).not.toContainText('New class')
+
+  // A link pasted into the chat box is offered as material, and the box is left free for the question.
+  await page.getByTestId('ask-input').fill('https://www.britannica.com/search?query=Linear%20algebra')
+  await expect(page.getByTestId('composer-links')).toContainText('britannica.com')
+  await shot(page, 'composer-link')
+  await page.getByTestId('composer-add-links').click()
+  await expect(page.getByTestId('composer-links')).toHaveCount(0)
+  await expect(page.getByTestId('ask-input')).toHaveValue('')
+  await expect(page.getByTestId('source-tab')).toHaveCount(3, { timeout: 20_000 })
+
+  // From the Sources tab too. A link the class already has is not added twice.
+  await page.getByTestId('tab-sources').click()
+  await page.getByTestId('add-link').click()
+  await page.getByTestId('links-input').fill('en.wikipedia.org/wiki/Linear_algebra')
+  await expect(page.getByTestId('links-add')).toContainText('Add link')
+  await page.getByTestId('links-input').press('Enter')
+  await expect(linksDialog).toHaveCount(0)
+  await expect(page.getByTestId('toast-error')).toContainText('already in this class')
+  await expect(page.getByTestId('source-tab')).toHaveCount(3)
+  // And from the chat box's menu; Escape puts the dialog away.
+  await page.getByTestId('composer-actions').click()
+  await page.getByTestId('action-add-links').click()
+  await expect(linksDialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(linksDialog).toHaveCount(0)
+
+  // A class is deleted from its row in the sidebar.
+  await page.getByTestId('tab-lessons').click()
+  await expect(page.getByTestId('contents-item').first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('contents-refresh')).toBeEnabled()
+  await page.getByTestId('sidebar-class').hover()
+  await page.getByTestId('sidebar-delete-class').click()
+  await expect(page.getByTestId('sidebar-class')).toHaveCount(0)
+  await expect(page.getByTestId('welcome-links')).toBeVisible()
 
   // --- Simple: no intake and no plan, a list of what the material contains ------------------------
   await page.getByTestId('new-class').click()

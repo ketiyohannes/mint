@@ -849,6 +849,16 @@ a {
   visibility: visible;
 }
 
+/* A class row has two buttons: they take no room from the name until they show. */
+.class-row .ghost-hover {
+  display: none;
+}
+
+.class-row:hover .ghost-hover,
+.class-row:focus-within .ghost-hover {
+  display: inline-flex;
+}
+
 .count {
   font-size: 11px;
   padding: 0 6px;
@@ -1729,6 +1739,71 @@ a {
   animation: fade-in-only 0.12s ease-out;
 }
 
+/* ---------- a dialog over the app (adding links) ---------- */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  /* Over menus and popovers, under the toasts. */
+  z-index: 900;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 18vh 24px 24px;
+  background: color-mix(in srgb, #000 36%, transparent);
+  -webkit-app-region: no-drag;
+  animation: fade-in-only 0.12s ease-out;
+}
+
+.dialog {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+}
+
+.dialog-head,
+.dialog-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-head svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.dialog-links {
+  width: 100%;
+  min-height: 92px;
+  max-height: 40vh;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  /* One link per line, however long: it scrolls sideways instead of wrapping into what looks like two. */
+  white-space: pre;
+  overflow: auto;
+}
+
+.dialog .hint {
+  margin: 0;
+}
+
+.dialog .hint.warn {
+  color: var(--warn);
+}
+
+.composer-links .btn {
+  flex: none;
+}
+
 .expand-window {
   flex: 1;
   min-width: 0;
@@ -2490,14 +2565,6 @@ button.chip {
   color: var(--fg);
 }
 
-.source-link {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .reader-wrap {
   flex: 1;
   min-height: 0;
@@ -2703,6 +2770,17 @@ button.chip {
   align-items: center;
   gap: 6px;
   margin-top: 4px;
+}
+
+.plan-topic-action {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.plan-topic:hover .ghost-hover,
+.plan-topic:focus-within .ghost-hover {
+  visibility: visible;
 }
 
 .plan-adjust {

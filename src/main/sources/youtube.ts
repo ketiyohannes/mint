@@ -49,6 +49,23 @@ export function parseYouTubeId(url: string): string | null {
   return candidate && VIDEO_ID.test(candidate) ? candidate : null
 }
 
+/** A playlist longer than this is imported up to here: each video is a transcript to fetch. */
+export const MAX_PLAYLIST_VIDEOS = 30
+
+/** The id of a playlist link (`/playlist?list=…`). A video opened from a playlist is that one video. */
+export function parseYouTubePlaylistId(url: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url.trim())
+  } catch {
+    return null
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+  if (!YOUTUBE_HOSTS.has(host) || parsed.pathname.replace(/\/+$/, '') !== '/playlist') return null
+  const id = parsed.searchParams.get('list')
+  return id && /^[A-Za-z0-9_-]{10,}$/.test(id) ? id : null
+}
+
 // ---------------------------------------------------------------------------
 // Transcript grouping
 // ---------------------------------------------------------------------------
@@ -184,9 +201,17 @@ export interface YouTubeCaptionTrack {
   kind?: string
 }
 
+/** The subset of a youtubei.js `Playlist` we read. A video is a `PlaylistVideo` (`id`) or a `LockupView` (`content_id`). */
+export interface YouTubePlaylist {
+  info: { title?: string }
+  items: ArrayLike<{ type: string; id?: string; content_id?: string }>
+  has_continuation: boolean
+}
+
 /** The subset of youtubei.js `Innertube` we use; injectable for tests. */
 export interface YouTubeClient {
   getInfo(videoId: string): Promise<YouTubeVideoInfo>
+  getPlaylist?(playlistId: string): Promise<YouTubePlaylist>
   /** Used for the caption-track fallback (the mobile clients still list tracks). */
   getBasicInfo?(videoId: string, options: { client: 'ANDROID' | 'IOS' }): Promise<{ captions?: { caption_tracks?: YouTubeCaptionTrack[] } | null }>
 }
@@ -282,6 +307,33 @@ async function fetchCaptionTrack(client: YouTubeClient, videoId: string, fetchIm
     }
   }
   return []
+}
+
+/** The videos of a playlist, in order, up to `MAX_PLAYLIST_VIDEOS`. Each is then imported like any video. */
+export async function listPlaylist(url: string, opts: { innertube?: YouTubeClient; timeoutMs?: number } = {}): Promise<{ title: string; videoIds: string[]; truncated: boolean }> {
+  const playlistId = parseYouTubePlaylistId(url)
+  if (!playlistId) throw new Error('This does not look like a YouTube playlist link.')
+  const timeoutMs = opts.timeoutMs ?? YOUTUBE_TIMEOUT_MS
+  let playlist: YouTubePlaylist
+  try {
+    const client = opts.innertube ?? (await withTimeout(getDefaultClient(), timeoutMs, 'Connecting to YouTube'))
+    if (!client.getPlaylist) throw new Error('playlists are not available')
+    playlist = await withTimeout(client.getPlaylist(playlistId), timeoutMs, 'Loading the playlist')
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new Error(`Could not load this YouTube playlist (${reason}).`)
+  }
+  const ids: string[] = []
+  for (const item of Array.from(playlist.items)) {
+    const id = item.id ?? item.content_id
+    if (id && VIDEO_ID.test(id) && !ids.includes(id)) ids.push(id)
+  }
+  if (!ids.length) throw new Error('This playlist has no videos that can be read. It may be private.')
+  return {
+    title: playlist.info.title?.trim() || 'YouTube playlist',
+    videoIds: ids.slice(0, MAX_PLAYLIST_VIDEOS),
+    truncated: ids.length > MAX_PLAYLIST_VIDEOS || playlist.has_continuation
+  }
 }
 
 /**

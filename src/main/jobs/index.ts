@@ -149,6 +149,7 @@ ${previous ? '- This is a REVISION: keep topic ids and titles that still make se
     prompt: `${describeClass(env.ctx, { includeCurriculum: true })}
 ${diag?.result ? `\nDiagnostic summary: ${diag.result.summary} (starting level: ${diag.result.startingLevel})` : ''}
 ${previous ? `\nCurrent curriculum (v${previous.version}) for reference:\n${JSON.stringify(previous.milestones.map((m) => ({ title: m.title, topics: m.topics.map((t) => ({ id: t.id, title: t.title, prerequisites: t.prerequisites })) })))}` : ''}
+${previous?.removed?.length ? `\nThe learner removed these lessons from the plan. Leave them out, unless the reason below asks for one of them:\n${previous.removed.map((title) => `- ${title}`).join('\n')}` : ''}
 
 Reason for this plan: ${reason}
 Write the curriculum now.`,

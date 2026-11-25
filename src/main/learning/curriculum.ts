@@ -130,10 +130,42 @@ export function validateCurriculum(raw: RawCurriculum, sources: SourceIndex[], p
       project: raw.project && raw.project.title.trim() ? { title: raw.project.title.trim(), deliverable: raw.project.deliverable.trim() } : null,
       assumptions: raw.assumptions.map((a) => a.trim()).filter(Boolean),
       cadence: raw.cadence.trim(),
-      milestones
+      milestones,
+      ...removedAfter(previous, allTopics)
     },
     repairs
   }
+}
+
+/** How many removed lessons a plan remembers. */
+const MAX_REMOVED = 40
+
+/** The removed lessons a new plan still remembers: all but those it brought back (the learner asked for them). */
+function removedAfter(previous: Curriculum | null, topics: Topic[]): Pick<Curriculum, 'removed'> {
+  const planned = new Set(topics.map((t) => t.title.trim().toLowerCase()))
+  const removed = (previous?.removed ?? []).filter((title) => !planned.has(title.trim().toLowerCase()))
+  return removed.length ? { removed } : {}
+}
+
+/**
+ * The plan without one lesson, or null when the plan does not have it. The
+ * lessons that needed it now need what it needed, so the order of the rest
+ * holds; a part left with no lessons goes too. The plan remembers the title,
+ * so a later revision does not plan the lesson again.
+ */
+export function withoutTopic(curriculum: Curriculum, topicId: string): Curriculum | null {
+  const gone = curriculum.milestones.flatMap((m) => m.topics).find((t) => t.id === topicId)
+  if (!gone) return null
+  const milestones = curriculum.milestones
+    .map((m) => ({
+      ...m,
+      topics: m.topics
+        .filter((t) => t.id !== topicId)
+        .map((t) => (t.prerequisites.includes(topicId) ? { ...t, prerequisites: Array.from(new Set(t.prerequisites.flatMap((p) => (p === topicId ? gone.prerequisites : [p])))) } : t))
+    }))
+    .filter((m) => m.topics.length > 0)
+  const removed = [...(curriculum.removed ?? []).filter((title) => title !== gone.title), gone.title].slice(-MAX_REMOVED)
+  return { ...curriculum, updatedAt: new Date().toISOString(), milestones, removed }
 }
 
 /** Find the section label a reference means, tolerating "p.12" vs "p. 12", case and punctuation in any script. */

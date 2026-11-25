@@ -49,6 +49,13 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
     else onStart(topic.id)
   }
 
+  /** Take a lesson out of the plan. Its progress goes with it, so the question says what is lost. */
+  function remove(topic: Topic) {
+    const studied = Boolean(bundle.progress[topic.id]?.lastStudiedAt) || bundle.sessions.some((s) => s.topicId === topic.id)
+    if (!window.confirm(`Remove the lesson "${topic.title}" from the plan?${studied ? ' Your progress in it is removed too.' : ''}`)) return
+    void run(() => api.intake.removeTopic(classId, topic.id))
+  }
+
   async function plan(why?: string) {
     setPlanning(true)
     const ok = await run(
@@ -176,6 +183,9 @@ export function LessonsPanel({ bundle, onStart, onResume, openSource }: Props): 
                       {bundle.sessions.some((s) => !s.endedAt && s.topicId === t.id) ? 'Resume' : status === 'in-progress' ? 'Continue' : 'Start'}
                     </button>
                   )}
+                  <button className="icon-btn ghost-hover" onClick={() => remove(t)} title="Remove this lesson from the plan" aria-label={`Remove the lesson ${t.title}`} data-testid="topic-remove">
+                    <Icon name="trash" size={13} />
+                  </button>
                 </div>
               </div>
             )

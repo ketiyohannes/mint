@@ -28,6 +28,10 @@ interface Props {
   /** The chat now exists (or was replaced): show it. */
   onThread: (threadId: string) => void
   onAddMaterials: () => void
+  /** Ask for links to add as materials. */
+  onAskLinks: () => void
+  /** Add links found in the message being typed as materials. */
+  onAddLinks: (urls: string[]) => void
   /** Tool requests from elsewhere (tutor offers, lesson buttons) to run in this chat. One-shot: call onHandled. */
   commandRequest: { command: ChatCommand; arg?: string; nonce: number } | null
   /** A highlighted passage to attach to the next message. One-shot: call onHandled. */
@@ -40,7 +44,7 @@ interface Props {
  * Mounted per chat (the parent remounts it when another chat is opened), so
  * in-flight state never leaks between chats.
  */
-export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequest, quoteRequest, onHandled }: Props): JSX.Element {
+export function ChatView({ bundle, thread, onThread, onAddMaterials, onAskLinks, onAddLinks, commandRequest, quoteRequest, onHandled }: Props): JSX.Element {
   const { toast, jobs, settings } = useApp()
   /** Coach style shows the help ladder (rung tags, More help); Teach always explains in full. */
   const ladder = settings?.tutorStyle === 'coach'
@@ -318,6 +322,9 @@ export function ChatView({ bundle, thread, onThread, onAddMaterials, commandRequ
       mode={mode}
       autoFocus
       onAddMaterials={onAddMaterials}
+      // A quick course is written from a description: it has no materials to add to.
+      onAskLinks={mode === 'quick' ? undefined : onAskLinks}
+      onAddLinks={mode === 'quick' ? undefined : onAddLinks}
       recall={recall}
       quote={quote}
       onClearQuote={() => setQuote(null)}

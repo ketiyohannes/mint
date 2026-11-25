@@ -1,6 +1,6 @@
 import type { CurriculumProposal, Diagnostic } from '@shared/types'
 import { assessDiagnostic, diagnosticQuestions, planCurriculum } from '../jobs'
-import { validateCurriculum } from '../learning/curriculum'
+import { validateCurriculum, withoutTopic } from '../learning/curriculum'
 import { newId, nowIso } from '../store/fsutil'
 import type { Kernel } from './kernel'
 import { userError } from './kernel'
@@ -82,6 +82,35 @@ export class IntakeService {
       await this.k.refreshProgress(classId)
       const meta = await this.k.repo.requireMeta(classId)
       await this.k.repo.writeMeta({ ...meta, stage: 'active', updatedAt: nowIso() })
+    })
+    this.k.changed(classId)
+  }
+
+  /**
+   * Take one lesson out of the plan, with what belongs to it alone: its
+   * progress and its lesson runs. What the learner showed in it (records,
+   * glossary terms) and the chats stay.
+   */
+  async removeTopic(classId: string, topicId: string): Promise<void> {
+    await this.k.repo.lock(classId, async () => {
+      const curriculum = await this.k.repo.read(classId, 'curriculum')
+      const next = curriculum && withoutTopic(curriculum, topicId)
+      if (!next) throw userError('That lesson is not in the plan anymore.')
+      await this.k.repo.write(classId, 'curriculum', next)
+      const sessions = await this.k.repo.read(classId, 'sessions')
+      const ended = new Set(sessions.filter((s) => s.topicId === topicId).map((s) => s.id))
+      if (ended.size)
+        await this.k.repo.write(
+          classId,
+          'sessions',
+          sessions.filter((s) => !ended.has(s.id))
+        )
+      // Planned again later, the lesson starts from nothing.
+      await this.k.repo.update(classId, 'progress', (p) => Object.fromEntries(Object.entries(p).filter(([id]) => id !== topicId)))
+      await this.k.refreshProgress(classId)
+      const meta = await this.k.repo.requireMeta(classId)
+      const { openLessonId, ...rest } = meta
+      await this.k.repo.writeMeta({ ...(openLessonId && ended.has(openLessonId) ? rest : meta), updatedAt: nowIso() })
     })
     this.k.changed(classId)
   }

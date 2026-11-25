@@ -332,7 +332,10 @@ function parseBody(html: string, url: string | undefined): ParsedArticle {
 export function importHtml(html: string, url: string | undefined, fallbackTitle: string): ImportedSource {
   const parsed = parseWithReadability(html, url) ?? parseBody(html, url)
   const sections = normalizeSections(parsed.sections)
-  if (sections.length === 0) throw new Error('Could not find any readable text on this page.')
+  if (sections.length === 0) {
+    // A page on the web with no text in it usually writes itself with scripts, or wants a sign-in first.
+    throw new Error(`Could not find any readable text on this page.${url ? ' If it needs you to sign in, or fills in as it loads, open it in the Browser tab and add it from there.' : ''}`)
+  }
 
   const title = collapseWhitespace(parsed.title ?? '') || collapseWhitespace(fallbackTitle) || 'Untitled'
   const author = collapseWhitespace(parsed.byline ?? '').replace(/^by\s+/i, '')

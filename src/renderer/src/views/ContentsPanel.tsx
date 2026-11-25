@@ -11,6 +11,8 @@ interface Props {
   onExplain: (itemId: string) => void
   openSource: (sourceId: string, section?: string) => void
   onAddMaterials: () => void
+  /** Ask for links to add as materials. */
+  onAddLinks: () => void
 }
 
 /**
@@ -18,7 +20,7 @@ interface Props {
  * no plan and nothing to pass. Pick an item and the tutor explains it; the
  * chips open the passage it comes from.
  */
-export function ContentsPanel({ bundle, onExplain, openSource, onAddMaterials }: Props): JSX.Element {
+export function ContentsPanel({ bundle, onExplain, openSource, onAddMaterials, onAddLinks }: Props): JSX.Element {
   const { run, jobs } = useApp()
   const classId = bundle.meta.id
   const contents = bundle.contents
@@ -44,9 +46,12 @@ export function ContentsPanel({ bundle, onExplain, openSource, onAddMaterials }:
         ) : !bundle.sources.length ? (
           <div className="stack">
             <p className="muted">Add the paper, book or notes you want to read. mint lists what is in them, and explains whatever you pick.</p>
-            <div>
+            <div className="row">
               <button className="btn primary" onClick={onAddMaterials} data-testid="contents-add">
                 <Icon name="plus" size={14} /> Add material
+              </button>
+              <button className="btn" onClick={onAddLinks} data-testid="contents-add-links">
+                <Icon name="link" size={14} /> Add links
               </button>
             </div>
           </div>

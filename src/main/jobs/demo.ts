@@ -76,7 +76,10 @@ export function curriculum(ctx: ClassContext): CurriculumOutput {
     for (const l of (labels.length ? labels : s.sectionLabels).slice(0, 6)) picks.push({ sourceId: s.meta.id, label: l })
   }
   if (!picks.length) picks.push({ sourceId: ctx.sources[0]?.meta.id ?? 'none', label: ctx.sources[0]?.sectionLabels[0] ?? '' })
-  const chosen = picks.slice(0, 6)
+  const titleOf = (label: string, index: number): string => (GENERIC_LABEL.test(label) ? `${topic}: part ${index + 1}` : label)
+  // A lesson the learner removed stays out of a revised plan.
+  const removed = new Set((ctx.curriculum?.removed ?? []).map((t) => t.toLowerCase()))
+  const chosen = picks.slice(0, 6).filter((p, i) => !removed.has(titleOf(p.label, i).toLowerCase()))
   const milestones: CurriculumOutput['milestones'] = []
   for (let i = 0; i < chosen.length; i += 3) {
     const group = chosen.slice(i, i + 3)

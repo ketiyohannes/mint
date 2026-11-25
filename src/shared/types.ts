@@ -269,6 +269,8 @@ export interface Curriculum {
   assumptions: string[]
   cadence: string
   milestones: Milestone[]
+  /** Titles of lessons the learner removed: a revision leaves them out unless it is asked for them. */
+  removed?: string[]
 }
 
 export interface CurriculumProposal {

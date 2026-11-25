@@ -64,6 +64,14 @@ export interface MintApi {
     /** The original PDF bytes for the page view (null for other kinds). */
     original(classId: string, sourceId: string): Promise<Uint8Array | null>
     addUrl(classId: string, url: string): Promise<SourceMeta>
+    /**
+     * Add links as materials: pages, PDFs, Word and Google documents, YouTube
+     * videos, and playlists (every video in one). Each is imported on its own;
+     * returns the imported sources and what went wrong with the others.
+     */
+    addLinks(classId: string, urls: string[]): Promise<{ added: SourceMeta[]; errors: string[] }>
+    /** Add the page the Browser tab is showing, from its HTML as shown there (signed in, scripts run). */
+    addPage(classId: string, url: string, html: string): Promise<SourceMeta>
     get(classId: string, sourceId: string): Promise<SourceDoc>
     remove(classId: string, sourceId: string): Promise<void>
     setTranscript(classId: string, sourceId: string, text: string): Promise<SourceMeta>
@@ -78,6 +86,8 @@ export interface MintApi {
     resolveCurriculum(classId: string, proposalId: string, accept: boolean): Promise<void>
     /** Plan (or re-plan with a reason) and apply the result directly. */
     autoPlan(classId: string, reason?: string): Promise<void>
+    /** Take a lesson out of the plan, with its progress. A later revision leaves it out. */
+    removeTopic(classId: string, topicId: string): Promise<void>
   }
   sessions: {
     start(classId: string, topicId: string, type: 'learn' | 'review'): Promise<Session>
@@ -192,8 +202,8 @@ export interface MintApi {
 export const API_GROUPS = {
   settings: ['get', 'update', 'setSecret', 'testProvider', 'models', 'openDataDir'],
   classes: ['list', 'get', 'create', 'start', 'update', 'remove', 'activate'],
-  sources: ['addFiles', 'original', 'addUrl', 'get', 'remove', 'setTranscript', 'proposeTrusted', 'resolveProposals'],
-  intake: ['startDiagnostic', 'submitDiagnostic', 'skipDiagnostic', 'proposeCurriculum', 'resolveCurriculum', 'autoPlan'],
+  sources: ['addFiles', 'original', 'addUrl', 'addLinks', 'addPage', 'get', 'remove', 'setTranscript', 'proposeTrusted', 'resolveProposals'],
+  intake: ['startDiagnostic', 'submitDiagnostic', 'skipDiagnostic', 'proposeCurriculum', 'resolveCurriculum', 'autoPlan', 'removeTopic'],
   sessions: ['start', 'setPhase', 'submitCheck', 'finish', 'abandon', 'open'],
   chat: ['send', 'answer', 'command'],
   threads: ['create', 'send', 'moreHelp', 'setPinned', 'remove', 'cancel'],

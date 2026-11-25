@@ -3,6 +3,8 @@ import { isIP } from 'node:net'
 import type { FetchOptions } from './types'
 
 const DEFAULT_TIMEOUT_MS = 20_000
+/** Once a server has answered, its file may take this many times longer to arrive: a paper on a slow line is minutes, not seconds. */
+const DOWNLOAD_TIMEOUT_FACTOR = 6
 const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 const MAX_REDIRECTS = 5
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
@@ -13,7 +15,24 @@ export interface FetchedResource {
   finalUrl: string
   /** Raw Content-Type header value (may include parameters such as charset). */
   contentType: string
+  /** The file name the server gives the download (Content-Disposition), when it gives one. */
+  fileName?: string
   bytes: Uint8Array
+}
+
+/** The file name in a Content-Disposition header: the encoded form when there is one, else the quoted one. */
+export function dispositionFileName(header: string | null): string | undefined {
+  if (!header) return undefined
+  const encoded = /filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/.exec(header)?.[1]
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded.trim()) || undefined
+    } catch {
+      // Malformed percent-encoding: fall back to the plain form.
+    }
+  }
+  const plain = /filename\s*=\s*("([^"]*)"|[^;]+)/.exec(header)
+  return (plain?.[2] ?? plain?.[1])?.trim() || undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +246,7 @@ export async function safeFetch(url: string, opts: FetchOptions & { accept?: str
   }
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     for (let hop = 0; ; hop++) {
       await assertPublicUrl(current, resolveDns)
@@ -267,11 +286,15 @@ export async function safeFetch(url: string, opts: FetchOptions & { accept?: str
         throw new Error(`${bareHostname(current)} answered HTTP ${res.status}${reason}.`)
       }
 
+      // The wait so far was for an answer. The download gets its own, longer limit.
+      clearTimeout(timer)
+      const downloadMs = timeoutMs * DOWNLOAD_TIMEOUT_FACTOR
+      timer = setTimeout(() => controller.abort(), downloadMs)
       try {
         const bytes = await readCapped(res, maxBytes)
-        return { finalUrl: current.href, contentType: res.headers.get('content-type') ?? '', bytes }
+        return { finalUrl: current.href, contentType: res.headers.get('content-type') ?? '', fileName: dispositionFileName(res.headers.get('content-disposition')), bytes }
       } catch (err) {
-        if (controller.signal.aborted) throw timeoutError(current, timeoutMs)
+        if (controller.signal.aborted) throw timeoutError(current, downloadMs)
         throw err
       }
     }

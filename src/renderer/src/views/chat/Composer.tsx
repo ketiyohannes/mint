@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type RefObject } from 'react'
 import type { ChatCommand, ClassMode } from '@shared/types'
+import { linksIn } from '@shared/links'
 import { Icon, type IconName } from '../../components/Icon'
 import { ModelPicker } from '../../components/ModelPicker'
 import { isTypingTarget } from '../../lib/shortcuts'
@@ -38,6 +39,10 @@ interface Props {
   centered?: boolean
   autoFocus?: boolean
   onAddMaterials: () => void
+  /** Ask for links to add as materials. */
+  onAskLinks?: () => void
+  /** Add these links, found in what is being typed, as materials. */
+  onAddLinks?: (urls: string[]) => void
   /** The learner's last message: ↑ in an empty box brings it back. */
   recall?: string
   /** A highlighted passage attached to the next message. */
@@ -49,7 +54,7 @@ interface Props {
 
 /** The prompt box: auto-growing input, slash commands, actions menu, model picker, send/stop. */
 export function Composer(props: Props): JSX.Element {
-  const { draft, onDraft, inputRef, onSubmit, busy, onStop, placeholder, centered, autoFocus, onAddMaterials, recall, quote, onClearQuote, mode = 'course' } = props
+  const { draft, onDraft, inputRef, onSubmit, busy, onStop, placeholder, centered, autoFocus, onAddMaterials, onAskLinks, onAddLinks, recall, quote, onClearQuote, mode = 'course' } = props
   const tools = mode === 'course' ? SLASH_COMMANDS : SLASH_COMMANDS.filter((c) => !COURSE_ONLY.includes(c.command))
   const [menu, setMenu] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
@@ -57,6 +62,16 @@ export function Composer(props: Props): JSX.Element {
   const [slashOff, setSlashOff] = useState(false)
   useEffect(() => setSlashOff(false), [draft])
   const menuRef = useRef<HTMLDivElement>(null)
+  /** Links in the box that were added as materials or turned down: they are not offered again. */
+  const [settled, setSettled] = useState<string[]>([])
+  const offered = onAddLinks ? linksIn(draft).filter((l) => !settled.includes(l)) : []
+  const addOffered = () => {
+    onAddLinks?.(offered)
+    setSettled((s) => [...s, ...offered])
+    // A box that held only the links is ready for the question about them.
+    if (!offered.reduce((text, link) => text.replace(link, ''), draft).trim()) onDraft('')
+    inputRef.current?.focus()
+  }
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus()
@@ -166,6 +181,21 @@ export function Composer(props: Props): JSX.Element {
           </button>
         </div>
       )}
+      {offered.length > 0 && (
+        <div className="composer-quote composer-links" data-testid="composer-links">
+          <Icon name="link" size={13} />
+          <div className="composer-quote-text">
+            <span className="ellipsis">{offered[0].replace(/^https?:\/\/(www\.)?/, '')}</span>
+            {offered.length > 1 && <span className="muted">and {offered.length - 1} more</span>}
+          </div>
+          <button className="btn sm" onClick={addOffered} title="Read it and keep it with this class's sources" data-testid="composer-add-links">
+            <Icon name="plus" size={12} /> Add to materials
+          </button>
+          <button className="icon-btn" aria-label="Do not add" title="Do not add" onClick={() => setSettled((s) => [...s, ...offered])} data-testid="composer-skip-links">
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+      )}
       <textarea
         ref={inputRef}
         rows={1}
@@ -231,6 +261,18 @@ export function Composer(props: Props): JSX.Element {
               >
                 <Icon name="upload" size={14} /> Add materials…
               </button>
+              {onAskLinks && (
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setMenu(false)
+                    onAskLinks()
+                  }}
+                  data-testid="action-add-links"
+                >
+                  <Icon name="link" size={14} /> Add links…
+                </button>
+              )}
               {mode === 'course' && (
                 <button className="menu-item" disabled={busy} onClick={() => action('/lesson')} data-testid="action-lesson">
                   <Icon name="lesson" size={14} /> Start the next lesson

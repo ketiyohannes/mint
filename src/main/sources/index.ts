@@ -2,7 +2,8 @@ import { readFile, stat } from 'node:fs/promises'
 import { basename, extname } from 'node:path'
 import { importDocx } from './docx'
 import { importHtml } from './html'
-import { domainOf, safeFetch } from './net'
+import { refusalMessage, resolveLink, signInWall } from './links'
+import { domainOf, safeFetch, type FetchedResource } from './net'
 import { importPdf } from './pdf'
 import { importMarkdown, importPlainText } from './text'
 import type { FetchOptions, ImportedSource } from './types'
@@ -11,7 +12,8 @@ import { importYouTube, parseYouTubeId, type YouTubeClient } from './youtube'
 export { normalizeSections, toAgentMarkdown, wordCount } from './normalize'
 export type { RawBlock, RawSection } from './normalize'
 export { domainOf, isDomainAllowed } from './net'
-export { parseYouTubeId, transcriptFromText, NO_TRANSCRIPT_MESSAGE } from './youtube'
+export { resolveLink } from './links'
+export { listPlaylist, parseYouTubeId, parseYouTubePlaylistId, transcriptFromText, NO_TRANSCRIPT_MESSAGE } from './youtube'
 export type { YouTubeClient } from './youtube'
 export type { FetchOptions, ImportedSource } from './types'
 
@@ -83,16 +85,31 @@ function fileNameFromUrl(url: string, ext: string): string {
   return `${domainOf(url)}.${ext}`
 }
 
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
 /**
  * Imports a URL: YouTube videos via their transcript, everything else via a
- * guarded fetch dispatched on content type (PDF, HTML, markdown, plain text).
+ * guarded fetch dispatched on content type (PDF, Word, HTML, markdown, plain
+ * text). A link to a viewer page (a Google Doc, a paper's abstract, a file on
+ * GitHub) is read from the address that serves the document itself.
  */
 export async function importUrl(url: string, opts: FetchOptions & { innertube?: YouTubeClient } = {}): Promise<ImportedSource> {
   const { innertube, ...fetchOptions } = opts
   if (parseYouTubeId(url)) return importYouTube(url, { innertube, fetchImpl: fetchOptions.fetchImpl })
 
-  const { finalUrl, contentType, bytes } = await safeFetch(url, fetchOptions)
-  const domain = domainOf(finalUrl)
+  const link = resolveLink(url)
+  let fetched: FetchedResource
+  try {
+    fetched = await safeFetch(link.fetchUrl, fetchOptions)
+  } catch (err) {
+    const refused = refusalMessage(link, err)
+    if (refused) throw new Error(refused)
+    throw err
+  }
+  const { finalUrl, contentType, bytes } = fetched
+  // The source keeps the page the learner linked to, not the download behind it.
+  const pageUrl = link.fetchUrl === link.pageUrl ? finalUrl : link.pageUrl
+  const domain = domainOf(pageUrl)
   const [mime = '', ...params] = contentType
     .toLowerCase()
     .split(';')
@@ -103,25 +120,36 @@ export async function importUrl(url: string, opts: FetchOptions & { innertube?: 
     .replace(/"/g, '')
   const head = new TextDecoder('latin1').decode(bytes.subarray(0, 512)).trimStart()
   const path = new URL(finalUrl).pathname.toLowerCase()
+  /** The name the server gives the download says more than the address of an export does. */
+  const fileName = (ext: string): string => (fetched.fileName && /[a-z]/i.test(fetched.fileName) ? fetched.fileName : fileNameFromUrl(finalUrl, ext))
 
   const looksLikePdf = mime === 'application/pdf' || head.startsWith('%PDF-')
   const looksLikeHtml = mime === 'text/html' || mime === 'application/xhtml+xml' || ((mime === '' || mime === 'application/octet-stream') && /^(<!doctype html|<html)/i.test(head))
+  // A Word file is a zip: the type or the name has to say which kind.
+  const looksLikeDocx = mime === DOCX_MIME || (head.startsWith('PK') && /\.docx$/i.test(fetched.fileName ?? path))
   const looksLikeMarkdown = mime === 'text/markdown' || mime === 'text/x-markdown' || (mime === 'text/plain' && /\.(md|markdown)$/.test(path))
 
+  const wall = signInWall(link, looksLikeHtml)
+  if (wall) throw new Error(wall)
+
   if (looksLikePdf) {
-    const source = await importPdf(bytes, fileNameFromUrl(finalUrl, 'pdf'))
-    return { ...source, url: finalUrl, domain }
+    const source = await importPdf(bytes, fileName('pdf'))
+    return { ...source, url: pageUrl, domain }
+  }
+  if (looksLikeDocx) {
+    const source = await importDocx(bytes, fileName('docx'))
+    return { ...source, url: pageUrl, domain }
   }
   if (looksLikeHtml) {
-    return importHtml(decode(bytes, charset ?? sniffHtmlCharset(bytes)), finalUrl, domain)
+    return importHtml(decode(bytes, charset ?? sniffHtmlCharset(bytes)), pageUrl, domain)
   }
   if (looksLikeMarkdown) {
-    const source = importMarkdown(decode(bytes, charset), fileNameFromUrl(finalUrl, 'md'))
-    return { ...source, url: finalUrl, domain }
+    const source = importMarkdown(decode(bytes, charset), fileName('md'))
+    return { ...source, url: pageUrl, domain }
   }
-  if (mime === 'text/plain') {
-    const source = importPlainText(decode(bytes, charset), fileNameFromUrl(finalUrl, 'txt'))
-    return { ...source, url: finalUrl, domain }
+  if (mime === 'text/plain' || mime === 'text/csv') {
+    const source = importPlainText(decode(bytes, charset), fileName('txt'))
+    return { ...source, url: pageUrl, domain }
   }
-  throw new Error(`mint can't import ${mime || 'this kind of content'} from ${domain}. Supported links: web pages, PDFs, plain text, and YouTube videos.`)
+  throw new Error(`mint can't import ${mime || 'this kind of content'} from ${domain}. Supported links: web pages, PDFs, Word and Google documents, plain text, and YouTube videos or playlists.`)
 }

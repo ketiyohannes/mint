@@ -1,7 +1,7 @@
 import { CLASS_MODES, UNNAMED_CLASS, type ClassMeta, type ClassMode } from '@shared/types'
 import { classMode } from '@shared/mode'
+import { MAX_LINKS } from '@shared/links'
 import { titleFromPaths } from '../sources/expand'
-import { domainOf } from '../sources'
 import type { ClassService } from './classes'
 import type { ContentsService } from './contents'
 import type { IntakeService } from './intake'
@@ -46,11 +46,12 @@ export class SetupService {
     const urls = (Array.isArray(input?.urls) ? input.urls : [])
       .map((u) => String(u).trim())
       .filter(Boolean)
-      .slice(0, 20)
+      .slice(0, MAX_LINKS)
     const bad = urls.find((u) => !/^https?:\/\//i.test(u))
     if (bad) throw userError(`Links must start with http:// or https:// ("${bad.slice(0, 80)}").`)
     const goal = String(input?.goal ?? '').trim()
-    const title = String(input?.title ?? '').trim() || (await titleFromPaths(paths)) || (urls[0] ? domainOf(urls[0]) : '') || goal.slice(0, 80) || UNNAMED_CLASS
+    // A class started from links alone has no name yet: it takes the title of what the first link turns out to be.
+    const title = String(input?.title ?? '').trim() || (await titleFromPaths(paths)) || goal.slice(0, 80) || UNNAMED_CLASS
     const hasMaterials = paths.length > 0 || urls.length > 0
     const mode = CLASS_MODES.includes(input?.mode as ClassMode) ? (input.mode as ClassMode) : 'course'
     const meta = await this.classes.create({
@@ -60,6 +61,7 @@ export class SetupService {
       intake: { timeline: '', timePerWeek: '', sessionLength: '30 minutes', priorExperience: '', preferences: '', materialsMode: hasMaterials ? 'own' : 'trusted' }
     })
     const run = this.bootstrap(meta.id, paths, urls)
+      .then(() => (urls.length ? this.nameAfterSource(meta.id) : undefined))
       // A simple class is listed as soon as its materials are in. A course waits for the intake.
       .then(() => (mode === 'simple' ? this.sourcesChanged(meta.id) : undefined))
       .catch((err) => notice(this.k, meta.id, 'Setting up the class', err))
@@ -82,13 +84,19 @@ export class SetupService {
       const { errors } = await this.sources.addFiles(classId, paths)
       for (const e of errors) notice(this.k, classId, 'Import', e)
     }
-    for (const url of urls) {
-      try {
-        await this.sources.addUrl(classId, url, 'user')
-      } catch (err) {
-        notice(this.k, classId, 'Import', err)
-      }
+    if (urls.length) {
+      const { errors } = await this.sources.addLinks(classId, urls)
+      for (const e of errors) notice(this.k, classId, 'Import', e)
     }
+  }
+
+  /** Name a class that has no name yet after its first source. */
+  private async nameAfterSource(classId: string): Promise<void> {
+    const first = (await this.k.repo.read(classId, 'sources'))[0]
+    const meta = await this.k.repo.requireMeta(classId)
+    const title = first?.title.trim().slice(0, 80)
+    if (!title || meta.title !== UNNAMED_CLASS) return
+    await this.classes.update(classId, { title, mission: { ...meta.mission, topic: title } })
   }
 
   /**

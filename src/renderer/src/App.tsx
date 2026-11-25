@@ -24,7 +24,7 @@ export function App(): JSX.Element {
   // Never hand the previous class's bundle to the next class while it loads.
   const bundle = loaded.bundle && loaded.bundle.meta.id === classId ? loaded.bundle : null
   const error = loaded.error
-  const { creating, create } = useNewClass()
+  const { creating, create, dialog: newClassDialog } = useNewClass()
 
   // The sidebar folds away for more room, like a code editor's (⌘B / Ctrl+B).
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem(SIDEBAR_KEY) !== 'hidden')
@@ -127,6 +127,9 @@ export function App(): JSX.Element {
                 <button className="btn primary" disabled={creating} onClick={() => void create('course')} data-testid="welcome-open-folder">
                   <Icon name="folderPlus" size={14} /> Open a folder
                 </button>
+                <button className="btn" disabled={creating} onClick={() => void create('links')} title="Videos, pages, PDFs or documents on the web" data-testid="welcome-links">
+                  <Icon name="link" size={14} /> Start from links
+                </button>
                 <button className="btn" disabled={creating} onClick={() => void create('course-empty')} data-testid="welcome-new-class">
                   Start without materials
                 </button>
@@ -172,6 +175,7 @@ export function App(): JSX.Element {
           <Icon name="sidebarLeft" size={15} />
         </button>
       )}
+      {newClassDialog}
       <Toasts />
       <FocusHost />
     </div>

@@ -1,7 +1,22 @@
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { SourceDoc, SourceMeta, SourceOrigin, SourceProposal } from '@shared/types'
-import { domainOf, importFile, importUrl, isDomainAllowed, normalizeSections, parseYouTubeId, transcriptFromText, wordCount, type ImportedSource } from '../sources'
+import { MAX_LINKS } from '@shared/links'
+import {
+  domainOf,
+  importFile,
+  importUrl,
+  isDomainAllowed,
+  listPlaylist,
+  normalizeSections,
+  parseYouTubeId,
+  parseYouTubePlaylistId,
+  resolveLink,
+  transcriptFromText,
+  wordCount,
+  type ImportedSource
+} from '../sources'
+import { importHtml } from '../sources/html'
 import { expandPaths } from '../sources/expand'
 import { newId, nowIso } from '../store/fsutil'
 import { proposeSources } from '../jobs'
@@ -10,6 +25,8 @@ import { userError, userMessage } from './kernel'
 
 /** A pasted transcript longer than this is cut (far beyond any real video). */
 const MAX_TRANSCRIPT_CHARS = 2_000_000
+/** A page handed over by the Browser tab that is larger than this is fetched from its address instead. */
+const MAX_PAGE_CHARS = 6_000_000
 
 export class SourceService {
   /** Approved proposals this run is importing right now. */
@@ -49,6 +66,76 @@ export class SourceService {
       }
     })
     return this.store(classId, imported, origin, why)
+  }
+
+  /**
+   * Add several links. Each is imported on its own, so one that fails does not
+   * stop the others; a playlist is every video in it. A link the class already
+   * has is left alone.
+   */
+  async addLinks(classId: string, links: string[]): Promise<{ added: SourceMeta[]; errors: string[] }> {
+    await this.k.repo.requireMeta(classId)
+    const added: SourceMeta[] = []
+    const errors: string[] = []
+    if (links.length > MAX_LINKS) errors.push(`Added the first ${MAX_LINKS} links. Add the rest separately.`)
+    /** The class was deleted meanwhile: the links that are left have nowhere to go. */
+    let gone = false
+    const addOne = async (url: string, name: string): Promise<void> => {
+      gone ||= !(await this.k.repo.readMeta(classId))
+      if (gone) return
+      try {
+        const have = await this.find(classId, url)
+        if (have) errors.push(`"${have.title}" is already in this class.`)
+        else added.push(await this.addUrl(classId, url))
+      } catch (err) {
+        errors.push(`${name}: ${userMessage(err)}`)
+      }
+    }
+    for (const url of links.slice(0, MAX_LINKS)) {
+      if (gone) break
+      if (!parseYouTubePlaylistId(url)) {
+        await addOne(url, domainOf(url) || url.slice(0, 60))
+        continue
+      }
+      try {
+        const list = await this.k.job(classId, 'Reading the playlist', () => listPlaylist(url, { innertube: this.k.opts.youtube }))
+        if (list.truncated) errors.push(`"${list.title}" is a long playlist: added its first ${list.videoIds.length} videos.`)
+        for (const id of list.videoIds) await addOne(`https://www.youtube.com/watch?v=${id}`, `Video ${id}`)
+      } catch (err) {
+        errors.push(userMessage(err))
+      }
+    }
+    return { added, errors }
+  }
+
+  /**
+   * Add the page the Browser tab is showing, from what it shows: the page as
+   * the learner sees it, signed in and after its scripts ran, which fetching
+   * the address again would not give. A video or a document is still read
+   * from its address (what a page shows of those is a player or a viewer),
+   * and so is a page with no readable text in it.
+   */
+  async addPage(classId: string, url: string, html: string): Promise<SourceMeta> {
+    await this.k.repo.requireMeta(classId)
+    const trimmed = String(url ?? '').trim()
+    if (!/^https?:\/\//i.test(trimmed)) throw userError('Only web pages can be added.')
+    const page = String(html ?? '')
+    if (page && page.length <= MAX_PAGE_CHARS && !parseYouTubeId(trimmed) && resolveLink(trimmed).fetchUrl === trimmed) {
+      let imported: ImportedSource | null = null
+      try {
+        imported = await this.k.job(classId, `Reading ${domainOf(trimmed) || 'the page'}`, async () => importHtml(page, trimmed, domainOf(trimmed)))
+      } catch {
+        // Nothing readable in what the page shows (a PDF in the viewer, an empty shell): its address may still serve it.
+      }
+      if (imported) return this.store(classId, imported, 'user')
+    }
+    return this.addUrl(classId, trimmed)
+  }
+
+  /** The source a link is already imported as, if any. */
+  private async find(classId: string, url: string): Promise<SourceMeta | undefined> {
+    const videoId = parseYouTubeId(url)
+    return (await this.k.repo.read(classId, 'sources')).find((s) => (videoId ? s.videoId === videoId : s.url === url))
   }
 
   async get(classId: string, sourceId: string): Promise<SourceDoc> {

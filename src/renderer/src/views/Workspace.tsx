@@ -6,7 +6,8 @@ import { classMode } from '@shared/mode'
 import { useApp } from '../state/app'
 import { useSourceDoc } from '../state/useClass'
 import { api } from '../lib/api'
-import { clearClassDrafts } from '../lib/drafts'
+import { useDeleteClass } from '../lib/deleteClass'
+import { linksIn } from '@shared/links'
 import { matchesShortcut, shortcutLabel } from '../lib/shortcuts'
 import { focusWindow, sendToWindows, takeHeld, usePopouts, useWindowMessages, type WindowView } from '../lib/windows'
 import type { SelectionAnchor } from '../lib/anchors'
@@ -21,15 +22,15 @@ import { StudyCtx, type DiagramController, type StudyApi } from './study/context
 import { ChatView } from './chat/ChatView'
 import { LessonsPanel } from './LessonsPanel'
 import { ContentsPanel } from './ContentsPanel'
-import { QuickCoursePanel, forgetQuickPosition } from './QuickCoursePanel'
+import { QuickCoursePanel } from './QuickCoursePanel'
 import { StudyTab } from './study/StudyTab'
 import { LessonDock } from './study/LessonDock'
 import { LessonWindow } from './study/LessonWindow'
 import { useDarkTheme } from '../lib/useDarkTheme'
-import { BrowserPanel, forgetBrowserPage } from './BrowserPanel'
-import { forgetPositions } from './study/position'
+import { BrowserPanel } from './BrowserPanel'
 import { NotesPanel } from './notes/NotesPanel'
 import { ErrorBoundary } from '../components/ErrorBoundary'
+import { LinksDialog } from '../components/LinksDialog'
 
 type PanelTab = 'sources' | 'lessons' | 'study' | 'browser' | 'notes'
 
@@ -112,7 +113,8 @@ const MIN_CHAT = 420
  * source, run this tool in the chat) is sent there as a message.
  */
 export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBundle; chatId: string | null | undefined; view?: WindowView }): JSX.Element {
-  const { toast, run, go, classes, settings, setSettings } = useApp()
+  const { toast, run, go, settings, setSettings } = useApp()
+  const deleteClass = useDeleteClass()
   const popouts = usePopouts()
   /** The main window has the chat. */
   const isMain = view === 'main'
@@ -396,8 +398,18 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
       if (res.added[0]) openSource(res.added[0].id)
     }
   }
-  const [linkInput, setLinkInput] = useState<string | null>(null)
-  const [addingLink, setAddingLink] = useState(false)
+  /** A drag that began in the reader (a link in the text, a selection): dropping it back there adds nothing. */
+  const ownDrag = useRef(false)
+  /** The dialog that asks for links to add as materials. */
+  const [askLinks, setAskLinks] = useState(false)
+  /** Import links as materials. They are read one by one in the background: each shows up as it is done. */
+  async function addLinks(urls: string[]) {
+    const res = await run(() => api.sources.addLinks(classId, urls))
+    if (!res) return
+    for (const e of res.errors) toast(e, 'error')
+    if (res.added[0]) openSource(res.added[0].id)
+    if (res.added.length > 1) toast(`Added ${res.added.length} sources.`)
+  }
 
   // --- chat tools ------------------------------------------------------------------
   const [commandRequest, setCommandRequest] = useState<{ command: ChatCommand; arg?: string; nonce: number } | null>(null)
@@ -688,20 +700,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
           mode={mode}
           onMode={(next) => void run(() => api.classes.update(classId, { mode: next }))}
           onRename={(title) => void run(() => api.classes.update(classId, { title }))}
-          onDelete={async () => {
-            if (!window.confirm(`Delete "${bundle.meta.title}" and everything in it? This cannot be undone.`)) return
-            const ok = await run(async () => {
-              await api.classes.remove(classId)
-              return true
-            })
-            if (!ok) return
-            clearClassDrafts(classId)
-            forgetPositions(classId)
-            forgetQuickPosition(classId)
-            forgetBrowserPage(classId)
-            const nextClass = classes.find((c) => c.id !== classId)
-            go(nextClass ? { name: 'class', classId: nextClass.id } : { name: 'home' })
-          }}
+          onDelete={() => void deleteClass({ id: classId, title: bundle.meta.title })}
         />
       </div>
       <ChatView
@@ -714,6 +713,8 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
         }}
         onHandled={onHandled}
         onAddMaterials={() => void addMaterials()}
+        onAskLinks={() => setAskLinks(true)}
+        onAddLinks={(urls) => void addLinks(urls)}
         commandRequest={commandRequest}
         quoteRequest={quoteRequest}
       />
@@ -834,7 +835,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
                 </button>
               ))}
             </div>
-            {activeMeta?.kind === 'pdf' && linkInput === null && (
+            {activeMeta?.kind === 'pdf' && (
               <div className="seg" role="group" aria-label="PDF view">
                 <button className={pageView ? 'on' : ''} onClick={() => setTextMode((s) => new Set([...s].filter((x) => x !== activeMeta.id)))} data-testid="view-page">
                   Page
@@ -844,7 +845,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
                 </button>
               </div>
             )}
-            {pageView && linkInput === null && (
+            {pageView && (
               <button
                 className={`icon-btn ${pdfDark ? 'on' : ''}`}
                 onClick={togglePdfDark}
@@ -856,69 +857,36 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
                 <Icon name={pdfDark ? 'sun' : 'moon'} size={14} />
               </button>
             )}
-            {linkInput === null && (
-              <button className="icon-btn" onClick={() => setHidePins((h) => !h)} title={hidePins ? 'Show stickies' : 'Hide stickies'} aria-label="Toggle stickies" data-testid="toggle-pins">
-                <Icon name={hidePins ? 'eyeOff' : 'eye'} size={14} />
-              </button>
-            )}
-            {linkInput !== null ? (
-              <form
-                className="source-link"
-                onSubmit={async (e) => {
-                  e.preventDefault()
-                  const url = linkInput.trim()
-                  // One import per link: a second Enter while it loads must not add it twice.
-                  if (!url || addingLink) return
-                  setAddingLink(true)
-                  const s = await run(() => api.sources.addUrl(classId, url))
-                  setAddingLink(false)
-                  if (s) {
-                    setLinkInput(null)
-                    openSource(s.id)
-                  }
+            <button className="icon-btn" onClick={() => setHidePins((h) => !h)} title={hidePins ? 'Show stickies' : 'Hide stickies'} aria-label="Toggle stickies" data-testid="toggle-pins">
+              <Icon name={hidePins ? 'eyeOff' : 'eye'} size={14} />
+            </button>
+            <button className="icon-btn" onClick={() => setAskLinks(true)} title="Add links: pages, PDFs, documents, videos" aria-label="Add links" data-testid="add-link">
+              <Icon name="link" size={13} />
+            </button>
+            <button className="icon-btn" onClick={() => void addMaterials()} title="Add files or a folder" aria-label="Add files" data-testid="add-files">
+              <Icon name="plus" size={14} />
+            </button>
+            {activeMeta && (
+              <button
+                className="icon-btn"
+                title="Remove this source from the class"
+                aria-label={`Remove ${activeMeta.title}`}
+                data-testid="remove-source"
+                onClick={() => {
+                  if (window.confirm(`Remove "${activeMeta.title}" from this class?`)) void run(() => api.sources.remove(classId, activeMeta.id))
                 }}
               >
-                <input
-                  className="input sm"
-                  autoFocus
-                  placeholder="https://… (page, PDF, YouTube)"
-                  value={linkInput}
-                  readOnly={addingLink}
-                  onChange={(e) => setLinkInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Escape' && !addingLink && setLinkInput(null)}
-                  onBlur={() => !linkInput.trim() && setLinkInput(null)}
-                  data-testid="source-link-input"
-                />
-                {addingLink && <span className="spinner tiny" data-testid="source-link-busy" />}
-              </form>
-            ) : (
-              <>
-                <button className="icon-btn" onClick={() => setLinkInput('')} title="Add a link" aria-label="Add a link" data-testid="add-link">
-                  <Icon name="link" size={13} />
-                </button>
-                <button className="icon-btn" onClick={() => void addMaterials()} title="Add files or a folder" aria-label="Add files" data-testid="add-files">
-                  <Icon name="plus" size={14} />
-                </button>
-                {activeMeta && (
-                  <button
-                    className="icon-btn"
-                    title="Remove this source from the class"
-                    aria-label={`Remove ${activeMeta.title}`}
-                    data-testid="remove-source"
-                    onClick={() => {
-                      if (window.confirm(`Remove "${activeMeta.title}" from this class?`)) void run(() => api.sources.remove(classId, activeMeta.id))
-                    }}
-                  >
-                    <Icon name="trash" size={13} />
-                  </button>
-                )}
-              </>
+                <Icon name="trash" size={13} />
+              </button>
             )}
           </div>
           <div
             className={`reader-wrap ${dropping ? 'dropping' : ''}`}
+            onDragStart={() => (ownDrag.current = true)}
+            onDragEnd={() => (ownDrag.current = false)}
             onDragOver={(e) => {
-              if (!e.dataTransfer.types.includes('Files')) return
+              // Files from the desktop, or a link dragged out of a browser.
+              if (ownDrag.current || (!e.dataTransfer.types.includes('Files') && !e.dataTransfer.types.includes('text/uri-list'))) return
               e.preventDefault()
               setDropping(true)
             }}
@@ -926,9 +894,11 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
               if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false)
             }}
             onDrop={(e) => {
-              if (!e.dataTransfer.files.length) return
+              const links = e.dataTransfer.files.length || ownDrag.current ? [] : linksIn(e.dataTransfer.getData('text/uri-list'))
+              if (!e.dataTransfer.files.length && !links.length) return
               e.preventDefault()
               setDropping(false)
+              if (links.length) return void addLinks(links)
               void addMaterials(
                 Array.from(e.dataTransfer.files)
                   .map((f) => window.mintHost.pathForFile(f))
@@ -937,7 +907,7 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
             }}
           >
             {!activeMeta ? (
-              <EmptySources bundle={bundle} onPick={() => void addMaterials()} />
+              <EmptySources bundle={bundle} onPick={() => void addMaterials()} onLinks={() => setAskLinks(true)} />
             ) : docError ? (
               <div className="empty">{docError}</div>
             ) : !doc ? (
@@ -1035,7 +1005,13 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
               <div className={pageClass('lessons', 'scroll')} data-testid="page-lessons">
                 <ErrorBoundary label={mode === 'simple' ? 'the contents' : 'lessons'}>
                   {mode === 'simple' ? (
-                    <ContentsPanel bundle={bundle} onExplain={(itemId) => command('explain', itemId)} openSource={(sid, sec) => openSource(sid, sec)} onAddMaterials={() => void addMaterials()} />
+                    <ContentsPanel
+                      bundle={bundle}
+                      onExplain={(itemId) => command('explain', itemId)}
+                      openSource={(sid, sec) => openSource(sid, sec)}
+                      onAddMaterials={() => void addMaterials()}
+                      onAddLinks={() => setAskLinks(true)}
+                    />
                   ) : (
                     <LessonsPanel bundle={bundle} onStart={(topicId) => command('lesson', topicId)} onResume={openLessonById} openSource={(sid, sec) => openSource(sid, sec)} />
                   )}
@@ -1155,13 +1131,26 @@ export function Workspace({ bundle, chatId, view = 'main' }: { bundle: ClassBund
           }}
         />
       )}
+      {askLinks && (
+        <LinksDialog
+          title={`Add links to ${bundle.meta.title}`}
+          action={(n) => (n > 1 ? `Add ${n} links` : 'Add link')}
+          onClose={() => setAskLinks(false)}
+          onSubmit={async (urls) => {
+            // Reading them can take a while (a playlist is many videos): the dialog does not wait for it.
+            setAskLinks(false)
+            void addLinks(urls)
+            return true
+          }}
+        />
+      )}
       {note && <NotePopover key={note.annotation.id} annotation={note.annotation} pos={note.pos} onMove={(pos) => setNote((n) => (n ? { ...n, pos } : n))} onClose={() => setNote(null)} />}
       {term && <TermPopover key={term.key} anchor={term.anchor} pos={term.pos} onMove={(pos) => setTerm((t) => (t ? { ...t, pos } : t))} onClose={() => setTerm(null)} />}
     </StudyCtx.Provider>
   )
 }
 
-function EmptySources({ bundle, onPick }: { bundle: ClassBundle; onPick: () => void }): JSX.Element {
+function EmptySources({ bundle, onPick, onLinks }: { bundle: ClassBundle; onPick: () => void; onLinks: () => void }): JSX.Element {
   const { jobs } = useApp()
   const importing = jobs.find((j) => j.classId === bundle.meta.id && /^(Reading|Importing)/.test(j.label))
   return (
@@ -1172,10 +1161,15 @@ function EmptySources({ bundle, onPick }: { bundle: ClassBundle; onPick: () => v
         </div>
       ) : (
         <>
-          <p>No sources yet. Drop files or a folder here, add a link, or let the tutor find trusted sources.</p>
-          <button className="btn" onClick={onPick} data-testid="reader-add">
-            <Icon name="plus" size={13} /> Add materials
-          </button>
+          <p>No sources yet. Drop files, a folder or a link here, or let the tutor find trusted sources.</p>
+          <div className="row">
+            <button className="btn" onClick={onPick} data-testid="reader-add">
+              <Icon name="plus" size={13} /> Add files
+            </button>
+            <button className="btn" onClick={onLinks} data-testid="reader-add-links">
+              <Icon name="link" size={13} /> Add links
+            </button>
+          </div>
         </>
       )}
     </div>

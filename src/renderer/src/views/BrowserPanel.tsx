@@ -54,6 +54,7 @@ interface WebviewEl extends HTMLElement {
   reload(): void
   stop(): void
   loadURL(url: string): Promise<void>
+  executeJavaScript(code: string): Promise<unknown>
 }
 
 const searchUrl = (query: string) => `https://www.google.com/search?q=${encodeURIComponent(query.trim())}`
@@ -146,6 +147,18 @@ export function BrowserPanel({ classId, request }: { classId: string; request: {
   }
   const go = (input: string) => load(toUrl(input))
 
+  /** The page as it is showing: signed in, and after its scripts ran. Empty when it cannot be read. */
+  const pageHtml = async (): Promise<string> => {
+    const view = viewRef.current
+    if (!view || !readyRef.current) return ''
+    try {
+      const html = await view.executeJavaScript('document.documentElement.outerHTML')
+      return typeof html === 'string' ? html : ''
+    } catch {
+      return ''
+    }
+  }
+
   /** Call a webview method only once it can take it. */
   const call = (fn: (v: WebviewEl) => void) => {
     const v = viewRef.current
@@ -226,7 +239,9 @@ export function BrowserPanel({ classId, request }: { classId: string; request: {
           title={canAdd ? `Add "${title || url}" to this class` : 'Open a page to add it'}
           onClick={async () => {
             setAdding(true)
-            const s = await run(() => api.sources.addUrl(classId, url))
+            // Read from what is showing, so a page behind a sign-in or built by scripts comes in as you see it.
+            const html = await pageHtml()
+            const s = await run(() => (html ? api.sources.addPage(classId, url, html) : api.sources.addUrl(classId, url)))
             setAdding(false)
             if (s) toast(`Added "${s.title}" to your sources.`)
           }}

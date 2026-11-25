@@ -16,6 +16,7 @@ import { ContentsService } from './services/contents'
 import { QuickCourseService } from './services/quick'
 import { join } from 'node:path'
 import { classMode } from '@shared/mode'
+import { linksIn } from '@shared/links'
 
 /** Host capabilities the core needs from Electron (injected so tests can run headless). */
 export interface HostBridge {
@@ -149,6 +150,18 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
         await setup.sourcesChanged(classId)
         return out
       },
+      addLinks: async (classId, urls) => {
+        const links = linksIn((Array.isArray(urls) ? urls : []).map(String).join('\n'))
+        if (!links.length) throw userError('Paste a link that starts with http:// or https://')
+        const out = await sources.addLinks(classId, links)
+        if (out.added.length) await setup.sourcesChanged(classId)
+        return out
+      },
+      addPage: async (classId, url, html) => {
+        const out = await sources.addPage(classId, String(url ?? ''), typeof html === 'string' ? html : '')
+        await setup.sourcesChanged(classId)
+        return out
+      },
       get: (classId, id) => sources.get(classId, id),
       remove: async (classId, id) => {
         await sources.remove(classId, id)
@@ -170,7 +183,8 @@ export function createCore(opts: { dataDir: string; cipher: SecretCipher; emitte
       autoPlan: async (id, reason) => {
         await classes.get(id) // validates the id before any background work
         await setup.plan(id, typeof reason === 'string' ? reason.slice(0, 2000) : undefined)
-      }
+      },
+      removeTopic: (id, topicId) => intake.removeTopic(id, String(topicId ?? ''))
     },
     sessions: {
       start: (classId, topicId, type) => sessions.start(classId, topicId, type === 'review' ? 'review' : 'learn'),
